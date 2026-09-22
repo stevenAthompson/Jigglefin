@@ -50,7 +50,8 @@ audiobooks, and music.
 A separate integration test writes a valid local WAV file, browses it as a standard Jellyfin `Audio`
 item, and verifies full and byte-range streaming through the unmodified audio endpoint.
 Another checks that a Kodi-style `movie.nfo` supplies the title, year, and plot in standard client
-responses while its physical parent folder remains browseable.
+responses while its physical parent folder remains browseable. That test uses an original,
+synthetically generated MP4 and also checks full and byte-range direct video streaming.
 
 Further resolver work will preserve more physical directory arrangements while assigning compatible
 Jellyfin item kinds from deterministic path rules and local sidecars. In particular, file/folder

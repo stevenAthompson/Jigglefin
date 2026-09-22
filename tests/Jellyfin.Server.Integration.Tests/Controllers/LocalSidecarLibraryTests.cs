@@ -1,6 +1,8 @@
 using System;
 using System.IO;
 using System.Net;
+using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Threading.Tasks;
 using Emby.Server.Implementations.Library;
@@ -24,9 +26,12 @@ public sealed class LocalSidecarLibraryTests
         var testRoot = Path.Combine(Path.GetTempPath(), "jigglefin-sidecar-" + Guid.NewGuid().ToString("N"));
         var movieFolder = Path.Combine(testRoot, "Action", "Example Movie (2020)");
         Directory.CreateDirectory(movieFolder);
+        var videoBytes = await File.ReadAllBytesAsync(
+            Path.Combine(AppContext.BaseDirectory, "Test Data", "JigglefinSample.mp4"),
+            TestContext.Current.CancellationToken);
         await File.WriteAllBytesAsync(
-            Path.Combine(movieFolder, "Example Movie (2020).mkv"),
-            [],
+            Path.Combine(movieFolder, "Example Movie (2020).mp4"),
+            videoBytes,
             TestContext.Current.CancellationToken);
         await File.WriteAllTextAsync(
             Path.Combine(movieFolder, "movie.nfo"),
@@ -82,6 +87,18 @@ public sealed class LocalSidecarLibraryTests
                 TestContext.Current.CancellationToken);
             Assert.NotNull(movieDetails);
             Assert.Equal("From the local NFO.", movieDetails.Overview);
+
+            using var streamResponse = await client.GetAsync(
+                $"Videos/{movie.Id}/stream?static=true",
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.OK, streamResponse.StatusCode);
+            Assert.Equal(videoBytes, await streamResponse.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken));
+
+            using var rangeRequest = new HttpRequestMessage(HttpMethod.Get, $"Videos/{movie.Id}/stream?static=true");
+            rangeRequest.Headers.Range = new RangeHeaderValue(100, 199);
+            using var rangeResponse = await client.SendAsync(rangeRequest, TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.PartialContent, rangeResponse.StatusCode);
+            Assert.Equal(videoBytes[100..200], await rangeResponse.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken));
         }
         finally
         {
