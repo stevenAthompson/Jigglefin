@@ -72,7 +72,11 @@ dotnet test Jellyfin.sln --configuration Debug --no-build
 Run without an embedded web client during server work:
 
 ```powershell
-dotnet run --project Jellyfin.Server -- --nowebclient
+.\scripts\dev-run.ps1
 ```
+
+The launcher prefers the per-user .NET 10 SDK and the official `Jellyfin.FFmpeg` WinGet package,
+even if another `ffmpeg.exe` appears earlier in the system path. Pass server arguments through it,
+for example `.\scripts\dev-run.ps1 --datadir D:\JigglefinData`.
 
 A separately installed Jellyfin client can then connect to `http://localhost:8096`.
