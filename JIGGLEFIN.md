@@ -46,6 +46,9 @@ The resolver chain now leaves an arbitrary TV grouping directory as a `Folder` u
 folder. The media beneath those groups still resolves to standard Jellyfin item kinds. These rules
 are covered by unit tests and an end-to-end API browse test.
 
+A separate integration test writes a valid local WAV file, browses it as a standard Jellyfin `Audio`
+item, and verifies full and byte-range streaming through the unmodified audio endpoint.
+
 Further resolver work will preserve more physical directory arrangements while assigning compatible
 Jellyfin item kinds from deterministic path rules and local sidecars. In particular, file/folder
 name collisions and mixed-content directories need dedicated coverage.
