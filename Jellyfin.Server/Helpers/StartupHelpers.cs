@@ -25,7 +25,7 @@ namespace Jellyfin.Server.Helpers;
 /// </summary>
 public static class StartupHelpers
 {
-    private static readonly string[] _relevantEnvVarPrefixes = { "JELLYFIN_", "DOTNET_", "ASPNETCORE_" };
+    private static readonly string[] _relevantEnvVarPrefixes = { "JIGGLEFIN_", "JELLYFIN_", "DOTNET_", "ASPNETCORE_" };
 
     /// <summary>
     /// Logs relevant environment variables and information about the host.
@@ -81,13 +81,9 @@ public static class StartupHelpers
         // Windows: %LocalAppData%
         // macOS: NSApplicationSupportDirectory
         // UNIX: $XDG_DATA_HOME
-        var dataDir = options.DataDir
-            ?? Environment.GetEnvironmentVariable("JELLYFIN_DATA_DIR")
-            ?? Path.Join(
-                Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.DoNotVerify),
-                "jellyfin");
+        var dataDir = GetDataDirectory(options, Environment.GetEnvironmentVariable);
 
-        var configDir = options.ConfigDir ?? Environment.GetEnvironmentVariable("JELLYFIN_CONFIG_DIR");
+        var configDir = options.ConfigDir ?? Environment.GetEnvironmentVariable("JIGGLEFIN_CONFIG_DIR");
         if (configDir is null)
         {
             configDir = Path.Join(dataDir, "config");
@@ -99,11 +95,11 @@ public static class StartupHelpers
                 // UNIX: $XDG_CONFIG_HOME
                 configDir = Path.Join(
                     Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData, Environment.SpecialFolderOption.DoNotVerify),
-                    "jellyfin");
+                    "jigglefin");
             }
         }
 
-        var cacheDir = options.CacheDir ?? Environment.GetEnvironmentVariable("JELLYFIN_CACHE_DIR");
+        var cacheDir = options.CacheDir ?? Environment.GetEnvironmentVariable("JIGGLEFIN_CACHE_DIR");
         if (cacheDir is null)
         {
             if (OperatingSystem.IsWindows() || OperatingSystem.IsMacOS())
@@ -112,17 +108,17 @@ public static class StartupHelpers
             }
             else
             {
-                cacheDir = Path.Join(GetXdgCacheHome(), "jellyfin");
+                cacheDir = Path.Join(GetXdgCacheHome(), "jigglefin");
             }
         }
 
-        var webDir = options.WebDir ?? Environment.GetEnvironmentVariable("JELLYFIN_WEB_DIR");
+        var webDir = options.WebDir ?? Environment.GetEnvironmentVariable("JIGGLEFIN_WEB_DIR");
         if (webDir is null)
         {
             webDir = Path.Join(AppContext.BaseDirectory, "jellyfin-web");
         }
 
-        var logDir = options.LogDir ?? Environment.GetEnvironmentVariable("JELLYFIN_LOG_DIR");
+        var logDir = options.LogDir ?? Environment.GetEnvironmentVariable("JIGGLEFIN_LOG_DIR");
         if (logDir is null)
         {
             logDir = Path.Join(dataDir, "log");
@@ -151,6 +147,20 @@ public static class StartupHelpers
         }
 
         return new ServerApplicationPaths(dataDir, logDir, configDir, cacheDir, webDir);
+    }
+
+    internal static string GetDefaultDataDirectory()
+    {
+        return Path.Join(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData, Environment.SpecialFolderOption.DoNotVerify),
+            "jigglefin");
+    }
+
+    internal static string GetDataDirectory(StartupOptions options, Func<string, string?> getEnvironmentVariable)
+    {
+        return options.DataDir
+            ?? getEnvironmentVariable("JIGGLEFIN_DATA_DIR")
+            ?? GetDefaultDataDirectory();
     }
 
     private static string GetXdgCacheHome()
@@ -183,7 +193,7 @@ public static class StartupHelpers
 
         if (string.IsNullOrEmpty(socketPath))
         {
-            const string SocketFile = "jellyfin.sock";
+            const string SocketFile = "jigglefin.sock";
 
             var xdgRuntimeDir = Environment.GetEnvironmentVariable("XDG_RUNTIME_DIR");
             if (xdgRuntimeDir is null)

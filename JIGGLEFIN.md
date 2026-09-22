@@ -96,6 +96,14 @@ Run without an embedded web client during server work:
 .\scripts\dev-run.ps1
 ```
 
+Jigglefin defaults to `%LOCALAPPDATA%\jigglefin` for its data, configuration, cache, and logs.
+It does not read Jellyfin's default profile or `JELLYFIN_*_DIR` path overrides. Use
+`JIGGLEFIN_DATA_DIR`, `JIGGLEFIN_CONFIG_DIR`, `JIGGLEFIN_CACHE_DIR`, `JIGGLEFIN_LOG_DIR`, or
+`JIGGLEFIN_WEB_DIR` to override Jigglefin paths; command-line directory flags take precedence.
+Do not point `--datadir` at an existing Jellyfin profile unless you intentionally want Jigglefin to
+open and potentially migrate that database. The server still uses the upstream Jellyfin logging
+template internally, but its log directory is resolved inside Jigglefin's profile.
+
 The launcher prefers the per-user .NET 10 SDK and the official `Jellyfin.FFmpeg` WinGet package,
 even if another `ffmpeg.exe` appears earlier in the system path. Pass server arguments through it,
 for example `.\scripts\dev-run.ps1 --datadir D:\JigglefinData`.
