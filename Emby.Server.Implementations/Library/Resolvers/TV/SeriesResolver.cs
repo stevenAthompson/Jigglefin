@@ -69,7 +69,9 @@ namespace Emby.Server.Implementations.Library.Resolvers.TV
                 {
                     // TODO refactor into separate class or something, this is copied from LibraryManager.GetConfiguredContentType
                     var configuredContentType = args.GetConfiguredContentType();
-                    if (configuredContentType != CollectionType.tvshows)
+                    if (configuredContentType != CollectionType.tvshows
+                        && (args.ContainsFileSystemEntryByName("tvshow.nfo")
+                            || IsSeriesFolder(args.Path, args.FileSystemChildren, true)))
                     {
                         return new Series
                         {
@@ -133,7 +135,7 @@ namespace Emby.Server.Implementations.Library.Resolvers.TV
                 else
                 {
                     string fullName = child.FullName;
-                    if (VideoResolver.IsVideoFile(path, _namingOptions))
+                    if (VideoResolver.IsVideoFile(fullName, _namingOptions))
                     {
                         if (isTvContentType)
                         {

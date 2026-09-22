@@ -1,10 +1,13 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using Jellyfin.Data.Enums;
 using Jellyfin.Database.Implementations.Entities;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.TV;
+using Microsoft.Extensions.Logging;
 using Moq;
 using Xunit;
 
@@ -13,6 +16,29 @@ namespace Jellyfin.Server.Implementations.Tests.Entities;
 public sealed class UserViewBuilderTests
 {
     private static readonly User _user = new("view-filter-test", "provider", "reset");
+
+    [Theory]
+    [InlineData(CollectionType.movies)]
+    [InlineData(CollectionType.tvshows)]
+    [InlineData(CollectionType.books)]
+    public void GetUserItems_LibraryEntryListsImmediatePhysicalChildren(CollectionType viewType)
+    {
+        var group = new Folder { Id = Guid.NewGuid(), Name = "A physical subfolder" };
+        var leaf = new Movie { Id = Guid.NewGuid(), Name = "A playable item" };
+        var parent = new Mock<Folder>();
+        parent.Setup(folder => folder.GetChildren(_user, true, It.IsAny<InternalItemsQuery>()))
+            .Returns([group, leaf]);
+        var builder = new UserViewBuilder(
+            Mock.Of<IUserViewManager>(),
+            Mock.Of<ILibraryManager>(),
+            Mock.Of<ILogger<BaseItem>>(),
+            Mock.Of<IUserDataManager>(),
+            Mock.Of<ITVSeriesManager>());
+
+        var result = builder.GetUserItems(parent.Object, parent.Object, viewType, new InternalItemsQuery(_user));
+
+        Assert.Equal([group.Id, leaf.Id], result.Items.Select(item => item.Id));
+    }
 
     [Fact]
     public void Filter_IsPlayed_CountsAMovieWatchedOnAnAlternateVersionAsPlayed()

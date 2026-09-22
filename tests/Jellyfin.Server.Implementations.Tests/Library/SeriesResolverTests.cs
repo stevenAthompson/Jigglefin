@@ -33,7 +33,14 @@ namespace Jellyfin.Server.Implementations.Tests.Library
             new(Mock.Of<IServerApplicationPaths>(), _libraryManagerMock.Object)
             {
                 CollectionType = CollectionType.tvshows,
-                FileSystemChildren = [],
+                FileSystemChildren =
+                [
+                    new FileSystemMetadata
+                    {
+                        FullName = path + "/S01E01.mkv",
+                        Name = "S01E01.mkv"
+                    }
+                ],
                 FileInfo = new FileSystemMetadata
                 {
                     FullName = path,
@@ -98,6 +105,23 @@ namespace Jellyfin.Server.Implementations.Tests.Library
             Assert.False(series.TryGetProviderId("AniDB", out _));
             Assert.False(series.TryGetProviderId("AniList", out _));
             Assert.False(series.TryGetProviderId("AniSearch", out _));
+        }
+
+        [Fact]
+        public void ResolvePath_TvLibraryGroupingFolderWithoutShowEvidence_RemainsGeneric()
+        {
+            var args = MakeTvArgs("/media/Action");
+            args.FileSystemChildren =
+            [
+                new FileSystemMetadata
+                {
+                    FullName = "/media/Action/Example Show",
+                    Name = "Example Show",
+                    IsDirectory = true
+                }
+            ];
+
+            Assert.Null(_resolver.ResolvePath(args));
         }
 
         [Fact]

@@ -62,12 +62,27 @@ namespace MediaBrowser.Controller.Entities
                     return GetResult(_libraryManager.GetUserRootFolder().GetChildren(user, true), query);
 
                 case CollectionType.books:
+                    if (!query.Recursive)
+                    {
+                        return GetPhysicalChildren(queryParent, user, query, CollectionType.books);
+                    }
+
                     return GetBooks(queryParent, user, query);
 
                 case CollectionType.tvshows:
+                    if (!query.Recursive)
+                    {
+                        return GetPhysicalChildren(queryParent, user, query, CollectionType.tvshows);
+                    }
+
                     return GetTvView(queryParent, user, query);
 
                 case CollectionType.movies:
+                    if (!query.Recursive)
+                    {
+                        return GetPhysicalChildren(queryParent, user, query, CollectionType.movies);
+                    }
+
                     return GetMovieFolders(queryParent, user, query);
 
                 case CollectionType.tvshowseries:
@@ -125,6 +140,12 @@ namespace MediaBrowser.Controller.Entities
                         return queryParent.GetItems(query);
                     }
             }
+        }
+
+        private QueryResult<BaseItem> GetPhysicalChildren(Folder parent, User user, InternalItemsQuery query, CollectionType viewType)
+        {
+            var libraries = GetMediaFolders(parent, user, [viewType]).OfType<Folder>();
+            return GetResult(libraries.SelectMany(library => library.GetChildren(user, true)), query);
         }
 
         private int GetSpecialItemsLimit()

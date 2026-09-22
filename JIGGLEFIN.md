@@ -31,9 +31,21 @@ The first milestone establishes local-first policy without changing the wire pro
 - local artwork, screen grabbing, and image extraction remain available;
 - direct play, transcoding, authentication, and all existing client endpoints stay upstream code.
 
-The next implementation seam is `ItemResolveArgs` and the resolver chain in
-`Emby.Server.Implementations/Library/Resolvers`. Work there will preserve every physical directory
-while assigning compatible Jellyfin item kinds from deterministic path rules and local sidecars.
+The library entry views for Movies, TV Shows, and Books now list the immediate children of their
+physical media folders. This keeps an `Action/Example Movie/Example Movie.mkv` tree navigable as
+`Action` then `Example Movie` through the existing `UserViews` and `Items` endpoints. Music and
+other folder-oriented library views already use the physical children path. Recursive queries still
+serve searches and client features that request the full library.
+
+The resolver chain now leaves an arbitrary TV grouping directory as a `Folder` unless it contains
+`tvshow.nfo` or episode/season evidence. A music grouping directory is not inferred to be a
+`MusicArtist` merely because it contains an album; an explicit `artist.nfo` identifies an artist
+folder. The media beneath those groups still resolves to standard Jellyfin item kinds. These rules
+are covered by unit tests and an end-to-end API browse test.
+
+Further resolver work will preserve more physical directory arrangements while assigning compatible
+Jellyfin item kinds from deterministic path rules and local sidecars. In particular, file/folder
+name collisions and mixed-content directories need dedicated coverage.
 
 ## Upstream workflow
 
