@@ -29,11 +29,12 @@ public sealed class FolderFirstLibraryTests
             (CollectionType: "movies", ItemFolder: "Example Movie (2020)", FileName: "Example Movie (2020).mkv", ExpectedKind: BaseItemKind.Movie),
             (CollectionType: "tvshows", ItemFolder: "Example Show", FileName: "Example Show - S01E01.mkv", ExpectedKind: BaseItemKind.Series),
             (CollectionType: "books", ItemFolder: "Example Book", FileName: "Example Book.pdf", ExpectedKind: BaseItemKind.Book),
+            (CollectionType: "books", ItemFolder: "Example Audio Book", FileName: "Example Audio Book.m4b", ExpectedKind: BaseItemKind.AudioBook),
             (CollectionType: "music", ItemFolder: "Example Album", FileName: "Track 01.mp3", ExpectedKind: BaseItemKind.MusicAlbum)
         };
         foreach (var library in libraries)
         {
-            var mediaFolder = Path.Combine(testRoot, library.CollectionType, "Action", library.ItemFolder);
+            var mediaFolder = Path.Combine(testRoot, library.ExpectedKind.ToString(), "Action", library.ItemFolder);
             Directory.CreateDirectory(mediaFolder);
             await File.WriteAllBytesAsync(Path.Combine(mediaFolder, library.FileName), [], TestContext.Current.CancellationToken);
         }
@@ -47,8 +48,8 @@ public sealed class FolderFirstLibraryTests
         {
             foreach (var library in libraries)
             {
-                var libraryName = "Jigglefin" + library.CollectionType;
-                var mediaRoot = Path.Combine(testRoot, library.CollectionType);
+                var libraryName = "Jigglefin" + library.ExpectedKind;
+                var mediaRoot = Path.Combine(testRoot, library.ExpectedKind.ToString());
                 var createUrl = $"Library/VirtualFolders?name={libraryName}&collectionType={library.CollectionType}&paths={Uri.EscapeDataString(mediaRoot)}&refreshLibrary=false";
                 using var createResponse = await client.PostAsJsonAsync(
                     createUrl,
@@ -66,7 +67,7 @@ public sealed class FolderFirstLibraryTests
 
             foreach (var library in libraries)
             {
-                var libraryName = "Jigglefin" + library.CollectionType;
+                var libraryName = "Jigglefin" + library.ExpectedKind;
                 var views = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
                     $"UserViews?presetViews={library.CollectionType}",
                     JsonDefaults.Options,

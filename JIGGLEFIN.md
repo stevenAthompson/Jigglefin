@@ -44,7 +44,8 @@ The resolver chain now leaves an arbitrary TV grouping directory as a `Folder` u
 `tvshow.nfo` or episode/season evidence. A music grouping directory is not inferred to be a
 `MusicArtist` merely because it contains an album; an explicit `artist.nfo` identifies an artist
 folder. The media beneath those groups still resolves to standard Jellyfin item kinds. These rules
-are covered by unit tests and an end-to-end API browse test.
+are covered by unit tests and an end-to-end API browse test for movies, TV shows, books,
+audiobooks, and music.
 
 A separate integration test writes a valid local WAV file, browses it as a standard Jellyfin `Audio`
 item, and verifies full and byte-range streaming through the unmodified audio endpoint.
