@@ -18,6 +18,7 @@ concurrency:
 
 env:
   SDK_VERSION: "10.0.x"
+  WEB_COMMIT: 839563a2d633041d5854948d680bd393423b1abb
 
 jobs:
   windows:
@@ -37,3 +38,38 @@ jobs:
 
       - name: Test
         run: dotnet test Jellyfin.sln --configuration Release --no-restore --no-build --verbosity minimal
+
+      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version: "24"
+
+      - name: Build matching Jellyfin Web
+        shell: pwsh
+        run: |
+          $webSource = Join-Path $env:RUNNER_TEMP 'jellyfin-web'
+          git clone --depth 1 --filter=blob:none --no-checkout https://github.com/jellyfin/jellyfin-web.git $webSource
+          if ($LASTEXITCODE -ne 0) { throw 'Jellyfin Web clone failed' }
+          git -C $webSource fetch --depth 1 origin $env:WEB_COMMIT
+          if ($LASTEXITCODE -ne 0) { throw 'Jellyfin Web commit fetch failed' }
+          git -C $webSource checkout --detach $env:WEB_COMMIT
+          if ($LASTEXITCODE -ne 0) { throw 'Jellyfin Web checkout failed' }
+          Push-Location $webSource
+          try {
+            npm ci --no-audit
+            if ($LASTEXITCODE -ne 0) { throw 'Jellyfin Web dependency install failed' }
+            npm run build:production
+            if ($LASTEXITCODE -ne 0) { throw 'Jellyfin Web build failed' }
+          } finally {
+            Pop-Location
+          }
+
+      - name: Package portable Windows server
+        shell: pwsh
+        run: .\scripts\package-win.ps1 -WebDistPath (Join-Path $env:RUNNER_TEMP 'jellyfin-web/dist')
+
+      - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: Jigglefin-win-x64
+          path: publish/Jigglefin-win-x64.zip
+          if-no-files-found: error
+          compression-level: 0

@@ -96,6 +96,14 @@ Run without an embedded web client during server work:
 .\scripts\dev-run.ps1
 ```
 
+For a portable Windows x64 build, the `Jigglefin CI` workflow publishes a `Jigglefin-win-x64`
+artifact containing a self-contained server and Jellyfin Web. It builds the unmodified web client
+from pinned upstream commit `839563a2d633041d5854948d680bd393423b1abb` using Node 24. The
+package can also be reproduced locally by building that commit with `npm ci` and
+`npm run build:production`, then running `scripts/package-win.ps1 -WebDistPath <web-dist-path>`.
+The extracted package includes `Start-Jigglefin.ps1`; see its `README-PORTABLE.md` for first-run
+instructions. FFmpeg remains an external dependency.
+
 Jigglefin defaults to `%LOCALAPPDATA%\jigglefin` for its data, configuration, cache, and logs,
 and `%TEMP%\jigglefin` for temporary files.
 It does not read Jellyfin's default profile or `JELLYFIN_*_DIR` path overrides. Use

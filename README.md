@@ -7,6 +7,10 @@
 > embedded tags, and Kodi/Emby-style sidecar metadata authoritative by default. See
 > [JIGGLEFIN.md](JIGGLEFIN.md) for the current architecture and roadmap.
 
+Jigglefin testing builds are available as the `Jigglefin-win-x64` artifact from the
+[Windows CI workflow](https://github.com/stevenAthompson/Jigglefin/actions/workflows/jigglefin-ci.yml).
+The Jellyfin download links below are for upstream Jellyfin, not Jigglefin.
+
 ---
 
 <p align="center">
