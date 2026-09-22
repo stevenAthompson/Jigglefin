@@ -53,9 +53,14 @@ Another checks that a Kodi-style `movie.nfo` supplies the title, year, and plot 
 responses while its physical parent folder remains browseable. That test uses an original,
 synthetically generated MP4 and also checks full and byte-range direct video streaming.
 
+A movie category with a single loose file, such as `Action/Loose Movie.mp4`, remains a physical
+`Folder` with a `Movie` child. A dedicated movie directory still resolves to a `Movie` when its
+name matches the video filename or it contains `movie.nfo`; this distinction is covered by an
+API browse test.
+
 Further resolver work will preserve more physical directory arrangements while assigning compatible
-Jellyfin item kinds from deterministic path rules and local sidecars. In particular, file/folder
-name collisions and mixed-content directories need dedicated coverage.
+Jellyfin item kinds from deterministic path rules and local sidecars. In particular, ambiguous
+file/folder name collisions and mixed-content directories need more coverage.
 
 ## Upstream workflow
 

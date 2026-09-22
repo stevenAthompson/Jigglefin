@@ -21,6 +21,107 @@ namespace Jellyfin.Server.Integration.Tests.Controllers;
 public sealed class LocalSidecarLibraryTests
 {
     [Fact]
+    public async Task SingleLooseMovie_DoesNotReplacePhysicalCategoryFolder()
+    {
+        var testRoot = Path.Combine(Path.GetTempPath(), "jigglefin-loose-movie-" + Guid.NewGuid().ToString("N"));
+        var categoryFolder = Path.Combine(testRoot, "Action");
+        Directory.CreateDirectory(categoryFolder);
+        var matchedMovieFolder = Path.Combine(testRoot, "Comedy", "Matched Movie (2020)");
+        Directory.CreateDirectory(matchedMovieFolder);
+        var yearInFolder = Path.Combine(testRoot, "Drama", "Year in Folder (2020)");
+        Directory.CreateDirectory(yearInFolder);
+        var videoBytes = await File.ReadAllBytesAsync(
+            Path.Combine(AppContext.BaseDirectory, "Test Data", "JigglefinSample.mp4"),
+            TestContext.Current.CancellationToken);
+        await File.WriteAllBytesAsync(
+            Path.Combine(categoryFolder, "Loose Movie (2020).mp4"),
+            videoBytes,
+            TestContext.Current.CancellationToken);
+        await File.WriteAllBytesAsync(
+            Path.Combine(matchedMovieFolder, "Matched Movie (2020).mp4"),
+            videoBytes,
+            TestContext.Current.CancellationToken);
+        await File.WriteAllBytesAsync(
+            Path.Combine(yearInFolder, "Year in Folder.mp4"),
+            videoBytes,
+            TestContext.Current.CancellationToken);
+
+        using var factory = new JellyfinApplicationFactory();
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.AddAuthHeader(await AuthHelper.CompleteStartupAsync(client));
+        var libraryName = "Jigglefin loose movie test " + Guid.NewGuid().ToString("N");
+        var created = false;
+
+        try
+        {
+            using var createResponse = await client.PostAsJsonAsync(
+                $"Library/VirtualFolders?name={Uri.EscapeDataString(libraryName)}&collectionType=movies&paths={Uri.EscapeDataString(testRoot)}&refreshLibrary=false",
+                new AddVirtualFolderDto { LibraryOptions = new LibraryOptions() },
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.NoContent, createResponse.StatusCode);
+            created = true;
+
+            var libraryManager = (LibraryManager)factory.Services.GetRequiredService<ILibraryManager>();
+            await libraryManager.ValidateMediaLibraryInternal(new Progress<double>(), TestContext.Current.CancellationToken);
+
+            var views = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                "UserViews?presetViews=movies",
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.NotNull(views);
+            var library = Assert.Single(views.Items, item => item.Name == libraryName);
+
+            var groups = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={library.Id}",
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.NotNull(groups);
+            var action = Assert.Single(groups.Items, item => item.Name == "Action");
+            Assert.Equal(BaseItemKind.Folder, action.Type);
+
+            var movies = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={action.Id}",
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.NotNull(movies);
+            Assert.Single(movies.Items, item => item.Type == BaseItemKind.Movie);
+
+            var comedy = Assert.Single(groups.Items, item => item.Name == "Comedy");
+            Assert.Equal(BaseItemKind.Folder, comedy.Type);
+            var movieFolders = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={comedy.Id}",
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.NotNull(movieFolders);
+            var matchedMovie = Assert.Single(movieFolders.Items);
+            Assert.Equal(BaseItemKind.Movie, matchedMovie.Type);
+            Assert.Equal("Matched Movie (2020)", matchedMovie.Name);
+
+            var drama = Assert.Single(groups.Items, item => item.Name == "Drama");
+            Assert.Equal(BaseItemKind.Folder, drama.Type);
+            var dramaItems = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={drama.Id}",
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.NotNull(dramaItems);
+            Assert.Equal(BaseItemKind.Movie, Assert.Single(dramaItems.Items).Type);
+        }
+        finally
+        {
+            if (created)
+            {
+                using var deleteResponse = await client.DeleteAsync(
+                    $"Library/VirtualFolders?name={Uri.EscapeDataString(libraryName)}&refreshLibrary=false",
+                    TestContext.Current.CancellationToken);
+                Assert.Equal(HttpStatusCode.NoContent, deleteResponse.StatusCode);
+            }
+
+            Directory.Delete(testRoot, true);
+        }
+    }
+
+    [Fact]
     public async Task MovieNfo_ProvidesClientMetadataWithoutHidingPhysicalGroups()
     {
         var testRoot = Path.Combine(Path.GetTempPath(), "jigglefin-sidecar-" + Guid.NewGuid().ToString("N"));

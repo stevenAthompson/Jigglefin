@@ -482,7 +482,16 @@ namespace Emby.Server.Implementations.Library.Resolvers.Movies
                 var hasPhotos = photos.Any(i => !PhotoResolver.IsOwnedByResolvedMedia(videoPath, i.Name));
                 var hasOtherSubfolders = multiDiscFolders.Count > 0;
 
-                if (!hasPhotos && !hasOtherSubfolders)
+                // A single loose video does not make its containing directory a movie.
+                // Preserve category folders (for example, Action/Film.mp4) while
+                // retaining the familiar Film (2020)/Film (2020).mp4 layout.
+                var folderName = Path.GetFileName(Path.TrimEndingDirectorySeparator(path));
+                var parsedFolderName = VideoResolver.CleanDateTime(folderName, NamingOptions).Name;
+                var hasMovieSidecar = fileSystemEntries.Any(i => !i.IsDirectory && string.Equals(i.Name, "movie.nfo", StringComparison.OrdinalIgnoreCase));
+                var isNamedMovieFolder = string.Equals(result.Items[0].Name, folderName, StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(result.Items[0].Name, parsedFolderName, StringComparison.OrdinalIgnoreCase);
+
+                if (!hasPhotos && !hasOtherSubfolders && (hasMovieSidecar || isNamedMovieFolder))
                 {
                     var movie = (T)result.Items[0];
                     movie.IsInMixedFolder = false;
