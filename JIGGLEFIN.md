@@ -96,7 +96,8 @@ Run without an embedded web client during server work:
 .\scripts\dev-run.ps1
 ```
 
-Jigglefin defaults to `%LOCALAPPDATA%\jigglefin` for its data, configuration, cache, and logs.
+Jigglefin defaults to `%LOCALAPPDATA%\jigglefin` for its data, configuration, cache, and logs,
+and `%TEMP%\jigglefin` for temporary files.
 It does not read Jellyfin's default profile or `JELLYFIN_*_DIR` path overrides. Use
 `JIGGLEFIN_DATA_DIR`, `JIGGLEFIN_CONFIG_DIR`, `JIGGLEFIN_CACHE_DIR`, `JIGGLEFIN_LOG_DIR`, or
 `JIGGLEFIN_WEB_DIR` to override Jigglefin paths; command-line directory flags take precedence.

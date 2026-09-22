@@ -73,7 +73,7 @@ namespace Emby.Server.Implementations.AppBase
         public string CachePath { get; set; }
 
         /// <inheritdoc/>
-        public string TempDirectory => Path.Join(Path.GetTempPath(), "jellyfin");
+        public string TempDirectory => Path.Join(Path.GetTempPath(), "jigglefin");
 
         /// <inheritdoc />
         public string TrickplayPath => Path.Combine(DataPath, "trickplay");

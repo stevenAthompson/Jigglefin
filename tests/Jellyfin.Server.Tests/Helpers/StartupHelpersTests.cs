@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using Emby.Server.Implementations;
 using Jellyfin.Server.Helpers;
 using Xunit;
 
@@ -43,5 +44,33 @@ public sealed class StartupHelpersTests
         Assert.NotEqual(
             Path.Join(localDataDirectory, "jellyfin"),
             StartupHelpers.GetDefaultDataDirectory());
+    }
+
+    [Fact]
+    public void ServerApplicationPaths_UsesSeparateJigglefinTempDirectory()
+    {
+        var tempPath = Path.GetFullPath(Path.GetTempPath());
+        var profilePath = Path.GetFullPath(Path.Combine(tempPath, "jigglefin-paths-" + Guid.NewGuid().ToString("N")));
+        Assert.StartsWith(tempPath, profilePath, StringComparison.OrdinalIgnoreCase);
+
+        try
+        {
+            var paths = new ServerApplicationPaths(
+                profilePath,
+                Path.Combine(profilePath, "log"),
+                Path.Combine(profilePath, "config"),
+                Path.Combine(profilePath, "cache"),
+                Path.Combine(profilePath, "web"));
+
+            Assert.Equal(Path.Join(Path.GetTempPath(), "jigglefin"), paths.TempDirectory);
+            Assert.NotEqual(Path.Join(Path.GetTempPath(), "jellyfin"), paths.TempDirectory);
+        }
+        finally
+        {
+            if (Directory.Exists(profilePath))
+            {
+                Directory.Delete(profilePath, true);
+            }
+        }
     }
 }
