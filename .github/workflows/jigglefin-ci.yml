@@ -65,7 +65,10 @@ jobs:
 
       - name: Package portable Windows server
         shell: pwsh
-        run: .\scripts\package-win.ps1 -WebDistPath (Join-Path $env:RUNNER_TEMP 'jellyfin-web/dist')
+        run: |
+          $ffmpegPath = Join-Path $env:RUNNER_TEMP 'jellyfin-ffmpeg'
+          .\scripts\prepare-ffmpeg.ps1 -OutputDirectory $ffmpegPath
+          .\scripts\package-win.ps1 -WebDistPath (Join-Path $env:RUNNER_TEMP 'jellyfin-web/dist') -FfmpegDirectory $ffmpegPath
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

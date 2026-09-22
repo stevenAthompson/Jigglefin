@@ -3,6 +3,9 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$WebDistPath,
 
+    [Parameter(Mandatory = $true)]
+    [string]$FfmpegDirectory,
+
     [string]$OutputDirectory = 'publish/Jigglefin-win-x64'
 )
 
@@ -12,6 +15,7 @@ $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $webDist = (Resolve-Path -LiteralPath $WebDistPath -ErrorAction Stop).Path
 $webSource = Split-Path -Parent $webDist
 $webLicense = Join-Path $webSource 'LICENSE'
+$ffmpegSource = (Resolve-Path -LiteralPath $FfmpegDirectory -ErrorAction Stop).Path
 
 foreach ($requiredFile in @('index.html', 'config.json')) {
     if (-not (Test-Path -LiteralPath (Join-Path $webDist $requiredFile))) {
@@ -21,6 +25,12 @@ foreach ($requiredFile in @('index.html', 'config.json')) {
 
 if (-not (Test-Path -LiteralPath $webLicense)) {
     throw "The Jellyfin Web source license was not found at $webLicense"
+}
+
+foreach ($requiredFile in @('ffmpeg.exe', 'ffprobe.exe', 'FFMPEG-LICENSE.md', 'FFMPEG-COPYING.GPLv3')) {
+    if (-not (Test-Path -LiteralPath (Join-Path $ffmpegSource $requiredFile))) {
+        throw "The prepared Jellyfin FFmpeg directory is missing $requiredFile in $ffmpegSource"
+    }
 }
 
 $outputPath = if ([System.IO.Path]::IsPathRooted($OutputDirectory)) {
@@ -58,6 +68,9 @@ Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'start-win.ps1') -Destination (J
 Copy-Item -LiteralPath (Join-Path $repositoryRoot 'README-PORTABLE.md') -Destination (Join-Path $outputPath 'README-PORTABLE.md')
 Copy-Item -LiteralPath (Join-Path $repositoryRoot 'LICENSE') -Destination (Join-Path $outputPath 'JIGGLEFIN-LICENSE')
 Copy-Item -LiteralPath $webLicense -Destination (Join-Path $outputPath 'JELLYFIN-WEB-LICENSE')
+foreach ($ffmpegFile in @('ffmpeg.exe', 'ffprobe.exe', 'FFMPEG-LICENSE.md', 'FFMPEG-COPYING.GPLv3')) {
+    Copy-Item -LiteralPath (Join-Path $ffmpegSource $ffmpegFile) -Destination (Join-Path $outputPath $ffmpegFile)
+}
 
 Compress-Archive -LiteralPath $outputPath -DestinationPath $archivePath -CompressionLevel Optimal
 

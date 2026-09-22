@@ -1,4 +1,4 @@
-[CmdletBinding()]
+[CmdletBinding(PositionalBinding = $false)]
 param(
     [string]$FfmpegPath,
 
@@ -13,6 +13,13 @@ $ErrorActionPreference = 'Stop'
 $server = Join-Path $PSScriptRoot 'jellyfin.exe'
 if (-not (Test-Path -LiteralPath $server)) {
     throw "Jigglefin server executable not found at $server"
+}
+
+if (-not $FfmpegPath) {
+    $bundledFfmpeg = Join-Path $PSScriptRoot 'ffmpeg.exe'
+    if (Test-Path -LiteralPath $bundledFfmpeg) {
+        $FfmpegPath = $bundledFfmpeg
+    }
 }
 
 if (-not $FfmpegPath) {
@@ -33,7 +40,7 @@ if (-not $FfmpegPath) {
 }
 
 if (-not $FfmpegPath -or -not (Test-Path -LiteralPath $FfmpegPath)) {
-    throw 'FFmpeg was not found. Install Jellyfin.FFmpeg with WinGet or pass -FfmpegPath.'
+    throw 'FFmpeg was not found in the package or on this computer. Pass -FfmpegPath to select one.'
 }
 
 $arguments = @('--ffmpeg', $FfmpegPath)
