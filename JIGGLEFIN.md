@@ -48,6 +48,8 @@ are covered by unit tests and an end-to-end API browse test.
 
 A separate integration test writes a valid local WAV file, browses it as a standard Jellyfin `Audio`
 item, and verifies full and byte-range streaming through the unmodified audio endpoint.
+Another checks that a Kodi-style `movie.nfo` supplies the title, year, and plot in standard client
+responses while its physical parent folder remains browseable.
 
 Further resolver work will preserve more physical directory arrangements while assigning compatible
 Jellyfin item kinds from deterministic path rules and local sidecars. In particular, file/folder
