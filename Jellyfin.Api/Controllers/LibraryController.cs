@@ -870,7 +870,7 @@ public class LibraryController : BaseJellyfinApiController
     {
         var result = new LibraryOptionsResultDto();
 
-        var types = GetRepresentativeItemTypes(libraryContentType);
+        var types = LibraryOptionDefaults.GetRepresentativeItemTypes(libraryContentType);
         var typesList = types.ToList();
 
         var plugins = _providerManager.GetAllMetadataPlugins()
@@ -1011,23 +1011,6 @@ public class LibraryController : BaseJellyfinApiController
         {
             // Logged at lower levels
         }
-    }
-
-    private static string[] GetRepresentativeItemTypes(CollectionType? contentType)
-    {
-        return contentType switch
-        {
-            CollectionType.boxsets => new[] { "BoxSet" },
-            CollectionType.playlists => new[] { "Playlist" },
-            CollectionType.movies => new[] { "Movie" },
-            CollectionType.tvshows => new[] { "Series", "Season", "Episode" },
-            CollectionType.books => new[] { "Book", "AudioBook" },
-            CollectionType.music => new[] { "MusicArtist", "MusicAlbum", "Audio", "MusicVideo" },
-            CollectionType.homevideos => new[] { "Video", "Photo" },
-            CollectionType.photos => new[] { "Video", "Photo" },
-            CollectionType.musicvideos => new[] { "MusicVideo" },
-            _ => new[] { "Series", "Season", "Episode", "Movie" }
-        };
     }
 
     private bool IsSaverEnabledByDefault(string name, string[] itemTypes, bool isNewLibrary)

@@ -90,6 +90,7 @@ public class LibraryStructureController : BaseJellyfinApiController
         [FromQuery] bool refreshLibrary = false)
     {
         var libraryOptions = libraryOptionsDto?.LibraryOptions ?? new LibraryOptions();
+        LibraryOptionDefaults.ApplyToMinimalNewLibrary(libraryOptions, collectionType);
 
         if (paths is not null && paths.Length > 0)
         {

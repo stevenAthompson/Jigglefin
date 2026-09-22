@@ -31,6 +31,9 @@ The first milestone establishes local-first policy without changing the wire pro
 - local artwork, screen grabbing, and image extraction remain available;
 - direct play, transcoding, authentication, and all existing client endpoints stay upstream code.
 
+The same local-first provider defaults also apply when a client creates a library through the API
+without `TypeOptions`. Explicit per-type provider choices are preserved.
+
 The library entry views for Movies, TV Shows, and Books now list the immediate children of their
 physical media folders. This keeps an `Action/Example Movie/Example Movie.mkv` tree navigable as
 `Action` then `Example Movie` through the existing `UserViews` and `Items` endpoints. Music and
