@@ -1048,16 +1048,9 @@ public class LibraryController : BaseJellyfinApiController
     {
         if (isNewLibrary)
         {
-            if (string.Equals(name, "TheMovieDb", StringComparison.OrdinalIgnoreCase))
-            {
-                return !(string.Equals(type, "Season", StringComparison.OrdinalIgnoreCase)
-                         || string.Equals(type, "Episode", StringComparison.OrdinalIgnoreCase)
-                         || string.Equals(type, "MusicVideo", StringComparison.OrdinalIgnoreCase));
-            }
-
-            return string.Equals(name, "TheTVDB", StringComparison.OrdinalIgnoreCase)
-                   || string.Equals(name, "TheAudioDB", StringComparison.OrdinalIgnoreCase)
-                   || string.Equals(name, "MusicBrainz", StringComparison.OrdinalIgnoreCase);
+            // Jigglefin treats the filesystem, embedded tags, and sidecar files as authoritative.
+            // Local metadata readers are configured separately and remain enabled by default.
+            return false;
         }
 
         var metadataOptions = _serverConfigurationManager.GetMetadataOptionsForType(type);
@@ -1068,17 +1061,8 @@ public class LibraryController : BaseJellyfinApiController
     {
         if (isNewLibrary)
         {
-            if (string.Equals(name, "TheMovieDb", StringComparison.OrdinalIgnoreCase))
-            {
-                return !string.Equals(type, "Series", StringComparison.OrdinalIgnoreCase)
-                       && !string.Equals(type, "Season", StringComparison.OrdinalIgnoreCase)
-                       && !string.Equals(type, "Episode", StringComparison.OrdinalIgnoreCase)
-                       && !string.Equals(type, "MusicVideo", StringComparison.OrdinalIgnoreCase);
-            }
-
-            return string.Equals(name, "TheTVDB", StringComparison.OrdinalIgnoreCase)
-                   || string.Equals(name, "Screen Grabber", StringComparison.OrdinalIgnoreCase)
-                   || string.Equals(name, "TheAudioDB", StringComparison.OrdinalIgnoreCase)
+            // Keep media-local image generation available without opting into network metadata.
+            return string.Equals(name, "Screen Grabber", StringComparison.OrdinalIgnoreCase)
                    || string.Equals(name, "Image Extractor", StringComparison.OrdinalIgnoreCase);
         }
 

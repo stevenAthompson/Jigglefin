@@ -1,7 +1,11 @@
 using System;
 using System.Globalization;
+using System.Linq;
 using System.Net;
+using System.Net.Http.Json;
 using System.Threading.Tasks;
+using Jellyfin.Api.Models.LibraryDtos;
+using Jellyfin.Extensions.Json;
 using Xunit;
 
 namespace Jellyfin.Server.Integration.Tests.Controllers;
@@ -60,5 +64,33 @@ public sealed class LibraryControllerTests : IClassFixture<JellyfinApplicationFa
 
         var response = await client.DeleteAsync(string.Format(CultureInfo.InvariantCulture, format, Guid.NewGuid()), TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+    }
+
+    [Fact]
+    public async Task Get_NewLibraryOptions_UsesLocalFirstProviderDefaults()
+    {
+        var client = _factory.CreateClient();
+        client.DefaultRequestHeaders.AddAuthHeader(_accessToken ??= await AuthHelper.CompleteStartupAsync(client));
+
+        var response = await client.GetAsync(
+            "Libraries/AvailableOptions?libraryContentType=movies&isNewLibrary=true",
+            TestContext.Current.CancellationToken);
+        response.EnsureSuccessStatusCode();
+
+        var options = await response.Content.ReadFromJsonAsync<LibraryOptionsResultDto>(
+            JsonDefaults.Options,
+            TestContext.Current.CancellationToken);
+
+        Assert.NotNull(options);
+        Assert.NotEmpty(options.MetadataReaders);
+        Assert.All(options.MetadataReaders, provider => Assert.True(provider.DefaultEnabled));
+        Assert.All(
+            options.TypeOptions.SelectMany(type => type.MetadataFetchers),
+            provider => Assert.False(provider.DefaultEnabled));
+        Assert.All(
+            options.TypeOptions.SelectMany(type => type.ImageFetchers),
+            provider => Assert.Equal(
+                provider.Name is "Screen Grabber" or "Image Extractor",
+                provider.DefaultEnabled));
     }
 }

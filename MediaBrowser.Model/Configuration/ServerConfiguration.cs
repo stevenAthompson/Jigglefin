@@ -202,7 +202,14 @@ public class ServerConfiguration : BaseApplicationConfiguration
 
     public int RemoteClientBitrateLimit { get; set; }
 
-    public bool EnableFolderView { get; set; } = false;
+    /// <summary>
+    /// Gets or sets a value indicating whether the physical folder view is exposed to clients.
+    /// </summary>
+    /// <remarks>
+    /// Jigglefin is folder-first, so new installations expose this view by default. The existing
+    /// Jellyfin API shape is retained to keep standard clients compatible.
+    /// </remarks>
+    public bool EnableFolderView { get; set; } = true;
 
     public bool EnableGroupingMoviesIntoCollections { get; set; } = false;
 

@@ -1,5 +1,11 @@
-<h1 align="center">Jellyfin</h1>
-<h3 align="center">The Free Software Media System</h3>
+<h1 align="center">Jigglefin</h1>
+<h3 align="center">A folder-first, Jellyfin-compatible media server</h3>
+
+> [!IMPORTANT]
+> Jigglefin is an early-stage fork of Jellyfin Server. It preserves Jellyfin's API and media
+> entity contracts so existing Jellyfin applications can connect, while making local folders,
+> embedded tags, and Kodi/Emby-style sidecar metadata authoritative by default. See
+> [JIGGLEFIN.md](JIGGLEFIN.md) for the current architecture and roadmap.
 
 ---
 
@@ -21,7 +27,7 @@
 
 ---
 
-Jellyfin is a Free Software Media System that puts you in control of managing and streaming your media. It is an alternative to the proprietary Emby and Plex, to provide media from a dedicated server to end-user devices via multiple apps. Jellyfin is descended from Emby's 3.5.2 release and ported to the .NET platform to enable full cross-platform support.
+Jigglefin is based on Jellyfin, a Free Software Media System that puts you in control of managing and streaming your media. Jigglefin keeps the standard Jellyfin client protocol while developing a filesystem-first library model.
 
 There are no strings attached, no premium licenses or features, and no hidden agendas: just a team that wants to build something better and work together to achieve it. We welcome anyone who is interested in joining us in our quest!
 
