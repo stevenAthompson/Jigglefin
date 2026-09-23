@@ -125,9 +125,32 @@ namespace Jellyfin.Server.Implementations.Tests.Library
         }
 
         [Fact]
+        public void ResolvePath_ExplicitSeriesSidecar_ResolvesWithoutEpisodeEvidence()
+        {
+            foreach (var collectionType in new CollectionType?[] { CollectionType.tvshows, null })
+            {
+                foreach (var sidecar in new[] { "tvshow.nfo", "series.xml" })
+                {
+                    var args = MakeTvArgs("/media/Show");
+                    args.CollectionType = collectionType;
+                    args.FileSystemChildren =
+                    [
+                        new FileSystemMetadata
+                        {
+                            FullName = System.IO.Path.Combine("/media/Show", sidecar),
+                            Name = sidecar
+                        }
+                    ];
+
+                    Assert.IsType<Series>(_resolver.ResolvePath(args));
+                }
+            }
+        }
+
+        [Fact]
         public void ResolvePath_SeriesFolderNotInTvShowsCollection_DoesNotResolve()
         {
-            // Without CollectionType.tvshows, a plain folder with no tvshow.nfo and
+            // Without CollectionType.tvshows, a plain folder with no explicit sidecar and
             // no season/episode children should not resolve as a Series.
             var args = new MediaBrowser.Controller.Library.ItemResolveArgs(
                 Mock.Of<IServerApplicationPaths>(),

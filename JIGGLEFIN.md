@@ -48,7 +48,7 @@ with unmodified Jellyfin Web verified navigation from the library tile through `
 movie and through `Comedy` to a dedicated movie item.
 
 The resolver chain now leaves an arbitrary TV grouping directory as a `Folder` unless it contains
-`tvshow.nfo` or episode/season evidence. A music grouping directory is not inferred to be a
+`tvshow.nfo`, `series.xml`, or episode/season evidence. A music grouping directory is not inferred to be a
 `MusicArtist` merely because it contains an album; an explicit `artist.nfo` or `artist.xml`
 identifies an artist folder. The media beneath those groups still resolves to standard Jellyfin
 item kinds. These rules are covered by unit tests and an end-to-end API browse test for movies,
@@ -77,7 +77,9 @@ An additional integration test checks legacy Emby `movie.xml` in a dedicated mov
 fields. If XML and NFO coexist, NFO takes priority.
 Another integration test checks `series.xml` in a show directory below a physical TV category.
 The normal `Series` item receives its local title, year, and overview, while the category remains
-visible as a folder. A coexisting `tvshow.nfo` takes priority over the series XML.
+visible as a folder. The XML also marks a show with only an unnumbered bonus subfolder as a
+`Series`; that subfolder and its playable episode remain browseable. A coexisting `tvshow.nfo`
+takes priority over the series XML.
 Jigglefin also reads legacy-style `artist.xml` and `album.xml` in physical music directories.
 XML readers for books and other media kinds remain work in progress.
 

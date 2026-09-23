@@ -238,6 +238,19 @@ public sealed class LocalSidecarLibraryTests
             Path.Combine(precedenceFolder, "tvshow.nfo"),
             "<tvshow><title>Preferred Series NFO</title></tvshow>",
             TestContext.Current.CancellationToken);
+        var markerFolder = Path.Combine(testRoot, "Drama", "XML Marker Show");
+        var bonusFolder = Path.Combine(markerFolder, "Bonus Collection");
+        Directory.CreateDirectory(bonusFolder);
+        await File.WriteAllBytesAsync(
+            Path.Combine(bonusFolder, "Bonus Clip.mp4"),
+            await File.ReadAllBytesAsync(
+                Path.Combine(AppContext.BaseDirectory, "Test Data", "JigglefinSample.mp4"),
+                TestContext.Current.CancellationToken),
+            TestContext.Current.CancellationToken);
+        await File.WriteAllTextAsync(
+            Path.Combine(markerFolder, "series.xml"),
+            "<Series><LocalTitle>Explicit XML Marker Show</LocalTitle><Overview>From the marker XML.</Overview></Series>",
+            TestContext.Current.CancellationToken);
 
         using var factory = new JellyfinApplicationFactory();
         using var client = factory.CreateClient();
@@ -273,16 +286,30 @@ public sealed class LocalSidecarLibraryTests
             var seriesItems = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
                 $"Items?parentId={drama.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
             Assert.NotNull(seriesItems);
-            Assert.Equal(2, seriesItems.Items.Count);
+            Assert.Equal(3, seriesItems.Items.Count);
             var series = Assert.Single(seriesItems.Items, item => item.Name == "Local XML Series");
             var preferredNfo = Assert.Single(seriesItems.Items, item => item.Name == "Preferred Series NFO");
+            var marker = Assert.Single(seriesItems.Items, item => item.Name == "Explicit XML Marker Show");
             Assert.Equal(BaseItemKind.Series, series.Type);
             Assert.Equal(BaseItemKind.Series, preferredNfo.Type);
+            Assert.Equal(BaseItemKind.Series, marker.Type);
             Assert.Equal(2020, series.ProductionYear);
 
             var details = await client.GetFromJsonAsync<BaseItemDto>(
                 $"Items/{series.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
             Assert.Equal("From the series XML.", details?.Overview);
+            var markerDetails = await client.GetFromJsonAsync<BaseItemDto>(
+                $"Items/{marker.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.Equal("From the marker XML.", markerDetails?.Overview);
+            var markerChildren = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={marker.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(markerChildren);
+            var bonus = Assert.Single(markerChildren.Items, item => item.Name == "Bonus Collection");
+            Assert.Equal(BaseItemKind.Folder, bonus.Type);
+            var bonusChildren = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={bonus.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(bonusChildren);
+            Assert.Single(bonusChildren.Items, item => item.Type == BaseItemKind.Episode);
         }
         finally
         {

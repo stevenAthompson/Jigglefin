@@ -23,6 +23,73 @@ namespace Jellyfin.Server.Integration.Tests.Controllers;
 public sealed class FolderFirstLibraryTests
 {
     [Fact]
+    public async Task HomeVideoDiscRip_WithPhoto_KeepsBothPhysicalEntriesBrowseable()
+    {
+        var testRoot = Path.Combine(Path.GetTempPath(), "jigglefin-homevideo-disc-photo-" + Guid.NewGuid().ToString("N"));
+        var featureFolder = Path.Combine(testRoot, "Family", "Disc Feature");
+        var videoTsFolder = Path.Combine(featureFolder, "VIDEO_TS");
+        Directory.CreateDirectory(videoTsFolder);
+        await File.WriteAllBytesAsync(Path.Combine(videoTsFolder, "VIDEO_TS.IFO"), [], TestContext.Current.CancellationToken);
+        await File.WriteAllBytesAsync(Path.Combine(videoTsFolder, "VTS_01_1.VOB"), [], TestContext.Current.CancellationToken);
+        await File.WriteAllBytesAsync(
+            Path.Combine(featureFolder, "Snapshot.png"),
+            Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl5aZkAAAAASUVORK5CYII="),
+            TestContext.Current.CancellationToken);
+
+        using var factory = new JellyfinApplicationFactory();
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.AddAuthHeader(await AuthHelper.CompleteStartupAsync(client));
+        var libraryName = "Jigglefin homevideo disc photo " + Guid.NewGuid().ToString("N");
+        var created = false;
+
+        try
+        {
+            using var createResponse = await client.PostAsJsonAsync(
+                $"Library/VirtualFolders?name={Uri.EscapeDataString(libraryName)}&collectionType=homevideos&paths={Uri.EscapeDataString(testRoot)}&refreshLibrary=false",
+                new AddVirtualFolderDto { LibraryOptions = new LibraryOptions() },
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.NoContent, createResponse.StatusCode);
+            created = true;
+
+            var libraryManager = (LibraryManager)factory.Services.GetRequiredService<ILibraryManager>();
+            await libraryManager.ValidateMediaLibraryInternal(new Progress<double>(), TestContext.Current.CancellationToken);
+
+            var views = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                "UserViews?presetViews=homevideos", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(views);
+            var library = Assert.Single(views.Items, item => item.Name == libraryName);
+            var rootItems = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={library.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(rootItems);
+            var family = Assert.Single(rootItems.Items, item => item.Name == "Family");
+            Assert.Equal(BaseItemKind.Folder, family.Type);
+            var familyItems = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={family.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(familyItems);
+            var feature = Assert.Single(familyItems.Items, item => item.Name == "Disc Feature");
+            Assert.True(feature.IsFolder);
+            var featureItems = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={feature.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(featureItems);
+            Assert.Single(featureItems.Items, item => item.Type == BaseItemKind.Video);
+            Assert.Single(featureItems.Items, item => item.Type == BaseItemKind.Photo);
+        }
+        finally
+        {
+            if (created)
+            {
+                using var deleteResponse = await client.DeleteAsync(
+                    $"Library/VirtualFolders?name={Uri.EscapeDataString(libraryName)}&refreshLibrary=false",
+                    TestContext.Current.CancellationToken);
+                Assert.Equal(HttpStatusCode.NoContent, deleteResponse.StatusCode);
+            }
+
+            Directory.Delete(testRoot, true);
+        }
+    }
+
+    [Fact]
     public async Task MultiChapterAudioBook_KeepsEveryPhysicalAudioFileBrowseable()
     {
         var testRoot = Path.Combine(Path.GetTempPath(), "jigglefin-audiobook-chapters-" + Guid.NewGuid().ToString("N"));

@@ -71,6 +71,7 @@ namespace Emby.Server.Implementations.Library.Resolvers.TV
                     var configuredContentType = args.GetConfiguredContentType();
                     if (configuredContentType != CollectionType.tvshows
                         && (args.ContainsFileSystemEntryByName("tvshow.nfo")
+                            || args.ContainsFileSystemEntryByName("series.xml")
                             || IsSeriesFolder(args.Path, args.FileSystemChildren, true)))
                     {
                         return new Series
@@ -83,7 +84,8 @@ namespace Emby.Server.Implementations.Library.Resolvers.TV
                 }
                 else if (collectionType is null)
                 {
-                    if (args.ContainsFileSystemEntryByName("tvshow.nfo"))
+                    if (args.ContainsFileSystemEntryByName("tvshow.nfo")
+                        || args.ContainsFileSystemEntryByName("series.xml"))
                     {
                         if (args.Parent is not null && args.Parent.IsRoot)
                         {
