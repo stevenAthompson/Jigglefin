@@ -269,7 +269,8 @@ public sealed class LocalSidecarLibraryTests
 
         using var factory = new JellyfinApplicationFactory();
         using var client = factory.CreateClient();
-        client.DefaultRequestHeaders.AddAuthHeader(await AuthHelper.CompleteStartupAsync(client));
+        var accessToken = await AuthHelper.CompleteStartupAsync(client);
+        client.DefaultRequestHeaders.AddAuthHeader(accessToken);
         var libraryName = "Jigglefin audiobook XML test " + Guid.NewGuid().ToString("N");
         var created = false;
 
@@ -313,6 +314,29 @@ public sealed class LocalSidecarLibraryTests
             var firstDetails = await client.GetFromJsonAsync<BaseItemDto>(
                 $"Items/{first.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
             Assert.Equal("First audio only.", firstDetails?.Overview);
+            Assert.Equal(BaseItemKind.AudioBook, firstDetails?.Type);
+
+            // The Android TV client lacks an AudioBook playback action. The API
+            // presents the same item as playable audio only for that client.
+            var androidTvAuthorization = $"MediaBrowser Client=\"Jellyfin Android TV\", DeviceId=\"jigglefin-audiobook-test\", Device=\"Android TV\", Version=\"0.19.10\", Token={accessToken}";
+            using var androidTvRequest = new HttpRequestMessage(HttpMethod.Get, $"Items/{first.Id}");
+            androidTvRequest.Headers.TryAddWithoutValidation(AuthHelper.AuthHeaderName, androidTvAuthorization);
+            using var androidTvResponse = await client.SendAsync(androidTvRequest, TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.OK, androidTvResponse.StatusCode);
+            var androidTvDetails = await androidTvResponse.Content.ReadFromJsonAsync<BaseItemDto>(
+                JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.Equal(BaseItemKind.Audio, androidTvDetails?.Type);
+            Assert.Equal(first.Id, androidTvDetails?.Id);
+            Assert.Equal("First audio only.", androidTvDetails?.Overview);
+            using var androidTvListRequest = new HttpRequestMessage(HttpMethod.Get, $"Items?parentId={mixed.Id}");
+            androidTvListRequest.Headers.TryAddWithoutValidation(AuthHelper.AuthHeaderName, androidTvAuthorization);
+            using var androidTvListResponse = await client.SendAsync(androidTvListRequest, TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.OK, androidTvListResponse.StatusCode);
+            var androidTvItems = await androidTvListResponse.Content.ReadFromJsonAsync<QueryResult<BaseItemDto>>(
+                JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(androidTvItems);
+            Assert.Equal(2, androidTvItems.Items.Count);
+            Assert.All(androidTvItems.Items, item => Assert.Equal(BaseItemKind.Audio, item.Type));
             var dedicatedDetails = await client.GetFromJsonAsync<BaseItemDto>(
                 $"Items/{dedicated.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
             Assert.Equal("One audiobook in this folder.", dedicatedDetails?.Overview);

@@ -63,8 +63,14 @@ The same broad type filter inside a series keeps physical season and bonus folde
 without inserting the pathless generated `Season Unknown` into the folder list.
 [Jellyfin Android TV's folder grid](https://github.com/jellyfin/jellyfin-androidtv/blob/master/app/src/main/java/org/jellyfin/androidtv/ui/browsing/BrowsingUtils.kt)
 uses a parent-only `Items` request with requested item fields. An integration test verifies that
-this shape returns a navigable physical folder with its path and child count. Native UI testing
-remains outstanding.
+this shape returns a navigable physical folder with its path and child count. The unmodified
+Android TV 0.19.10 app was also exercised in a headless Android 34 emulator against an isolated
+Windows server profile: it browsed `Movies/Action/Native Test Movie` and played the movie, then
+browsed `Books/Fantasy/Native Test Audio` and played the 20-second M4B to completion.
+Android TV's details screen has no playback actions for `AudioBook` items. Jigglefin therefore
+presents playable audiobooks as `Audio` DTOs only to the Jellyfin Android TV client; stored item
+kinds and responses to other clients remain `AudioBook`. Untagged audio's minimum-date sentinel
+is omitted from DTOs, allowing the local XML year to display instead of `Jan 1, 1`.
 
 The resolver chain now leaves an arbitrary TV grouping directory as a `Folder` unless it contains
 `tvshow.nfo`, `series.xml`, or episode/season evidence. A music grouping directory is not inferred to be a

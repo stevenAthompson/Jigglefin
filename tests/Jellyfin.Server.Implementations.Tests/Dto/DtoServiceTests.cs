@@ -65,6 +65,23 @@ public class DtoServiceTests
     }
 
     [Fact]
+    public void GetBaseItemDto_OmitsMinimumPremiereDate()
+    {
+        var book = new Folder
+        {
+            Name = "Local audio book",
+            PremiereDate = DateTime.MinValue,
+            ProductionYear = 2026
+        };
+
+        var dto = _dtoService.GetBaseItemDto(book, new DtoOptions(false));
+
+        Assert.Null(dto.PremiereDate);
+        Assert.Equal(2026, dto.ProductionYear);
+        Assert.Equal(BaseItemKind.Folder, dto.Type);
+    }
+
+    [Fact]
     public void GetBaseItemDto_Episode_AttachesSeasonPosterAsParentPrimaryImage()
     {
         var (episode, season, _) = BuildEpisode(seasonHasPoster: true);

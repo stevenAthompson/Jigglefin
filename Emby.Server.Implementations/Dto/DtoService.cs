@@ -1251,7 +1251,9 @@ namespace Emby.Server.Implementations.Dto
                 dto.EnableMediaSourceDisplay = item.EnableMediaSourceDisplay;
             }
 
-            dto.PremiereDate = item.PremiereDate;
+            // Do not expose an untagged audio file's minimum-date sentinel as a
+            // real premiere date (clients otherwise display January 1, year 1).
+            dto.PremiereDate = item.PremiereDate is { Year: > 1 } ? item.PremiereDate : null;
             dto.ProductionYear = item.ProductionYear;
 
             if (options.ContainsField(ItemFields.ProviderIds))

@@ -16,6 +16,7 @@ using Jellyfin.Api.Auth.SyncPlayAccessPolicy;
 using Jellyfin.Api.Auth.UserPermissionPolicy;
 using Jellyfin.Api.Constants;
 using Jellyfin.Api.Controllers;
+using Jellyfin.Api.Filters;
 using Jellyfin.Api.Formatters;
 using Jellyfin.Api.ModelBinders;
 using Jellyfin.Data.Enums;
@@ -121,6 +122,8 @@ namespace Jellyfin.Server.Extensions
                 {
                     // Allow requester to change between camelCase and PascalCase
                     opts.RespectBrowserAcceptHeader = true;
+
+                    opts.Filters.Add<AndroidTvAudioBookCompatibilityFilter>();
 
                     opts.OutputFormatters.Insert(0, new CamelCaseJsonProfileFormatter());
                     opts.OutputFormatters.Insert(0, new PascalCaseJsonProfileFormatter());

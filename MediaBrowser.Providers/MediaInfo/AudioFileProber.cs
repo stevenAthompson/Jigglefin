@@ -385,7 +385,9 @@ namespace MediaBrowser.Providers.MediaInfo
                 audio.ParentIndexNumber ??= trackDiscNumber;
             }
 
-            if (track.Date.HasValue)
+            // ATL can return DateTime.MinValue for a file without a release-date tag.
+            // Treat that sentinel as missing so it cannot override local sidecar metadata.
+            if (track.Date is { Year: > 1 })
             {
                 audio.PremiereDate = track.Date;
             }
