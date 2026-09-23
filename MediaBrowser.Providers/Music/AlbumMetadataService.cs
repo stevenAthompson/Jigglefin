@@ -82,10 +82,10 @@ public class AlbumMetadataService : MetadataService<MusicAlbum, AlbumInfo>
 
         if (isFullRefresh || currentUpdateType > ItemUpdateType.None)
         {
-            // A local album.nfo title takes precedence over album names inferred
+            // A local album sidecar title takes precedence over album names inferred
             // from tracks or their containing folder.
             if (!item.LockedFields.Contains(MetadataField.Name)
-                && (string.IsNullOrEmpty(item.Path) || !FileSystem.FileExists(Path.Combine(item.Path, "album.nfo"))))
+                && !HasLocalAlbumSidecar(item.Path))
             {
                 var name = children.Select(i => i.Album).FirstOrDefault(i => !string.IsNullOrEmpty(i));
 
@@ -244,14 +244,13 @@ public class AlbumMetadataService : MetadataService<MusicAlbum, AlbumInfo>
         var targetItem = target.Item;
 
         // A validation refresh normally keeps an existing album name, even when
-        // album.nfo supplied a title. Keep the local sidecar authoritative when
+        // album.nfo or album.xml supplied a title. Keep the local sidecar authoritative when
         // the provider result is merged back into the physical album item.
         if (!replaceData
             && mergeMetadataSettings
             && !lockedFields.Contains(MetadataField.Name)
             && !string.IsNullOrEmpty(sourceItem.Name)
-            && !string.IsNullOrEmpty(targetItem.Path)
-            && FileSystem.FileExists(Path.Combine(targetItem.Path, "album.nfo")))
+            && HasLocalAlbumSidecar(targetItem.Path))
         {
             targetItem.Name = sourceItem.Name;
         }
@@ -280,4 +279,9 @@ public class AlbumMetadataService : MetadataService<MusicAlbum, AlbumInfo>
             SetProviderId(sourceItem, targetItem, MetadataProvider.MusicBrainzReleaseGroup);
         }
     }
+
+    private bool HasLocalAlbumSidecar(string? path)
+        => !string.IsNullOrEmpty(path)
+            && (FileSystem.FileExists(Path.Combine(path, "album.nfo"))
+                || FileSystem.FileExists(Path.Combine(path, "album.xml")));
 }

@@ -78,7 +78,8 @@ fields. If XML and NFO coexist, NFO takes priority.
 Another integration test checks `series.xml` in a show directory below a physical TV category.
 The normal `Series` item receives its local title, year, and overview, while the category remains
 visible as a folder. A coexisting `tvshow.nfo` takes priority over the series XML.
-XML readers for media kinds beyond movies and series remain work in progress.
+Jigglefin also reads legacy-style `artist.xml` and `album.xml` in physical music directories.
+XML readers for books and other media kinds remain work in progress.
 
 A movie category with a single loose file, such as `Action/Loose Movie.mp4`, remains a physical
 `Folder` with a `Movie` child. A dedicated movie directory still resolves to a `Movie` when its
@@ -94,8 +95,10 @@ Music directories with tracks alongside an unrelated child directory likewise st
 items, so the tracks and child directory remain visible. A normal album without such children,
 including a recognized `Disc 1`-style multi-disc layout, still resolves as `MusicAlbum`.
 Within a physical genre/artist/album tree, Kodi-style `artist.nfo` and `album.nfo` supply the
-standard `MusicArtist` and `MusicAlbum` metadata. An album's local NFO title takes precedence over
-names inferred from its tracks, including on subsequent library scans.
+standard `MusicArtist` and `MusicAlbum` metadata. Local `artist.xml` and `album.xml` supply the same
+item kinds and common title, year, and overview fields when NFO is absent. NFO takes priority when
+both sidecars are present. An album's local sidecar title takes precedence over names inferred from
+its tracks, including on subsequent library scans.
 
 Further resolver work will preserve more physical directory arrangements while assigning compatible
 Jellyfin item kinds from deterministic path rules and local sidecars. In particular, ambiguous

@@ -21,6 +21,96 @@ namespace Jellyfin.Server.Integration.Tests.Controllers;
 public sealed class LocalSidecarLibraryTests
 {
     [Fact]
+    public async Task EmbyMusicXml_ProvidesArtistAndAlbumMetadataThroughPhysicalFolders()
+    {
+        var testRoot = Path.Combine(Path.GetTempPath(), "jigglefin-music-xml-" + Guid.NewGuid().ToString("N"));
+        var artistFolder = Path.Combine(testRoot, "Genres", "Physical Artist");
+        var albumFolder = Path.Combine(artistFolder, "Physical Album");
+        Directory.CreateDirectory(albumFolder);
+        await File.WriteAllBytesAsync(
+            Path.Combine(albumFolder, "Track 01.mp3"),
+            [],
+            TestContext.Current.CancellationToken);
+        await File.WriteAllTextAsync(
+            Path.Combine(artistFolder, "artist.xml"),
+            "<Artist><LocalTitle>Local XML Artist</LocalTitle><Overview>Artist from XML.</Overview></Artist>",
+            TestContext.Current.CancellationToken);
+        await File.WriteAllTextAsync(
+            Path.Combine(albumFolder, "album.xml"),
+            "<Item><LocalTitle>Local XML Album</LocalTitle><ProductionYear>2023</ProductionYear><Overview>Album from XML.</Overview></Item>",
+            TestContext.Current.CancellationToken);
+
+        using var factory = new JellyfinApplicationFactory();
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.AddAuthHeader(await AuthHelper.CompleteStartupAsync(client));
+        var libraryName = "Jigglefin music XML test " + Guid.NewGuid().ToString("N");
+        var created = false;
+
+        try
+        {
+            using var createResponse = await client.PostAsJsonAsync(
+                $"Library/VirtualFolders?name={Uri.EscapeDataString(libraryName)}&collectionType=music&paths={Uri.EscapeDataString(testRoot)}&refreshLibrary=false",
+                new AddVirtualFolderDto { LibraryOptions = new LibraryOptions() },
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.NoContent, createResponse.StatusCode);
+            created = true;
+
+            var libraryManager = (LibraryManager)factory.Services.GetRequiredService<ILibraryManager>();
+            await libraryManager.ValidateMediaLibraryInternal(new Progress<double>(), TestContext.Current.CancellationToken);
+
+            var views = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                "UserViews?presetViews=music", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(views);
+            var library = Assert.Single(views.Items, item => item.Name == libraryName);
+            var groups = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={library.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(groups);
+            var genres = Assert.Single(groups.Items, item => item.Name == "Genres");
+            Assert.Equal(BaseItemKind.Folder, genres.Type);
+            var artists = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={genres.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(artists);
+            var artist = Assert.Single(artists.Items, item => item.Name == "Local XML Artist");
+            Assert.Equal(BaseItemKind.MusicArtist, artist.Type);
+            var albums = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={artist.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(albums);
+            var album = Assert.Single(albums.Items, item => item.Name == "Local XML Album");
+            Assert.Equal(BaseItemKind.MusicAlbum, album.Type);
+            Assert.Equal(2023, album.ProductionYear);
+            var artistDetails = await client.GetFromJsonAsync<BaseItemDto>(
+                $"Items/{artist.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.Equal("Artist from XML.", artistDetails?.Overview);
+            var albumDetails = await client.GetFromJsonAsync<BaseItemDto>(
+                $"Items/{album.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.Equal("Album from XML.", albumDetails?.Overview);
+            var tracks = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={album.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(tracks);
+            Assert.Single(tracks.Items, item => item.Type == BaseItemKind.Audio);
+
+            await libraryManager.ValidateMediaLibraryInternal(new Progress<double>(), TestContext.Current.CancellationToken);
+            var refreshedAlbums = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={artist.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(refreshedAlbums);
+            Assert.Single(refreshedAlbums.Items, item => item.Name == "Local XML Album");
+        }
+        finally
+        {
+            if (created)
+            {
+                using var deleteResponse = await client.DeleteAsync(
+                    $"Library/VirtualFolders?name={Uri.EscapeDataString(libraryName)}&refreshLibrary=false",
+                    TestContext.Current.CancellationToken);
+                Assert.Equal(HttpStatusCode.NoContent, deleteResponse.StatusCode);
+            }
+
+            Directory.Delete(testRoot, true);
+        }
+    }
+
+    [Fact]
     public async Task MusicNfo_ProvidesLocalArtistAndAlbumMetadataThroughPhysicalFolders()
     {
         var testRoot = Path.Combine(Path.GetTempPath(), "jigglefin-music-nfo-" + Guid.NewGuid().ToString("N"));
@@ -36,8 +126,16 @@ public sealed class LocalSidecarLibraryTests
             "<artist><name>Local NFO Artist</name><genre>Jazz</genre></artist>",
             TestContext.Current.CancellationToken);
         await File.WriteAllTextAsync(
+            Path.Combine(artistFolder, "artist.xml"),
+            "<Artist><LocalTitle>Wrong XML Artist</LocalTitle></Artist>",
+            TestContext.Current.CancellationToken);
+        await File.WriteAllTextAsync(
             Path.Combine(albumFolder, "album.nfo"),
             "<album><title>Local NFO Album</title><year>2022</year><plot>Local album description.</plot></album>",
+            TestContext.Current.CancellationToken);
+        await File.WriteAllTextAsync(
+            Path.Combine(albumFolder, "album.xml"),
+            "<Item><LocalTitle>Wrong XML Album</LocalTitle><ProductionYear>2001</ProductionYear></Item>",
             TestContext.Current.CancellationToken);
 
         using var factory = new JellyfinApplicationFactory();

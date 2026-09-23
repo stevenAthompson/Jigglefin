@@ -46,7 +46,8 @@ namespace Emby.Server.Implementations.Library.Resolvers.Audio
                 return null;
             }
 
-            if (args.ContainsFileSystemEntryByName("artist.nfo"))
+            if (args.ContainsFileSystemEntryByName("artist.nfo")
+                || args.ContainsFileSystemEntryByName("artist.xml"))
             {
                 return new MusicArtist();
             }
