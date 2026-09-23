@@ -235,6 +235,9 @@ try {
     $audioBookDirectory = Join-Path $bookRoot 'Fantasy/Smoke Audio Book'
     New-Item -ItemType Directory -Path $audioBookDirectory | Out-Null
     Copy-Item -LiteralPath $sampleAudioBook -Destination (Join-Path $audioBookDirectory 'Smoke Audio Book.m4b')
+    [System.IO.File]::WriteAllText(
+        (Join-Path $audioBookDirectory 'audiobook.xml'),
+        '<Item><LocalTitle>Smoke Audio Book</LocalTitle><ProductionYear>2026</ProductionYear><Overview>Local audiobook sidecar metadata.</Overview></Item>')
     $bookLibraryName = 'Jigglefin Package Smoke Books'
     $bookLibraryUrl = "$baseUrl/Library/VirtualFolders?name=$([Uri]::EscapeDataString($bookLibraryName))&collectionType=books&paths=$([Uri]::EscapeDataString($bookRoot))&refreshLibrary=true"
     Invoke-WebRequest -Uri $bookLibraryUrl -Method Post -Headers $authenticatedHeaders -ContentType 'application/json' `
@@ -273,6 +276,10 @@ try {
     }
     if (-not $audioBook) {
         throw "The packaged server did not expose the sample audiobook through physical folders within $TimeoutSeconds seconds. Last observation: $lastBookBrowseState"
+    }
+    $audioBookDetails = Invoke-RestMethod -Uri "$baseUrl/Items/$($audioBook.Id)" -Headers $authenticatedHeaders -TimeoutSec 15
+    if ($audioBookDetails.ProductionYear -ne 2026 -or $audioBookDetails.Overview -ne 'Local audiobook sidecar metadata.') {
+        throw 'The packaged server did not apply local audiobook XML metadata to standard item details.'
     }
 
     $audioPlaybackPayload = @{
@@ -319,7 +326,7 @@ try {
     }
 
     $smokeSucceeded = $true
-    Write-Host "Packaged server smoke test passed: API version $($publicInfo.Version), bundled Web HTTP $($webResponse.StatusCode), login, movie and audiobook folder browse, local NFO metadata, client playback negotiation, external subtitle, and direct media streams."
+    Write-Host "Packaged server smoke test passed: API version $($publicInfo.Version), bundled Web HTTP $($webResponse.StatusCode), login, movie and audiobook folder browse, local NFO and audiobook XML metadata, client playback negotiation, external subtitle, and direct media streams."
 } catch {
     Write-Warning "Package smoke test failed. Isolated profile and logs: $smokeProfile"
     foreach ($logPath in @($stdout, $stderr)) {

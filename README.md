@@ -50,12 +50,14 @@ open and potentially migrate that database. Jellyfin and Jigglefin cannot both b
   lists remain compatible with Jellyfin Web. Same-named movie, book, and audiobook files beside
   directories keep both paths browseable; loose audiobook names come from filenames.
 - Kodi-style NFO and legacy-style `movie.xml`, `<movie-file>.xml`, `series.xml`,
-  `<episode-file>.xml`, `artist.xml`, `album.xml`, and `<book-file>.xml` sidecars, local artwork, embedded tags, and
+  `<episode-file>.xml`, `artist.xml`, `album.xml`, `<book-file>.xml`, and `<audiobook-file>.xml`
+  sidecars, local artwork, embedded tags, and
   filenames are used ahead of remote metadata. Network metadata providers are disabled by
   default for new libraries; explicit provider choices remain available. Book OPF sidecars are
   supported without applying a shared `metadata.opf` to unrelated books in a mixed folder.
-  A shared `book.xml` is read only when its folder has exactly one book file; OPF takes precedence
-  over book XML. Other legacy XML media types remain work in progress.
+  A shared `book.xml` or `audiobook.xml` is read only when its folder has exactly one book or
+  audiobook media file; OPF takes precedence over book XML. Other legacy XML media types remain
+  work in progress.
 - Media library entries are presented as folders in UserViews so standard clients use their
   built-in folder browser. Web folder-list responses also keep shows, seasons, artists, and albums
   navigable; direct details retain their standard media types.
