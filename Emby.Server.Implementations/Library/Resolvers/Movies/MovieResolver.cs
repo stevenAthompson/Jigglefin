@@ -412,6 +412,8 @@ namespace Emby.Server.Implementations.Library.Resolvers.Movies
             where T : Video, new()
         {
             var multiDiscFolders = new List<FileSystemMetadata>();
+            VideoType? folderRipType = null;
+            var folderRipCount = 0;
 
             var libraryOptions = args.LibraryOptions;
             var supportPhotos = collectionType == CollectionType.homevideos && libraryOptions.EnablePhotos;
@@ -431,37 +433,24 @@ namespace Emby.Server.Implementations.Library.Resolvers.Movies
 
                     if (IsDvdDirectory(child.FullName, filename, directoryService))
                     {
-                        var movie = new T
-                        {
-                            Path = path,
-                            VideoType = VideoType.Dvd
-                        };
-                        Set3DFormat(movie);
-                        return movie;
+                        folderRipType = VideoType.Dvd;
+                        folderRipCount++;
+                        continue;
                     }
 
                     if (IsBluRayDirectory(filename))
                     {
-                        var movie = new T
-                        {
-                            Path = path,
-                            VideoType = VideoType.BluRay
-                        };
-                        Set3DFormat(movie);
-                        return movie;
+                        folderRipType = VideoType.BluRay;
+                        folderRipCount++;
+                        continue;
                     }
 
                     multiDiscFolders.Add(child);
                 }
                 else if (IsDvdFile(filename))
                 {
-                    var movie = new T
-                    {
-                        Path = path,
-                        VideoType = VideoType.Dvd
-                    };
-                    Set3DFormat(movie);
-                    return movie;
+                    folderRipType = VideoType.Dvd;
+                    folderRipCount++;
                 }
                 else if (supportPhotos && PhotoResolver.IsImageFile(child.FullName, _imageProcessor))
                 {
@@ -475,12 +464,30 @@ namespace Emby.Server.Implementations.Library.Resolvers.Movies
             var result = ResolveVideos<T>(parent, fileSystemEntries, SupportsMultiVersion, collectionType, parseName) ??
                 new MultiItemResolverResult();
 
+            // A disc structure is a movie only when it is the folder's sole media.
+            // Otherwise the folder must stay browseable so sibling files and folders
+            // are not hidden behind the disc-rip item.
+            var hasOnlyDvdStructureFiles = folderRipType == VideoType.Dvd
+                && fileSystemEntries.Any(i => !i.IsDirectory && IsDvdFile(i.Name))
+                && result.Items.All(i => string.Equals(Path.GetExtension(i.Path), ".vob", StringComparison.OrdinalIgnoreCase)
+                    || string.Equals(Path.GetExtension(i.Path), ".ifo", StringComparison.OrdinalIgnoreCase));
+            if (folderRipCount == 1 && multiDiscFolders.Count == 0 && (result.Items.Count == 0 || hasOnlyDvdStructureFiles))
+            {
+                var movie = new T
+                {
+                    Path = path,
+                    VideoType = folderRipType.Value
+                };
+                Set3DFormat(movie);
+                return movie;
+            }
+
             var isPhotosCollection = collectionType == CollectionType.homevideos || collectionType == CollectionType.photos;
             if (!isPhotosCollection && result.Items.Count == 1)
             {
                 var videoPath = result.Items[0].Path;
                 var hasPhotos = photos.Any(i => !PhotoResolver.IsOwnedByResolvedMedia(videoPath, i.Name));
-                var hasOtherSubfolders = multiDiscFolders.Count > 0;
+                var hasOtherMediaStructure = multiDiscFolders.Count > 0 || folderRipCount > 0;
 
                 // A single loose video does not make its containing directory a movie.
                 // Preserve category folders (for example, Action/Film.mp4) while
@@ -493,7 +500,7 @@ namespace Emby.Server.Implementations.Library.Resolvers.Movies
                 var isNamedMovieFolder = string.Equals(result.Items[0].Name, folderName, StringComparison.OrdinalIgnoreCase)
                     || string.Equals(result.Items[0].Name, parsedFolderName, StringComparison.OrdinalIgnoreCase);
 
-                if (!hasPhotos && !hasOtherSubfolders && (hasMovieSidecar || isNamedMovieFolder))
+                if (!hasPhotos && !hasOtherMediaStructure && (hasMovieSidecar || isNamedMovieFolder))
                 {
                     var movie = (T)result.Items[0];
                     movie.IsInMixedFolder = false;
@@ -505,7 +512,7 @@ namespace Emby.Server.Implementations.Library.Resolvers.Movies
                     return movie;
                 }
             }
-            else if (result.Items.Count == 0 && multiDiscFolders.Count > 0)
+            else if (result.Items.Count == 0 && folderRipCount == 0 && multiDiscFolders.Count > 0)
             {
                 return GetMultiDiscMovie<T>(multiDiscFolders, directoryService);
             }
@@ -563,7 +570,9 @@ namespace Emby.Server.Implementations.Library.Resolvers.Movies
                 return null;
             }
 
-            if (folderPaths.Count == 0)
+            // Do not turn a mixed directory into a movie by discarding its
+            // unrelated sibling folders while identifying disc parts.
+            if (folderPaths.Count == 0 || folderPaths.Count != multiDiscFolders.Count)
             {
                 return null;
             }

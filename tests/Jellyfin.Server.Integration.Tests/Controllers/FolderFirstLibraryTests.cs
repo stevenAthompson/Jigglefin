@@ -23,6 +23,97 @@ namespace Jellyfin.Server.Integration.Tests.Controllers;
 public sealed class FolderFirstLibraryTests
 {
     [Fact]
+    public async Task MovieDiscRips_WithOtherPhysicalSubfolders_RemainBrowseable()
+    {
+        var testRoot = Path.Combine(Path.GetTempPath(), "jigglefin-movie-disc-subfolders-" + Guid.NewGuid().ToString("N"));
+        var categoryFolder = Path.Combine(testRoot, "Action");
+        var directRipFolder = Path.Combine(categoryFolder, "Disc Feature");
+        var directRipVideoTs = Path.Combine(directRipFolder, "VIDEO_TS");
+        var stackedRipFolder = Path.Combine(categoryFolder, "Disc Collection");
+        var stackedRipVideoTs = Path.Combine(stackedRipFolder, "Disc 1", "VIDEO_TS");
+        var standaloneRipVideoTs = Path.Combine(categoryFolder, "Standalone DVD", "VIDEO_TS");
+        Directory.CreateDirectory(directRipVideoTs);
+        Directory.CreateDirectory(stackedRipVideoTs);
+        Directory.CreateDirectory(standaloneRipVideoTs);
+        Directory.CreateDirectory(Path.Combine(directRipFolder, "Bonus Film"));
+        Directory.CreateDirectory(Path.Combine(stackedRipFolder, "Other Film"));
+        foreach (var videoTsFolder in new[] { directRipVideoTs, stackedRipVideoTs, standaloneRipVideoTs })
+        {
+            await File.WriteAllBytesAsync(Path.Combine(videoTsFolder, "VIDEO_TS.IFO"), [], TestContext.Current.CancellationToken);
+            await File.WriteAllBytesAsync(Path.Combine(videoTsFolder, "VTS_01_1.VOB"), [], TestContext.Current.CancellationToken);
+        }
+
+        await File.WriteAllBytesAsync(Path.Combine(directRipFolder, "Bonus Film", "Bonus Film.mp4"), [], TestContext.Current.CancellationToken);
+        await File.WriteAllBytesAsync(Path.Combine(directRipFolder, "Disc Feature.mp4"), [], TestContext.Current.CancellationToken);
+        await File.WriteAllBytesAsync(Path.Combine(stackedRipFolder, "Other Film", "Other Film.mp4"), [], TestContext.Current.CancellationToken);
+
+        using var factory = new JellyfinApplicationFactory();
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.AddAuthHeader(await AuthHelper.CompleteStartupAsync(client));
+        var libraryName = "Jigglefin movie disc subfolders " + Guid.NewGuid().ToString("N");
+        var created = false;
+
+        try
+        {
+            using var createResponse = await client.PostAsJsonAsync(
+                $"Library/VirtualFolders?name={Uri.EscapeDataString(libraryName)}&collectionType=movies&paths={Uri.EscapeDataString(testRoot)}&refreshLibrary=false",
+                new AddVirtualFolderDto { LibraryOptions = new LibraryOptions() },
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.NoContent, createResponse.StatusCode);
+            created = true;
+
+            var libraryManager = (LibraryManager)factory.Services.GetRequiredService<ILibraryManager>();
+            await libraryManager.ValidateMediaLibraryInternal(new Progress<double>(), TestContext.Current.CancellationToken);
+
+            var views = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                "UserViews?presetViews=movies", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(views);
+            var library = Assert.Single(views.Items, item => item.Name == libraryName);
+            var rootItems = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={library.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(rootItems);
+            var action = Assert.Single(rootItems.Items, item => item.Name == "Action");
+            var collections = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={action.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(collections);
+            Assert.Equal(BaseItemKind.Movie, Assert.Single(collections.Items, item => item.Name == "Standalone DVD").Type);
+
+            foreach (var (folderName, siblingName) in new[]
+            {
+                ("Disc Feature", "Bonus Film"),
+                ("Disc Collection", "Other Film")
+            })
+            {
+                var folder = Assert.Single(collections.Items, item => item.Name == folderName);
+                Assert.Equal(BaseItemKind.Folder, folder.Type);
+                var children = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                    $"Items?parentId={folder.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+                Assert.NotNull(children);
+                Assert.Single(children.Items, item => item.Name == siblingName);
+                var disc = Assert.Single(children.Items, item => item.Name == (folderName == "Disc Feature" ? "VIDEO_TS" : "Disc 1"));
+                Assert.Equal(BaseItemKind.Movie, disc.Type);
+                if (folderName == "Disc Feature")
+                {
+                    Assert.Equal(BaseItemKind.Movie, Assert.Single(children.Items, item => item.Name == "Disc Feature").Type);
+                }
+            }
+        }
+        finally
+        {
+            if (created)
+            {
+                using var deleteResponse = await client.DeleteAsync(
+                    $"Library/VirtualFolders?name={Uri.EscapeDataString(libraryName)}&refreshLibrary=false",
+                    TestContext.Current.CancellationToken);
+                Assert.Equal(HttpStatusCode.NoContent, deleteResponse.StatusCode);
+            }
+
+            Directory.Delete(testRoot, true);
+        }
+    }
+
+    [Fact]
     public async Task MusicAlbum_WithOtherPhysicalSubfolder_RemainsBrowseable()
     {
         var testRoot = Path.Combine(Path.GetTempPath(), "jigglefin-music-subfolder-" + Guid.NewGuid().ToString("N"));

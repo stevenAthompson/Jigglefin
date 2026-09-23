@@ -273,10 +273,11 @@ namespace Jellyfin.Networking.Tests
         [InlineData("10.10.10.10", "eth16", false, "eth16")]
         // User on internal network, no binding specified - so result is the 1st internal.
         [InlineData("192.168.1.1", "", false, "eth16")]
+        // Use a fixed external address so the test does not depend on DNS.
         // User on external network, internal binding only - so result is the 1st internal.
-        [InlineData("jellyfin.org", "eth16", false, "eth16")]
+        [InlineData("198.51.100.10", "eth16", false, "eth16")]
         // User on external network, no binding - so result is the 1st external.
-        [InlineData("jellyfin.org", "", false, "eth11")]
+        [InlineData("198.51.100.10", "", false, "eth11")]
         // Dns failure - should skip the test.
         // https://en.wikipedia.org/wiki/.test
         [InlineData("invalid.domain.test", "", false, "eth11")]
@@ -337,10 +338,10 @@ namespace Jellyfin.Networking.Tests
         [InlineData("192.168.1.1", "192.168.1.0/24", "", false, "external=http://helloworld.com", "eth16")]
 
         // User on external network, internal binding only - so assumption is a proxy forward, return external override.
-        [InlineData("jellyfin.org", "192.168.1.0/24", "eth16", false, "external=http://helloworld.com", "http://helloworld.com")]
+        [InlineData("198.51.100.10", "192.168.1.0/24", "eth16", false, "external=http://helloworld.com", "http://helloworld.com")]
 
         // User on external network, no binding - so result is the 1st external which is overridden.
-        [InlineData("jellyfin.org", "192.168.1.0/24", "", false, "external=http://helloworld.com", "http://helloworld.com")]
+        [InlineData("198.51.100.10", "192.168.1.0/24", "", false, "external=http://helloworld.com", "http://helloworld.com")]
 
         // User assumed to be internal, no binding - so result is the 1st matching interface.
         [InlineData("", "192.168.1.0/24", "", false, "all=http://helloworld.com", "eth16")]
