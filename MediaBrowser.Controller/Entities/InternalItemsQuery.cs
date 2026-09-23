@@ -76,9 +76,14 @@ namespace MediaBrowser.Controller.Entities
         /// Gets a value indicating whether the query carries any criteria that narrows the
         /// result set, as opposed to user context, pagination, sorting or DTO options.
         /// </summary>
-        public bool HasFilters =>
-            IncludeItemTypes.Length > 0
-            || ExcludeItemTypes.Length > 0
+        public bool HasFilters => IncludeItemTypes.Length > 0 || HasFiltersOtherThanIncludeItemTypes;
+
+        /// <summary>
+        /// Gets a value indicating whether the query has narrowing criteria besides its
+        /// included item kinds. Folder browsers often include a broad set of kinds.
+        /// </summary>
+        public bool HasFiltersOtherThanIncludeItemTypes =>
+            ExcludeItemTypes.Length > 0
             || Genres.Count > 0
             || GenreIds.Count > 0
             || Years.Length > 0

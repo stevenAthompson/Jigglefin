@@ -67,8 +67,9 @@ open and potentially migrate that database. Jellyfin and Jigglefin cannot both b
   Before uploading the ZIP, CI starts the packaged server with an isolated profile, completes
   setup with a throwaway password, and checks authenticated movie and audiobook folder browsing,
   local movie NFO metadata, client playback negotiation, external subtitles, direct streaming,
-  and headless Web playback. Native client coverage and more ambiguous mixed-content layouts
-  remain work in progress.
+  and headless Web playback. A Swiftfin-style API test checks folder browsing with broad item-type
+  filters, including physical series and music albums. Native client UI coverage and more
+  ambiguous mixed-content layouts remain work in progress.
 
 The detailed design and upstream merge strategy are in [JIGGLEFIN.md](JIGGLEFIN.md).
 

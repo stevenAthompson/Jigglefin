@@ -50,6 +50,16 @@ collection type, media item kinds, and deeper API contracts remain unchanged. An
 with unmodified Jellyfin Web verified navigation from the library tile through `Action` to a loose
 movie and through `Comedy` to a dedicated movie item.
 
+Native folder browsers such as
+[Swiftfin](https://github.com/jellyfin/Swiftfin/blob/main/Shared/Objects/Libraries/ItemLibrary.swift)
+can send a broad `includeItemTypes` list containing
+`Folder` and `sortBy=SortName` instead of Jellyfin Web's folder-field signature. Such requests
+list the immediate physical children and present navigable series and music albums as folders.
+Explicit recursive queries continue to list media throughout the library, and direct item
+details keep their standard media kinds. An integration test exercises this native
+request shape through the legacy user-scoped API as well as the current endpoints. This is API
+contract coverage, not yet a full Swiftfin UI test.
+
 The resolver chain now leaves an arbitrary TV grouping directory as a `Folder` unless it contains
 `tvshow.nfo`, `series.xml`, or episode/season evidence. A music grouping directory is not inferred to be a
 `MusicArtist` merely because it contains an album; an explicit `artist.nfo` or `artist.xml`

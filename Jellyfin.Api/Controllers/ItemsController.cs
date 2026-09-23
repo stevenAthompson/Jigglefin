@@ -593,22 +593,25 @@ public class ItemsController : BaseJellyfinApiController
         var hasWebFolderFields = fields.Contains(ItemFields.Path)
             && fields.Contains(ItemFields.ChildCount)
             && fields.Contains(ItemFields.MediaSourceCount);
+        var hasBroadFolderTypeFilter = query.IncludeItemTypes.Contains(BaseItemKind.Folder)
+            && !query.HasFiltersOtherThanIncludeItemTypes;
         var isMusicDetailsSort = query.OrderBy.Count > 0
             && (query.OrderBy[0].OrderBy is ItemSortBy.ParentIndexNumber or ItemSortBy.IndexNumber
                 || (query.OrderBy.Count > 1
                     && query.OrderBy[0].OrderBy == ItemSortBy.PremiereDate
                     && query.OrderBy[1].OrderBy == ItemSortBy.ProductionYear));
         var isPhysicalFolderBrowse = !query.Recursive
-            && !query.HasFilters
+            && (!query.HasFilters || hasBroadFolderTypeFilter)
             && !isMusicDetailsSort
-            && (hasWebFolderFields
+            && (hasBroadFolderTypeFilter
+                || hasWebFolderFields
                 || (query.OrderBy.Count == 2
                     && query.OrderBy[0].OrderBy == ItemSortBy.IsFolder
                     && query.OrderBy[1].OrderBy == ItemSortBy.SortName));
 
         if (item is MusicAlbum
             && !query.Recursive
-            && !query.HasFilters
+            && (!query.HasFilters || hasBroadFolderTypeFilter)
             && (query.OrderBy.Count == 0 || isPhysicalFolderBrowse))
         {
             query.DisplayAlbumFolders = true;
