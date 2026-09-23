@@ -43,6 +43,7 @@ try {
     $baseUrl = 'http://127.0.0.1:8096'
     $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
     $publicInfo = $null
+    $webResponse = $null
     while ([DateTime]::UtcNow -lt $deadline) {
         $serverProcess.Refresh()
         if ($serverProcess.HasExited) {
@@ -52,28 +53,28 @@ try {
         try {
             $candidate = Invoke-RestMethod -Uri "$baseUrl/System/Info/Public" -TimeoutSec 3
             if ($candidate -isnot [string] -and $candidate.Version -and $candidate.Id) {
-                $publicInfo = $candidate
-                break
+                # Jellyfin's temporary setup server exposes this API before the real web app is ready.
+                $candidateWeb = Invoke-WebRequest -Uri "$baseUrl/web/index.html" -TimeoutSec 3
+                if ($candidateWeb.StatusCode -eq 200 -and $candidateWeb.Content -match '<html') {
+                    $publicInfo = $candidate
+                    $webResponse = $candidateWeb
+                    break
+                }
             }
         } catch {
-            # A fresh profile may briefly serve a setup/status page before the API is ready.
+            # Startup temporarily returns 503 HTML from /web and may briefly rebind the port.
         }
         Start-Sleep -Milliseconds 1000
     }
 
     if ($null -eq $publicInfo) {
-        throw "Packaged server did not answer its public API with a version and ID within $TimeoutSeconds seconds."
+        throw "Packaged server did not serve both its public API and bundled Web within $TimeoutSeconds seconds."
     }
 
     $listeners = @(Get-NetTCPConnection -LocalPort 8096 -State Listen -ErrorAction Stop)
     if (-not ($listeners | Where-Object OwningProcess -EQ $serverProcess.Id)) {
         throw "Port 8096 is not owned by the packaged server process $($serverProcess.Id)."
     }
-    $webResponse = Invoke-WebRequest -Uri "$baseUrl/web/index.html" -TimeoutSec 15
-    if ($webResponse.StatusCode -ne 200 -or $webResponse.Content -notmatch '<html') {
-        throw 'The packaged server did not serve the bundled Jellyfin Web index page.'
-    }
-
     Write-Host "Packaged server smoke test passed: API version $($publicInfo.Version), bundled Web HTTP $($webResponse.StatusCode)."
 } catch {
     Write-Warning "Package smoke test failed. Isolated profile and logs: $smokeProfile"
