@@ -48,7 +48,7 @@ public class FindExtrasTests
 
         _libraryManager = fixture.Build<Emby.Server.Implementations.Library.LibraryManager>().Do(s => s.AddParts(
                 fixture.Create<IEnumerable<IResolverIgnoreRule>>(),
-                [new AudioResolver(fixture.Create<NamingOptions>())],
+                [new AudioResolver(fixture.Create<NamingOptions>(), fixture.Create<IDirectoryService>())],
                 fixture.Create<IEnumerable<IIntroProvider>>(),
                 fixture.Create<IEnumerable<IBaseItemComparer>>(),
                 fixture.Create<IEnumerable<ILibraryPostScanTask>>()))

@@ -411,6 +411,19 @@ namespace Emby.Server.Implementations.Library.Resolvers.Movies
         private T FindMovie<T>(ItemResolveArgs args, string path, Folder parent, List<FileSystemMetadata> fileSystemEntries, IDirectoryService directoryService, CollectionType? collectionType, bool parseName)
             where T : Video, new()
         {
+            // A same-named loose video beside this directory is a distinct physical
+            // item. Keep the directory browseable instead of presenting two movie
+            // tiles with no route into the nested file.
+            var folderName = Path.GetFileName(Path.TrimEndingDirectorySeparator(path));
+            if (!string.IsNullOrEmpty(parent?.Path)
+                && Directory.Exists(parent.Path)
+                && directoryService.GetFilePaths(parent.Path).Any(siblingPath =>
+                    string.Equals(Path.GetFileNameWithoutExtension(siblingPath), folderName, StringComparison.OrdinalIgnoreCase)
+                    && VideoResolver.IsVideoFile(siblingPath, NamingOptions)))
+            {
+                return null;
+            }
+
             var multiDiscFolders = new List<FileSystemMetadata>();
             VideoType? folderRipType = null;
             var folderRipCount = 0;
@@ -492,7 +505,6 @@ namespace Emby.Server.Implementations.Library.Resolvers.Movies
                 // A single loose video does not make its containing directory a movie.
                 // Preserve category folders (for example, Action/Film.mp4) while
                 // retaining the familiar Film (2020)/Film (2020).mp4 layout.
-                var folderName = Path.GetFileName(Path.TrimEndingDirectorySeparator(path));
                 var parsedFolderName = VideoResolver.CleanDateTime(folderName, NamingOptions).Name;
                 var hasMovieSidecar = fileSystemEntries.Any(i => !i.IsDirectory
                     && (string.Equals(i.Name, "movie.nfo", StringComparison.OrdinalIgnoreCase)

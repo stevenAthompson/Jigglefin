@@ -1,9 +1,12 @@
+using System.Collections.Generic;
 using System.Linq;
 using Emby.Naming.Common;
 using Emby.Server.Implementations.Library.Resolvers.Audio;
 using Jellyfin.Data.Enums;
+using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Entities.Audio;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.IO;
 using Moq;
 using Xunit;
@@ -13,6 +16,24 @@ namespace Jellyfin.Server.Implementations.Tests.Library;
 public class AudioResolverTests
 {
     private static readonly NamingOptions _namingOptions = new();
+
+    [Fact]
+    public void ResolveMultiple_LooseAudioBook_UsesFileNameAndYearNotCategory()
+    {
+        var resolver = new AudioResolver(_namingOptions, Mock.Of<IDirectoryService>());
+        var parent = new Folder { Path = "/books/Listening", Name = "Listening" };
+        var files = new List<FileSystemMetadata>
+        {
+            new() { FullName = "/books/Listening/Dated Audio (2021).m4b", Name = "Dated Audio (2021).m4b" }
+        };
+
+        var result = resolver.ResolveMultiple(parent, files, CollectionType.books, Mock.Of<IDirectoryService>());
+
+        Assert.NotNull(result);
+        var audiobook = Assert.IsType<AudioBook>(Assert.Single(result.Items));
+        Assert.Equal("Dated Audio", audiobook.Name);
+        Assert.Equal(2021, audiobook.ProductionYear);
+    }
 
     [Theory]
     [InlineData("title.mp3")]
@@ -62,7 +83,7 @@ public class AudioResolverTests
             IsDirectory = name.EndsWith('/')
         }).ToArray();
 
-        var resolver = new AudioResolver(_namingOptions);
+        var resolver = new AudioResolver(_namingOptions, Mock.Of<IDirectoryService>());
         var itemResolveArgs = new ItemResolveArgs(
             null,
             Mock.Of<ILibraryManager>())

@@ -118,6 +118,9 @@ directories, when their only media file has a different title from the directory
 EPUB and audiobook share the same directory. This keeps loose books, mixed formats, and nested
 bonus folders browseable in standard clients. A directory named for its single book or
 audiobook still resolves to the usual `Book` or `AudioBook` item.
+When a loose movie, book, or audiobook file has the same basename as a sibling directory, that
+directory remains a physical `Folder` and its own media file remains browseable underneath. Loose
+audiobooks take their display name and year from the filename, not from a category folder.
 Music directories with tracks alongside an unrelated child directory likewise stay `Folder`
 items, so the tracks and child directory remain visible. A normal album without such children,
 including a recognized `Disc 1`-style multi-disc layout, still resolves as `MusicAlbum`.
@@ -134,8 +137,8 @@ both sidecars are present. An album's local sidecar title takes precedence over 
 its tracks, including on subsequent library scans.
 
 Further resolver work will preserve more physical directory arrangements while assigning compatible
-Jellyfin item kinds from deterministic path rules and local sidecars. In particular, ambiguous
-file/folder name collisions and mixed-content directories need more coverage.
+Jellyfin item kinds from deterministic path rules and local sidecars. Other ambiguous and
+mixed-content directories still need more coverage.
 
 ## Upstream workflow
 

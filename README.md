@@ -47,7 +47,8 @@ open and potentially migrate that database. Jellyfin and Jigglefin cannot both b
   non-disc subfolders. A multi-disc `MusicAlbum` exposes its physical disc folders in the folder
   browser. Home-video folders with both photos and videos, or photos and child folders, remain
   physical folders; photo-only albums open through the Web folder browser. Music-specific track
-  lists remain compatible with Jellyfin Web.
+  lists remain compatible with Jellyfin Web. Same-named movie, book, and audiobook files beside
+  directories keep both paths browseable; loose audiobook names come from filenames.
 - Kodi-style NFO and legacy-style `movie.xml`, `<movie-file>.xml`, `series.xml`,
   `<episode-file>.xml`, `artist.xml`, `album.xml`, and `<book-file>.xml` sidecars, local artwork, embedded tags, and
   filenames are used ahead of remote metadata. Network metadata providers are disabled by
@@ -62,10 +63,10 @@ open and potentially migrate that database. Jellyfin and Jigglefin cannot both b
   playback of a synthetic movie. Automated API tests cover browse paths and direct or byte-range
   streaming for movie, music, and audiobook samples. Windows CI also uses its bundled FFmpeg to
   verify movie-to-HLS and audiobook-to-MP3 transcoding, plus local external subtitle delivery.
-  Before uploading the ZIP, CI starts the
-  packaged server with an isolated profile, completes setup with a throwaway password, and checks
-  authenticated folder browsing, local movie NFO metadata, external subtitles, and direct streaming. Native client
-  coverage and more ambiguous mixed-content layouts remain work in progress.
+  Before uploading the ZIP, CI starts the packaged server with an isolated profile, completes
+  setup with a throwaway password, and checks authenticated folder browsing, local movie NFO
+  metadata, external subtitles, and direct streaming. Native client coverage and more ambiguous
+  mixed-content layouts remain work in progress.
 
 The detailed design and upstream merge strategy are in [JIGGLEFIN.md](JIGGLEFIN.md).
 

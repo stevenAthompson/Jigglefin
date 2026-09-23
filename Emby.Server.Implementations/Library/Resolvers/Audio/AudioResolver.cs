@@ -26,10 +26,12 @@ namespace Emby.Server.Implementations.Library.Resolvers.Audio
     public class AudioResolver : ItemResolver<MediaBrowser.Controller.Entities.Audio.Audio>, IMultiItemResolver
     {
         private readonly NamingOptions _namingOptions;
+        private readonly IDirectoryService _directoryService;
 
-        public AudioResolver(NamingOptions namingOptions)
+        public AudioResolver(NamingOptions namingOptions, IDirectoryService directoryService)
         {
             _namingOptions = namingOptions;
+            _directoryService = directoryService;
         }
 
         /// <summary>
@@ -142,6 +144,19 @@ namespace Emby.Server.Implementations.Library.Resolvers.Audio
 
         private AudioBook FindAudioBook(ItemResolveArgs args, bool parseName)
         {
+            var parentPath = args.Parent?.Path;
+            var physicalFolderName = Path.GetFileName(Path.TrimEndingDirectorySeparator(args.Path));
+            if (!string.IsNullOrEmpty(parentPath)
+                && Directory.Exists(parentPath)
+                && _directoryService.GetFilePaths(parentPath).Any(siblingPath =>
+                    string.Equals(Path.GetFileNameWithoutExtension(siblingPath), physicalFolderName, StringComparison.OrdinalIgnoreCase)
+                    && AudioFileParser.IsAudioFile(siblingPath, _namingOptions)
+                    && !Path.GetExtension(siblingPath).Equals(".cue", StringComparison.OrdinalIgnoreCase)))
+            {
+                // Preserve the physical directory beside its same-named loose audiobook.
+                return null;
+            }
+
             var children = args.GetActualFileSystemChildren().ToList();
             if (children.Any(child => child.IsDirectory || BookResolver.IsBookFile(child.FullName)))
             {
@@ -217,14 +232,15 @@ namespace Emby.Server.Implementations.Library.Resolvers.Audio
                 }
 
                 var firstMedia = resolvedItem.Files[0];
+                var parsedFileName = new AudioBookNameParser(_namingOptions).Parse(Path.GetFileNameWithoutExtension(firstMedia.Path));
 
                 var libraryItem = new AudioBook
                 {
                     Path = firstMedia.Path,
                     IsInMixedFolder = isInMixedFolder,
-                    ProductionYear = resolvedItem.Year,
+                    ProductionYear = parseName ? parsedFileName.Year : resolvedItem.Year,
                     Name = parseName ?
-                        resolvedItem.Name :
+                        parsedFileName.Name :
                         Path.GetFileNameWithoutExtension(firstMedia.Path),
                     // AdditionalParts = resolvedItem.Files.Skip(1).Select(i => i.Path).ToArray(),
                     // LocalAlternateVersions = resolvedItem.AlternateVersions.Select(i => i.Path).ToArray()
