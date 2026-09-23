@@ -1102,6 +1102,49 @@ public sealed class LocalSidecarLibraryTests
             var withoutSeasonSidecars = await client.GetFromJsonAsync<BaseItemDto>(
                 $"Items/{nfoSeason.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
             Assert.Equal("Parent Season Fallback", withoutSeasonSidecars?.Name);
+
+            var seriesXmlPath = Path.Combine(seriesFolder, "series.xml");
+            var episodeXmlPath = Path.Combine(seasonFolder, "Example Show - S01E01.xml");
+            await File.WriteAllTextAsync(
+                seriesXmlPath,
+                "<Series><LocalTitle>Updated XML Series</LocalTitle><Overview>Updated series XML.</Overview></Series>",
+                TestContext.Current.CancellationToken);
+            await File.WriteAllTextAsync(
+                episodeXmlPath,
+                "<Item><LocalTitle>Updated XML Episode</LocalTitle><Overview>Updated episode XML.</Overview></Item>",
+                TestContext.Current.CancellationToken);
+            File.SetLastWriteTimeUtc(seriesXmlPath, DateTime.UtcNow.AddMinutes(1));
+            File.SetLastWriteTimeUtc(episodeXmlPath, DateTime.UtcNow.AddMinutes(1));
+            await libraryManager.ValidateMediaLibraryInternal(new Progress<double>(), TestContext.Current.CancellationToken);
+            var updatedSeries = await client.GetFromJsonAsync<BaseItemDto>(
+                $"Items/{series.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            var updatedEpisode = await client.GetFromJsonAsync<BaseItemDto>(
+                $"Items/{xmlEpisode.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.Equal("Updated XML Series", updatedSeries?.Name);
+            Assert.Equal("Updated series XML.", updatedSeries?.Overview);
+            Assert.Equal("Updated XML Episode", updatedEpisode?.Name);
+            Assert.Equal("Updated episode XML.", updatedEpisode?.Overview);
+
+            File.Delete(Path.Combine(precedenceFolder, "tvshow.nfo"));
+            File.Delete(Path.Combine(precedenceSeasonFolder, "Both Sources - S01E01.nfo"));
+            await libraryManager.ValidateMediaLibraryInternal(new Progress<double>(), TestContext.Current.CancellationToken);
+            var fallbackSeries = await client.GetFromJsonAsync<BaseItemDto>(
+                $"Items/{preferredNfo.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            var preferredEpisode = Assert.Single(preferredEpisodes.Items, item => item.Name == "Preferred Episode NFO");
+            var fallbackEpisode = await client.GetFromJsonAsync<BaseItemDto>(
+                $"Items/{preferredEpisode.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.Equal("Secondary Series XML", fallbackSeries?.Name);
+            Assert.Equal("Secondary Episode XML", fallbackEpisode?.Name);
+
+            File.Delete(seriesXmlPath);
+            File.Delete(episodeXmlPath);
+            await libraryManager.ValidateMediaLibraryInternal(new Progress<double>(), TestContext.Current.CancellationToken);
+            var withoutSeriesXml = await client.GetFromJsonAsync<BaseItemDto>(
+                $"Items/{series.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            var withoutEpisodeXml = await client.GetFromJsonAsync<BaseItemDto>(
+                $"Items/{xmlEpisode.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.Equal("Example Show", withoutSeriesXml?.Name);
+            Assert.Equal("Example Show - S01E01", withoutEpisodeXml?.Name);
         }
         finally
         {

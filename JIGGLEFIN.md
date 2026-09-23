@@ -157,6 +157,8 @@ Physical TV seasons also read `season.xml` for local title and overview. A seaso
 `season.nfo` takes priority, while a named season in the parent `tvshow.nfo` remains a fallback
 when neither season sidecar is present. Rescans pick up XML edits and fall through from removed
 NFO to XML, then to the parent show's named-season entry when both season sidecars are removed.
+The same rescan test checks edited show and episode XML, fallback from removed show and episode
+NFO to XML, and filename-derived names after the last XML sidecars are removed.
 Jigglefin also reads legacy-style `artist.xml` and `album.xml` in physical music directories.
 The upstream OPF reader supplies local book metadata. A basename-matched `.opf` can describe one
 book in a mixed directory; generic `content.opf` and Calibre `metadata.opf` apply when the
