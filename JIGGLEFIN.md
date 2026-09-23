@@ -193,7 +193,10 @@ Within a physical genre/artist/album tree, Kodi-style `artist.nfo` and `album.nf
 standard `MusicArtist` and `MusicAlbum` metadata. Local `artist.xml` and `album.xml` supply the same
 item kinds and common title, year, and overview fields when NFO is absent. NFO takes priority when
 both sidecars are present. An album's local sidecar title takes precedence over names inferred from
-its tracks, including on subsequent library scans.
+its tracks, including on subsequent library scans. Removing an artist or album NFO on a later scan
+falls through to its XML sidecar; edits to that XML are picked up on rescan, and removing both
+sidecars restores the physical names. An artist
+without either sidecar becomes a navigable physical `Folder`, while its album remains browseable.
 
 Further resolver work will preserve more physical directory arrangements while assigning compatible
 Jellyfin item kinds from deterministic path rules and local sidecars. Other ambiguous and

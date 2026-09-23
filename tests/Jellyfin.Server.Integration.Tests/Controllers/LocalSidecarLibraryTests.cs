@@ -773,6 +773,54 @@ public sealed class LocalSidecarLibraryTests
                 $"Items?parentId={artist.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
             Assert.NotNull(refreshedAlbums);
             Assert.Single(refreshedAlbums.Items, item => item.Name == "Local NFO Album");
+
+            File.Delete(Path.Combine(artistFolder, "artist.nfo"));
+            File.Delete(Path.Combine(albumFolder, "album.nfo"));
+            await libraryManager.ValidateMediaLibraryInternal(new Progress<double>(), TestContext.Current.CancellationToken);
+            var xmlArtists = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={genres.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(xmlArtists);
+            Assert.Single(xmlArtists.Items, item => item.Id.Equals(artist.Id) && item.Name == "Wrong XML Artist");
+            var xmlAlbums = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={artist.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(xmlAlbums);
+            Assert.Single(xmlAlbums.Items, item => item.Id.Equals(album.Id) && item.Name == "Wrong XML Album");
+
+            var artistXmlPath = Path.Combine(artistFolder, "artist.xml");
+            var albumXmlPath = Path.Combine(albumFolder, "album.xml");
+            await File.WriteAllTextAsync(
+                artistXmlPath,
+                "<Artist><LocalTitle>Updated XML Artist</LocalTitle></Artist>",
+                TestContext.Current.CancellationToken);
+            await File.WriteAllTextAsync(
+                albumXmlPath,
+                "<Item><LocalTitle>Updated XML Album</LocalTitle><ProductionYear>2003</ProductionYear></Item>",
+                TestContext.Current.CancellationToken);
+            var updatedTimestamp = DateTime.UtcNow.AddMinutes(1);
+            File.SetLastWriteTimeUtc(artistXmlPath, updatedTimestamp);
+            File.SetLastWriteTimeUtc(albumXmlPath, updatedTimestamp);
+            await libraryManager.ValidateMediaLibraryInternal(new Progress<double>(), TestContext.Current.CancellationToken);
+            var updatedArtists = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={genres.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(updatedArtists);
+            Assert.Single(updatedArtists.Items, item => item.Id.Equals(artist.Id) && item.Name == "Updated XML Artist");
+            var updatedAlbums = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={artist.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(updatedAlbums);
+            Assert.Single(updatedAlbums.Items, item => item.Id.Equals(album.Id) && item.Name == "Updated XML Album");
+
+            File.Delete(artistXmlPath);
+            File.Delete(albumXmlPath);
+            await libraryManager.ValidateMediaLibraryInternal(new Progress<double>(), TestContext.Current.CancellationToken);
+            var fallbackArtists = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={genres.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(fallbackArtists);
+            var fallbackArtist = Assert.Single(fallbackArtists.Items, item => item.Name == "Physical Artist");
+            Assert.Equal(BaseItemKind.Folder, fallbackArtist.Type);
+            var fallbackAlbums = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={fallbackArtist.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(fallbackAlbums);
+            Assert.Single(fallbackAlbums.Items, item => item.Name == "Physical Album" && item.Type == BaseItemKind.MusicAlbum);
         }
         finally
         {
