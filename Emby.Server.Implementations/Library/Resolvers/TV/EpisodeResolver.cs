@@ -75,6 +75,12 @@ namespace Emby.Server.Implementations.Library.Resolvers.TV
                 {
                     episode.SeasonId = season.Id;
                     episode.SeasonName = season.Name;
+                    if (!episode.ParentIndexNumber.HasValue && season.IndexNumber.HasValue)
+                    {
+                        // A nested episode without season numbering belongs to its
+                        // physical season folder, not the virtual unknown season.
+                        episode.ParentIndexNumber = season.IndexNumber;
+                    }
                 }
 
                 // Assume season 1 if there's no season folder and a season number could not be determined

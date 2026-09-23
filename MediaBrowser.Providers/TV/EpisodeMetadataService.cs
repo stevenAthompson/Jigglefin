@@ -44,6 +44,13 @@ public class EpisodeMetadataService : MetadataService<Episode, EpisodeInfo>
     {
         var updatedType = base.BeforeSaveInternal(item, isFullRefresh, updateType);
 
+        var physicalSeason = item.FindParent<Season>();
+        if (!item.ParentIndexNumber.HasValue && physicalSeason?.IndexNumber is int seasonNumber)
+        {
+            item.ParentIndexNumber = seasonNumber;
+            updatedType |= ItemUpdateType.MetadataImport;
+        }
+
         // An episode cannot end before it starts.
         if (item.IndexNumberEnd < item.IndexNumber)
         {

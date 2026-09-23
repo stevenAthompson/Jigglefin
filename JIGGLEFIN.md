@@ -59,6 +59,8 @@ name still resolves as a `Series`.
 Inside a show, unnumbered video subdirectories remain physical `Folder` items instead of becoming
 unnamed virtual seasons. The ordinary `Items?parentId=<series>` route exposes those folders and
 their playable episodes; `Shows/<series>/Seasons` remains seasons-only for existing client flows.
+Physical season folders also expose their nested directories through `Items`, and an unnumbered
+episode beneath one inherits that season number rather than appearing in `Season Unknown`.
 
 A separate integration test writes a valid local WAV file, browses it as a standard Jellyfin `Audio`
 item, and verifies full and byte-range streaming through the unmodified audio endpoint.

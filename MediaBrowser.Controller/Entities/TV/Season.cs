@@ -123,6 +123,11 @@ namespace MediaBrowser.Controller.Entities.TV
 
         public override int GetChildCount(User user)
         {
+            if (!string.IsNullOrEmpty(Path))
+            {
+                return base.GetChildCount(user);
+            }
+
             var result = GetChildren(user, true, null).Count;
 
             return result;
@@ -174,8 +179,10 @@ namespace MediaBrowser.Controller.Entities.TV
                 }
             }
 
-            if (query.User is null)
+            if (query.User is null || !string.IsNullOrEmpty(Path))
             {
+                // A physical season uses the folder route. Virtual seasons still
+                // expose their collected episodes through the existing query.
                 return base.GetItemsInternal(query);
             }
 
@@ -220,6 +227,11 @@ namespace MediaBrowser.Controller.Entities.TV
 
         public override List<BaseItem> GetChildren(User user, bool includeLinkedChildren, InternalItemsQuery query)
         {
+            if (!string.IsNullOrEmpty(Path))
+            {
+                return base.GetChildren(user, includeLinkedChildren, query).ToList();
+            }
+
             return GetEpisodes(user, new DtoOptions(true), true);
         }
 

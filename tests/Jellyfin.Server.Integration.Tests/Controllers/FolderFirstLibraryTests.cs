@@ -28,8 +28,10 @@ public sealed class FolderFirstLibraryTests
         var testRoot = Path.Combine(Path.GetTempPath(), "jigglefin-series-subfolder-" + Guid.NewGuid().ToString("N"));
         var seriesFolder = Path.Combine(testRoot, "Drama", "Example Show");
         var seasonFolder = Path.Combine(seriesFolder, "Season 1");
+        var seasonBonusFolder = Path.Combine(seasonFolder, "Season Bonus");
         var bonusFolder = Path.Combine(seriesFolder, "Bonus Collection");
         Directory.CreateDirectory(seasonFolder);
+        Directory.CreateDirectory(seasonBonusFolder);
         Directory.CreateDirectory(bonusFolder);
         var videoBytes = await File.ReadAllBytesAsync(
             Path.Combine(AppContext.BaseDirectory, "Test Data", "JigglefinSample.mp4"),
@@ -40,6 +42,10 @@ public sealed class FolderFirstLibraryTests
             TestContext.Current.CancellationToken);
         await File.WriteAllBytesAsync(
             Path.Combine(bonusFolder, "Bonus Clip.mp4"),
+            videoBytes,
+            TestContext.Current.CancellationToken);
+        await File.WriteAllBytesAsync(
+            Path.Combine(seasonBonusFolder, "Season Bonus Clip.mp4"),
             videoBytes,
             TestContext.Current.CancellationToken);
 
@@ -78,7 +84,20 @@ public sealed class FolderFirstLibraryTests
             var children = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
                 $"Items?parentId={series.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
             Assert.NotNull(children);
-            Assert.Equal(BaseItemKind.Season, Assert.Single(children.Items, item => item.Name == "Season 1").Type);
+            var season = Assert.Single(children.Items, item => item.Name == "Season 1");
+            Assert.Equal(BaseItemKind.Season, season.Type);
+            var seasonChildren = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={season.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(seasonChildren);
+            Assert.Single(seasonChildren.Items, item => item.Type == BaseItemKind.Episode);
+            var seasonBonus = Assert.Single(seasonChildren.Items, item => item.Name == "Season Bonus");
+            Assert.Equal(BaseItemKind.Folder, seasonBonus.Type);
+            var seasonBonusChildren = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={seasonBonus.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(seasonBonusChildren);
+            var seasonBonusEpisode = Assert.Single(seasonBonusChildren.Items, item => item.Type == BaseItemKind.Episode);
+            var episodeItem = libraryManager.GetItemById(seasonBonusEpisode.Id);
+            Assert.Equal(1, episodeItem?.ParentIndexNumber);
             var bonus = Assert.Single(children.Items, item => item.Name == "Bonus Collection");
             Assert.Equal(BaseItemKind.Folder, bonus.Type);
             var bonusChildren = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
@@ -95,6 +114,15 @@ public sealed class FolderFirstLibraryTests
             Assert.NotNull(seasons);
             Assert.Contains(seasons.Items, item => item.Name == "Season 1");
             Assert.All(seasons.Items, item => Assert.Equal(BaseItemKind.Season, item.Type));
+            var groupedEpisodes = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Shows/{series.Id}/Episodes?seasonId={season.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(groupedEpisodes);
+            Assert.Contains(groupedEpisodes.Items, item => item.Name == "Season Bonus Clip");
+            var unknownSeason = Assert.Single(seasons.Items, item => item.Name == "Season Unknown");
+            var unknownEpisodes = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={unknownSeason.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(unknownEpisodes);
+            Assert.Single(unknownEpisodes.Items, item => item.Type == BaseItemKind.Episode);
         }
         finally
         {
