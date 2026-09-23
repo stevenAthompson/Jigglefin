@@ -20,6 +20,112 @@ namespace Jellyfin.Server.Integration.Tests.Controllers;
 public sealed class FolderFirstRescanTests
 {
     [Fact]
+    public async Task RenamedAndRemovedSeries_UpdatePhysicalBrowseAndEpisodeStream()
+    {
+        var testRoot = Path.Combine(Path.GetTempPath(), "jigglefin-series-rescan-" + Guid.NewGuid().ToString("N"));
+        var categoryFolder = Path.Combine(testRoot, "Drama");
+        var originalSeries = Path.Combine(categoryFolder, "Original Show");
+        var renamedSeries = Path.Combine(categoryFolder, "Renamed Show");
+        var originalSeason = Path.Combine(originalSeries, "Season 1");
+        Directory.CreateDirectory(originalSeason);
+        var episodeBytes = await File.ReadAllBytesAsync(
+            Path.Combine(AppContext.BaseDirectory, "Test Data", "JigglefinSample.mp4"),
+            TestContext.Current.CancellationToken);
+        await File.WriteAllBytesAsync(
+            Path.Combine(originalSeason, "Original Show - S01E01.mp4"),
+            episodeBytes,
+            TestContext.Current.CancellationToken);
+
+        using var factory = new JellyfinApplicationFactory();
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.AddAuthHeader(await AuthHelper.CompleteStartupAsync(client));
+        var libraryName = "Jigglefin series rescan test " + Guid.NewGuid().ToString("N");
+        var created = false;
+
+        try
+        {
+            using var createResponse = await client.PostAsJsonAsync(
+                $"Library/VirtualFolders?name={Uri.EscapeDataString(libraryName)}&collectionType=tvshows&paths={Uri.EscapeDataString(testRoot)}&refreshLibrary=false",
+                new AddVirtualFolderDto { LibraryOptions = new LibraryOptions() },
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.NoContent, createResponse.StatusCode);
+            created = true;
+
+            var libraryManager = (LibraryManager)factory.Services.GetRequiredService<ILibraryManager>();
+            await libraryManager.ValidateMediaLibraryInternal(new Progress<double>(), TestContext.Current.CancellationToken);
+
+            var views = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                "UserViews?presetViews=tvshows", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(views);
+            var library = Assert.Single(views.Items, item => item.Name == libraryName);
+            var groups = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={library.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(groups);
+            var category = Assert.Single(groups.Items, item => item.Name == "Drama");
+            var originalShows = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={category.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(originalShows);
+            var original = Assert.Single(originalShows.Items);
+            Assert.Equal("Original Show", original.Name);
+            Assert.Equal(BaseItemKind.Series, original.Type);
+
+            Directory.Move(originalSeries, renamedSeries);
+            File.Move(
+                Path.Combine(renamedSeries, "Season 1", "Original Show - S01E01.mp4"),
+                Path.Combine(renamedSeries, "Season 1", "Renamed Show - S01E01.mp4"));
+            await libraryManager.ValidateMediaLibraryInternal(new Progress<double>(), TestContext.Current.CancellationToken);
+
+            var renamedShows = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={category.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(renamedShows);
+            var renamed = Assert.Single(renamedShows.Items);
+            Assert.Equal("Renamed Show", renamed.Name);
+            Assert.Equal(BaseItemKind.Series, renamed.Type);
+            Assert.NotEqual(original.Id, renamed.Id);
+            var seasons = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={renamed.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(seasons);
+            var season = Assert.Single(seasons.Items);
+            Assert.Equal("Season 1", season.Name);
+            Assert.Equal(BaseItemKind.Season, season.Type);
+            var episodes = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={season.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(episodes);
+            var episode = Assert.Single(episodes.Items);
+            Assert.Equal(BaseItemKind.Episode, episode.Type);
+            using var streamResponse = await client.GetAsync(
+                $"Videos/{episode.Id}/stream?static=true", TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.OK, streamResponse.StatusCode);
+            Assert.Equal(episodeBytes, await streamResponse.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken));
+
+            Directory.Delete(renamedSeries, true);
+            await libraryManager.ValidateMediaLibraryInternal(new Progress<double>(), TestContext.Current.CancellationToken);
+            var remainingEpisodes = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={library.Id}&includeItemTypes=Episode&recursive=true",
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.NotNull(remainingEpisodes);
+            Assert.Empty(remainingEpisodes.Items);
+        }
+        finally
+        {
+            if (created)
+            {
+                using var deleteResponse = await client.DeleteAsync(
+                    $"Library/VirtualFolders?name={Uri.EscapeDataString(libraryName)}&refreshLibrary=false",
+                    TestContext.Current.CancellationToken);
+                Assert.Equal(HttpStatusCode.NoContent, deleteResponse.StatusCode);
+            }
+
+            if (Directory.Exists(testRoot))
+            {
+                Directory.Delete(testRoot, true);
+            }
+        }
+    }
+
+    [Fact]
     public async Task RenamedAndRemovedMusicAlbums_UpdatePhysicalBrowseAndTrackStream()
     {
         var testRoot = Path.Combine(Path.GetTempPath(), "jigglefin-music-rescan-" + Guid.NewGuid().ToString("N"));

@@ -88,9 +88,10 @@ The unmodified [Jellyfin Android mobile app](https://github.com/jellyfin/jellyfi
 metadata, and played each 20-second sample to completion. This was a CLI-only native-client
 check, not an automated CI test.
 
-An integration test renames and removes physical movie, audiobook, and music-album directories,
+An integration test renames and removes physical movie, audiobook, TV-series, and music-album directories,
 rescanning after each change. The old entries disappear; renamed entries keep their standard
-media kinds and stream from the new paths; removed playable files no longer appear in recursive
+media kinds and stream from the new paths; the renamed series retains a physical season and
+playable episode. Removed playable files no longer appear in recursive
 queries. This protects the filesystem-as-source-of-truth rule beyond the initial library scan.
 Another integration test keeps an empty category and its empty child browseable alongside populated
 media in Movies, TV Shows, Music, Books, Home Videos, and Music Videos libraries, including the
