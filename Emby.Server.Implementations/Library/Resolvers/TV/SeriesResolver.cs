@@ -122,6 +122,9 @@ namespace Emby.Server.Implementations.Library.Resolvers.TV
             IEnumerable<FileSystemMetadata> fileSystemChildren,
             bool isTvContentType)
         {
+            var folderSeriesName = Naming.TV.SeriesResolver.Resolve(_namingOptions, path).Name;
+            var episodeResolver = new Naming.TV.EpisodeResolver(_namingOptions);
+
             foreach (var child in fileSystemChildren)
             {
                 if (child.IsDirectory)
@@ -137,16 +140,25 @@ namespace Emby.Server.Implementations.Library.Resolvers.TV
                     string fullName = child.FullName;
                     if (VideoResolver.IsVideoFile(fullName, _namingOptions))
                     {
+                        var episodeInfo = episodeResolver.Resolve(fullName, false, true, false, fillExtendedInfo: false);
+                        var episodeSeriesName = episodeInfo?.SeriesName?.TrimEnd(' ', '-', '_', '.');
+                        if (episodeInfo?.EpisodeNumber is not null
+                            && !string.IsNullOrWhiteSpace(episodeSeriesName)
+                            && !string.Equals(
+                                Naming.TV.SeriesResolver.Resolve(_namingOptions, episodeSeriesName).Name,
+                                folderSeriesName,
+                                StringComparison.OrdinalIgnoreCase))
+                        {
+                            // A category directory may hold a loose episode from another series.
+                            // Keep that physical directory instead of naming it as the series.
+                            continue;
+                        }
+
                         if (isTvContentType)
                         {
                             return true;
                         }
 
-                        var namingOptions = _namingOptions;
-
-                        var episodeResolver = new Naming.TV.EpisodeResolver(namingOptions);
-
-                        var episodeInfo = episodeResolver.Resolve(fullName, false, true, false, fillExtendedInfo: false);
                         if (episodeInfo is not null && episodeInfo.EpisodeNumber.HasValue)
                         {
                             return true;

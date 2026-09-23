@@ -39,6 +39,13 @@ public sealed class FolderFirstLibraryTests
             await File.WriteAllBytesAsync(Path.Combine(mediaFolder, library.FileName), [], TestContext.Current.CancellationToken);
         }
 
+        var looseEpisodeFolder = Path.Combine(testRoot, nameof(BaseItemKind.Series), "Drama");
+        Directory.CreateDirectory(looseEpisodeFolder);
+        await File.WriteAllBytesAsync(
+            Path.Combine(looseEpisodeFolder, "Another Show - S01E01.mkv"),
+            [],
+            TestContext.Current.CancellationToken);
+
         using var factory = new JellyfinApplicationFactory();
         var client = factory.CreateClient();
         client.DefaultRequestHeaders.AddAuthHeader(await AuthHelper.CompleteStartupAsync(client));
@@ -102,15 +109,27 @@ public sealed class FolderFirstLibraryTests
                 var actionFolder = Assert.Single(firstLevel.Items, item => item.Name == "Action");
                 Assert.Equal(BaseItemKind.Folder, actionFolder.Type);
 
+                if (library.ExpectedKind == BaseItemKind.Series)
+                {
+                    var dramaFolder = Assert.Single(firstLevel.Items, item => item.Name == "Drama");
+                    Assert.Equal(BaseItemKind.Folder, dramaFolder.Type);
+                    var looseEpisodes = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                        $"Items?parentId={dramaFolder.Id}",
+                        JsonDefaults.Options,
+                        TestContext.Current.CancellationToken);
+                    Assert.NotNull(looseEpisodes);
+                    Assert.Single(looseEpisodes.Items, item => item.Type == BaseItemKind.Episode);
+                }
+
                 var secondLevel = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
                     $"Items?parentId={actionFolder.Id}",
                     JsonDefaults.Options,
                     TestContext.Current.CancellationToken);
                 Assert.NotNull(secondLevel);
-                Assert.Contains(
-                    secondLevel.Items,
-                    item => item.Name.Contains(library.ItemFolder.Split('(')[0].Trim(), StringComparison.Ordinal)
-                        && item.Type == library.ExpectedKind);
+                Assert.True(
+                    secondLevel.Items.Any(item => item.Name.Contains(library.ItemFolder.Split('(')[0].Trim(), StringComparison.Ordinal)
+                        && item.Type == library.ExpectedKind),
+                    $"No {library.ExpectedKind} for {library.CollectionType}; second level: {string.Join(", ", secondLevel.Items.Select(item => item.Name + ":" + item.Type))}");
             }
         }
         finally
