@@ -75,7 +75,9 @@ item, and verifies full and byte-range streaming through the unmodified audio en
 The library browse test also uses an original, synthetic M4B audiobook to verify full and byte-range
 audio streaming from the standard `AudioBook` item.
 With the verified Jellyfin FFmpeg path, additional end-to-end tests transcode a folder-browsed movie
-to an HLS transport-stream segment and a folder-browsed M4B audiobook to MP3. Windows CI prepares
+to an HLS transport-stream segment and a folder-browsed M4B audiobook to MP3. The movie test also
+checks that a sibling `.eng.srt` is advertised in the standard media source and served through the
+subtitle endpoint. Windows CI prepares
 the same FFmpeg binaries before its test step and includes them in the portable package.
 Another checks that a Kodi-style `movie.nfo` supplies the title, year, and plot in standard client
 responses while its physical parent folder remains browseable. That test uses an original,

@@ -118,6 +118,9 @@ try {
     [System.IO.File]::WriteAllText(
         (Join-Path $movieDirectory 'movie.nfo'),
         '<movie><title>Jigglefin Local Smoke Film</title><year>2026</year><plot>Smoke-test local metadata.</plot></movie>')
+    [System.IO.File]::WriteAllText(
+        (Join-Path $movieDirectory 'Smoke Film (2026).eng.srt'),
+        "1`n00:00:00,000 --> 00:00:01,000`nA local smoke subtitle.`n")
     $libraryName = 'Jigglefin Package Smoke Movies'
     $libraryUrl = "$baseUrl/Library/VirtualFolders?name=$([Uri]::EscapeDataString($libraryName))&collectionType=movies&paths=$([Uri]::EscapeDataString($mediaRoot))&refreshLibrary=true"
     Invoke-WebRequest -Uri $libraryUrl -Method Post -Headers $authenticatedHeaders -ContentType 'application/json' `
@@ -158,9 +161,20 @@ try {
     if (-not $movie) {
         throw "The packaged server did not expose the NFO-titled sample movie through its physical folders within $TimeoutSeconds seconds. Last observation: $lastBrowseState"
     }
-    $movieDetails = Invoke-RestMethod -Uri "$baseUrl/Items/$($movie.Id)" -Headers $authenticatedHeaders -TimeoutSec 15
+    $movieDetails = Invoke-RestMethod -Uri "$baseUrl/Items/$($movie.Id)?fields=MediaSources,MediaStreams" -Headers $authenticatedHeaders -TimeoutSec 15
     if ($movieDetails.ProductionYear -ne 2026 -or $movieDetails.Overview -ne 'Smoke-test local metadata.') {
         throw 'The packaged server did not apply local Kodi-style movie metadata to standard item details.'
+    }
+    $mediaSource = @($movieDetails.MediaSources) | Select-Object -First 1
+    $subtitle = @($mediaSource.MediaStreams | Where-Object { $_.Type -eq 'Subtitle' -and $_.IsExternal }) | Select-Object -First 1
+    if (-not $mediaSource -or -not $subtitle -or $subtitle.Language -ne 'eng') {
+        throw 'The packaged server did not expose the local external subtitle in the movie media source.'
+    }
+    $subtitlePath = Join-Path $smokeProfile 'streamed-subtitle.srt'
+    $subtitleUrl = "$baseUrl/Videos/$($movie.Id)/$([Uri]::EscapeDataString($mediaSource.Id))/Subtitles/$($subtitle.Index)/Stream.srt"
+    Invoke-WebRequest -Uri $subtitleUrl -Headers $authenticatedHeaders -OutFile $subtitlePath -TimeoutSec 30 | Out-Null
+    if (-not (Get-Content -LiteralPath $subtitlePath -Raw).Contains('A local smoke subtitle.', [StringComparison]::Ordinal)) {
+        throw 'The standard subtitle endpoint did not serve the local subtitle text.'
     }
 
     $streamPath = Join-Path $smokeProfile 'streamed-movie.mp4'
@@ -171,7 +185,7 @@ try {
     }
 
     $smokeSucceeded = $true
-    Write-Host "Packaged server smoke test passed: API version $($publicInfo.Version), bundled Web HTTP $($webResponse.StatusCode), login, folder browse, local NFO metadata, and direct movie stream."
+    Write-Host "Packaged server smoke test passed: API version $($publicInfo.Version), bundled Web HTTP $($webResponse.StatusCode), login, folder browse, local NFO metadata, external subtitle, and direct movie stream."
 } catch {
     Write-Warning "Package smoke test failed. Isolated profile and logs: $smokeProfile"
     foreach ($logPath in @($stdout, $stderr)) {

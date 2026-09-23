@@ -11,6 +11,7 @@ using Jellyfin.Extensions.Json;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Dto;
+using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Querying;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
@@ -117,6 +118,10 @@ public sealed class FolderFirstTranscodingTests
                 Path.Combine(AppContext.BaseDirectory, "Test Data", "JigglefinSample.mp4"),
                 TestContext.Current.CancellationToken),
             TestContext.Current.CancellationToken);
+        await File.WriteAllTextAsync(
+            Path.Combine(movieFolder, "Transcode Movie.eng.srt"),
+            "1\n00:00:00,000 --> 00:00:01,000\nA local subtitle.\n",
+            TestContext.Current.CancellationToken);
 
         using var factory = new JellyfinApplicationFactory { FfmpegPath = ffmpegPath };
         using var client = factory.CreateClient();
@@ -151,6 +156,20 @@ public sealed class FolderFirstTranscodingTests
             Assert.NotNull(movies);
             var movie = Assert.Single(movies.Items);
             Assert.Equal(BaseItemKind.Movie, movie.Type);
+
+            var movieDetails = await client.GetFromJsonAsync<BaseItemDto>(
+                $"Items/{movie.Id}?fields=MediaSources,MediaStreams",
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.NotNull(movieDetails);
+            var mediaSource = Assert.Single(movieDetails.MediaSources);
+            var subtitle = Assert.Single(mediaSource.MediaStreams, stream => stream.Type == MediaStreamType.Subtitle && stream.IsExternal);
+            Assert.Equal("eng", subtitle.Language);
+            using var subtitleResponse = await client.GetAsync(
+                $"Videos/{movie.Id}/{Uri.EscapeDataString(mediaSource.Id)}/Subtitles/{subtitle.Index}/Stream.srt",
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.OK, subtitleResponse.StatusCode);
+            Assert.Contains("A local subtitle.", await subtitleResponse.Content.ReadAsStringAsync(TestContext.Current.CancellationToken), StringComparison.Ordinal);
 
             var playlistPath = $"Videos/{movie.Id}/main.m3u8?videoCodec=h264&audioCodec=aac&allowVideoStreamCopy=false&allowAudioStreamCopy=false&segmentContainer=ts&segmentLength=1";
             using var playlistResponse = await client.GetAsync(playlistPath, TestContext.Current.CancellationToken);
