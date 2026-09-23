@@ -19,6 +19,86 @@ namespace Jellyfin.Server.Integration.Tests.Controllers;
 
 public sealed class FolderFirstRescanTests
 {
+    [Theory]
+    [InlineData("movies", "Named Item.mp4", BaseItemKind.Movie)]
+    [InlineData("tvshows", "Named Item - S01E01.mp4", BaseItemKind.Series)]
+    [InlineData("books", "Named Item.pdf", BaseItemKind.Book)]
+    [InlineData("music", "Track 01.mp3", BaseItemKind.MusicAlbum)]
+    public async Task RemovingLastMediaFile_RestoresEmptyPhysicalFolder(
+        string collectionType,
+        string mediaFileName,
+        BaseItemKind initialKind)
+    {
+        var testRoot = Path.Combine(Path.GetTempPath(), "jigglefin-empty-after-rescan-" + Guid.NewGuid().ToString("N"));
+        var mediaFolder = Path.Combine(testRoot, "Action", "Named Item");
+        Directory.CreateDirectory(mediaFolder);
+        var mediaPath = Path.Combine(mediaFolder, mediaFileName);
+        await File.WriteAllBytesAsync(mediaPath, [], TestContext.Current.CancellationToken);
+
+        using var factory = new JellyfinApplicationFactory();
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.AddAuthHeader(await AuthHelper.CompleteStartupAsync(client));
+        var libraryName = "Jigglefin empty after rescan " + Guid.NewGuid().ToString("N");
+        var created = false;
+
+        try
+        {
+            using var createResponse = await client.PostAsJsonAsync(
+                $"Library/VirtualFolders?name={Uri.EscapeDataString(libraryName)}&collectionType={collectionType}&paths={Uri.EscapeDataString(testRoot)}&refreshLibrary=false",
+                new AddVirtualFolderDto { LibraryOptions = new LibraryOptions() },
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.NoContent, createResponse.StatusCode);
+            created = true;
+
+            var libraryManager = (LibraryManager)factory.Services.GetRequiredService<ILibraryManager>();
+            await libraryManager.ValidateMediaLibraryInternal(new Progress<double>(), TestContext.Current.CancellationToken);
+
+            var views = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"UserViews?presetViews={collectionType}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(views);
+            var library = Assert.Single(views.Items, item => item.Name == libraryName);
+            var groups = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={library.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(groups);
+            var action = Assert.Single(groups.Items, item => item.Name == "Action");
+            var initialItems = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={action.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(initialItems);
+            Assert.Equal(initialKind, Assert.Single(initialItems.Items).Type);
+
+            File.Delete(mediaPath);
+            await libraryManager.ValidateMediaLibraryInternal(new Progress<double>(), TestContext.Current.CancellationToken);
+
+            var remainingItems = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={action.Id}&fields=Path", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(remainingItems);
+            var emptyFolder = Assert.Single(remainingItems.Items);
+            Assert.Equal("Named Item", emptyFolder.Name);
+            Assert.Equal(BaseItemKind.Folder, emptyFolder.Type);
+            Assert.Equal(mediaFolder, emptyFolder.Path);
+            var children = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={emptyFolder.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(children);
+            Assert.Empty(children.Items);
+        }
+        finally
+        {
+            if (created)
+            {
+                using var deleteResponse = await client.DeleteAsync(
+                    $"Library/VirtualFolders?name={Uri.EscapeDataString(libraryName)}&refreshLibrary=false",
+                    TestContext.Current.CancellationToken);
+                Assert.Equal(HttpStatusCode.NoContent, deleteResponse.StatusCode);
+            }
+
+            if (Directory.Exists(testRoot))
+            {
+                Directory.Delete(testRoot, true);
+            }
+        }
+    }
+
     [Fact]
     public async Task RenamedAndRemovedSeries_UpdatePhysicalBrowseAndEpisodeStream()
     {

@@ -93,6 +93,8 @@ rescanning after each change. The old entries disappear; renamed entries keep th
 media kinds and stream from the new paths; the renamed series retains a physical season and
 playable episode. Removed playable files no longer appear in recursive
 queries. This protects the filesystem-as-source-of-truth rule beyond the initial library scan.
+When the last file is removed from a previously typed movie, series, book, or music-album directory,
+a rescan restores that directory as an empty physical `Folder` rather than dropping it from browse.
 Another integration test keeps an empty category and its empty child browseable alongside populated
 media in Movies, TV Shows, Music, Books, Home Videos, and Music Videos libraries, including the
 folder-list request used by Jellyfin Web.
