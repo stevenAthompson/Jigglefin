@@ -487,7 +487,9 @@ namespace Emby.Server.Implementations.Library.Resolvers.Movies
                 // retaining the familiar Film (2020)/Film (2020).mp4 layout.
                 var folderName = Path.GetFileName(Path.TrimEndingDirectorySeparator(path));
                 var parsedFolderName = VideoResolver.CleanDateTime(folderName, NamingOptions).Name;
-                var hasMovieSidecar = fileSystemEntries.Any(i => !i.IsDirectory && string.Equals(i.Name, "movie.nfo", StringComparison.OrdinalIgnoreCase));
+                var hasMovieSidecar = fileSystemEntries.Any(i => !i.IsDirectory
+                    && (string.Equals(i.Name, "movie.nfo", StringComparison.OrdinalIgnoreCase)
+                        || string.Equals(i.Name, "movie.xml", StringComparison.OrdinalIgnoreCase)));
                 var isNamedMovieFolder = string.Equals(result.Items[0].Name, folderName, StringComparison.OrdinalIgnoreCase)
                     || string.Equals(result.Items[0].Name, parsedFolderName, StringComparison.OrdinalIgnoreCase);
 

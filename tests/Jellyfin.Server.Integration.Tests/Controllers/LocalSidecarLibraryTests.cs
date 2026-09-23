@@ -21,6 +21,131 @@ namespace Jellyfin.Server.Integration.Tests.Controllers;
 public sealed class LocalSidecarLibraryTests
 {
     [Fact]
+    public async Task EmbyMovieXml_ProvidesClientMetadataForDedicatedAndLooseMovies()
+    {
+        var testRoot = Path.Combine(Path.GetTempPath(), "jigglefin-xml-sidecar-" + Guid.NewGuid().ToString("N"));
+        var categoryFolder = Path.Combine(testRoot, "Action");
+        var dedicatedFolder = Path.Combine(categoryFolder, "Dedicated Movie (2021)");
+        Directory.CreateDirectory(dedicatedFolder);
+        var videoBytes = await File.ReadAllBytesAsync(
+            Path.Combine(AppContext.BaseDirectory, "Test Data", "JigglefinSample.mp4"),
+            TestContext.Current.CancellationToken);
+        await File.WriteAllBytesAsync(
+            Path.Combine(dedicatedFolder, "Dedicated Movie (2021).mp4"),
+            videoBytes,
+            TestContext.Current.CancellationToken);
+        await File.WriteAllTextAsync(
+            Path.Combine(dedicatedFolder, "movie.xml"),
+            "<Item><LocalTitle>Dedicated XML Title</LocalTitle><ProductionYear>2021</ProductionYear><Overview>Dedicated XML overview.</Overview></Item>",
+            TestContext.Current.CancellationToken);
+        var alternateNameFolder = Path.Combine(categoryFolder, "Emby Folder Name (2024)");
+        Directory.CreateDirectory(alternateNameFolder);
+        await File.WriteAllBytesAsync(
+            Path.Combine(alternateNameFolder, "alternate-name.mp4"),
+            videoBytes,
+            TestContext.Current.CancellationToken);
+        await File.WriteAllTextAsync(
+            Path.Combine(alternateNameFolder, "movie.xml"),
+            "<Item><LocalTitle>Different File XML Title</LocalTitle><ProductionYear>2024</ProductionYear></Item>",
+            TestContext.Current.CancellationToken);
+        await File.WriteAllBytesAsync(
+            Path.Combine(categoryFolder, "Loose Movie (2022).mp4"),
+            videoBytes,
+            TestContext.Current.CancellationToken);
+        await File.WriteAllTextAsync(
+            Path.Combine(categoryFolder, "Loose Movie (2022).xml"),
+            "<Item><LocalTitle>Loose XML Title</LocalTitle><ProductionYear>2022</ProductionYear><Overview>Loose XML overview.</Overview></Item>",
+            TestContext.Current.CancellationToken);
+        var precedenceFolder = Path.Combine(categoryFolder, "Precedence Movie (2023)");
+        Directory.CreateDirectory(precedenceFolder);
+        await File.WriteAllBytesAsync(
+            Path.Combine(precedenceFolder, "Precedence Movie (2023).mp4"),
+            videoBytes,
+            TestContext.Current.CancellationToken);
+        await File.WriteAllTextAsync(
+            Path.Combine(precedenceFolder, "movie.xml"),
+            "<Item><LocalTitle>Secondary XML Title</LocalTitle></Item>",
+            TestContext.Current.CancellationToken);
+        await File.WriteAllTextAsync(
+            Path.Combine(precedenceFolder, "movie.nfo"),
+            "<movie><title>Preferred NFO Title</title></movie>",
+            TestContext.Current.CancellationToken);
+
+        using var factory = new JellyfinApplicationFactory();
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.AddAuthHeader(await AuthHelper.CompleteStartupAsync(client));
+        var libraryName = "Jigglefin XML sidecar test " + Guid.NewGuid().ToString("N");
+        var created = false;
+
+        try
+        {
+            using var createResponse = await client.PostAsJsonAsync(
+                $"Library/VirtualFolders?name={Uri.EscapeDataString(libraryName)}&collectionType=movies&paths={Uri.EscapeDataString(testRoot)}&refreshLibrary=false",
+                new AddVirtualFolderDto { LibraryOptions = new LibraryOptions() },
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.NoContent, createResponse.StatusCode);
+            created = true;
+
+            var libraryManager = (LibraryManager)factory.Services.GetRequiredService<ILibraryManager>();
+            await libraryManager.ValidateMediaLibraryInternal(new Progress<double>(), TestContext.Current.CancellationToken);
+
+            var views = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                "UserViews?presetViews=movies",
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.NotNull(views);
+            var library = Assert.Single(views.Items, item => item.Name == libraryName);
+            Assert.Equal(BaseItemKind.Folder, library.Type);
+
+            var groups = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={library.Id}",
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.NotNull(groups);
+            var action = Assert.Single(groups.Items, item => item.Name == "Action");
+            Assert.Equal(BaseItemKind.Folder, action.Type);
+
+            var movies = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={action.Id}",
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.NotNull(movies);
+            Assert.Equal(4, movies.Items.Count);
+            var dedicated = Assert.Single(movies.Items, item => item.Name == "Dedicated XML Title");
+            var alternateName = Assert.Single(movies.Items, item => item.Name == "Different File XML Title");
+            var loose = Assert.Single(movies.Items, item => item.Name == "Loose XML Title");
+            var preferredNfo = Assert.Single(movies.Items, item => item.Name == "Preferred NFO Title");
+            Assert.Equal(BaseItemKind.Movie, dedicated.Type);
+            Assert.Equal(BaseItemKind.Movie, alternateName.Type);
+            Assert.Equal(BaseItemKind.Movie, loose.Type);
+            Assert.Equal(BaseItemKind.Movie, preferredNfo.Type);
+            Assert.Equal(2021, dedicated.ProductionYear);
+            Assert.Equal(2024, alternateName.ProductionYear);
+            Assert.Equal(2022, loose.ProductionYear);
+
+            var dedicatedDetails = await client.GetFromJsonAsync<BaseItemDto>(
+                $"Items/{dedicated.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            var looseDetails = await client.GetFromJsonAsync<BaseItemDto>(
+                $"Items/{loose.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.Equal("Dedicated XML overview.", dedicatedDetails?.Overview);
+            Assert.Equal("Loose XML overview.", looseDetails?.Overview);
+        }
+        finally
+        {
+            if (created)
+            {
+                using var deleteResponse = await client.DeleteAsync(
+                    $"Library/VirtualFolders?name={Uri.EscapeDataString(libraryName)}&refreshLibrary=false",
+                    TestContext.Current.CancellationToken);
+                Assert.Equal(HttpStatusCode.NoContent, deleteResponse.StatusCode);
+            }
+
+            Directory.Delete(testRoot, true);
+        }
+    }
+
+    [Fact]
     public async Task SingleLooseMovie_DoesNotReplacePhysicalCategoryFolder()
     {
         var testRoot = Path.Combine(Path.GetTempPath(), "jigglefin-loose-movie-" + Guid.NewGuid().ToString("N"));

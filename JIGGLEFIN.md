@@ -27,7 +27,7 @@ The first milestone establishes local-first policy without changing the wire pro
 
 - the existing Jellyfin physical `Folders` view is enabled on new installations;
 - remote metadata providers are disabled by default for new libraries;
-- Kodi/Emby sidecar readers remain enabled;
+- Kodi NFO readers remain enabled, and Jigglefin reads legacy Emby movie XML sidecars;
 - local artwork, screen grabbing, and image extraction remain available;
 - direct play, transcoding, authentication, and all existing client endpoints stay upstream code.
 
@@ -64,6 +64,10 @@ audio streaming from the standard `AudioBook` item.
 Another checks that a Kodi-style `movie.nfo` supplies the title, year, and plot in standard client
 responses while its physical parent folder remains browseable. That test uses an original,
 synthetically generated MP4 and also checks full and byte-range direct video streaming.
+An additional integration test checks legacy Emby `movie.xml` in a dedicated movie directory and
+`<movie-file>.xml` beside a loose movie. Both provide standard client title, year, and overview
+fields. If XML and NFO coexist, NFO takes priority. XML readers for other media kinds remain work
+in progress.
 
 A movie category with a single loose file, such as `Action/Loose Movie.mp4`, remains a physical
 `Folder` with a `Movie` child. A dedicated movie directory still resolves to a `Movie` when its
