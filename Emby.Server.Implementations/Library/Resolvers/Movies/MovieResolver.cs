@@ -468,7 +468,10 @@ namespace Emby.Server.Implementations.Library.Resolvers.Movies
                 && fileSystemEntries.Any(i => !i.IsDirectory && IsDvdFile(i.Name))
                 && result.Items.All(i => string.Equals(Path.GetExtension(i.Path), ".vob", StringComparison.OrdinalIgnoreCase)
                     || string.Equals(Path.GetExtension(i.Path), ".ifo", StringComparison.OrdinalIgnoreCase));
-            if (folderRipCount == 1 && multiDiscFolders.Count == 0 && (result.Items.Count == 0 || hasOnlyDvdStructureFiles))
+            if (folderRipCount == 1
+                && multiDiscFolders.Count == 0
+                && photos.Count == 0
+                && (result.Items.Count == 0 || hasOnlyDvdStructureFiles))
             {
                 var movie = new T
                 {

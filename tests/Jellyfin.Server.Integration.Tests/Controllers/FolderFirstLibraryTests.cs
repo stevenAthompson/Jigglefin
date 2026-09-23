@@ -23,6 +23,109 @@ namespace Jellyfin.Server.Integration.Tests.Controllers;
 public sealed class FolderFirstLibraryTests
 {
     [Fact]
+    public async Task HomeVideoPhotos_KeepMixedFoldersAndPhotoAlbumsBrowseable()
+    {
+        var testRoot = Path.Combine(Path.GetTempPath(), "jigglefin-homevideo-photo-folders-" + Guid.NewGuid().ToString("N"));
+        var holidays = Path.Combine(testRoot, "Holidays");
+        var mixed = Path.Combine(holidays, "Mixed Day");
+        var nested = Path.Combine(holidays, "Nested Day");
+        var nestedChild = Path.Combine(nested, "More Photos");
+        var photosOnly = Path.Combine(holidays, "Photos Only");
+        Directory.CreateDirectory(mixed);
+        Directory.CreateDirectory(nestedChild);
+        Directory.CreateDirectory(photosOnly);
+        var photoBytes = Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl5aZkAAAAASUVORK5CYII=");
+        var videoBytes = await File.ReadAllBytesAsync(
+            Path.Combine(AppContext.BaseDirectory, "Test Data", "JigglefinSample.mp4"),
+            TestContext.Current.CancellationToken);
+        await File.WriteAllBytesAsync(Path.Combine(mixed, "Clip.mp4"), videoBytes, TestContext.Current.CancellationToken);
+        await File.WriteAllBytesAsync(Path.Combine(mixed, "Snapshot.png"), photoBytes, TestContext.Current.CancellationToken);
+        await File.WriteAllBytesAsync(Path.Combine(nested, "Snapshot.png"), photoBytes, TestContext.Current.CancellationToken);
+        await File.WriteAllBytesAsync(Path.Combine(nestedChild, "Another.png"), photoBytes, TestContext.Current.CancellationToken);
+        await File.WriteAllBytesAsync(Path.Combine(photosOnly, "Snapshot.png"), photoBytes, TestContext.Current.CancellationToken);
+
+        using var factory = new JellyfinApplicationFactory();
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.AddAuthHeader(await AuthHelper.CompleteStartupAsync(client));
+        var libraryName = "Jigglefin homevideo photo folders " + Guid.NewGuid().ToString("N");
+        var created = false;
+
+        try
+        {
+            using var createResponse = await client.PostAsJsonAsync(
+                $"Library/VirtualFolders?name={Uri.EscapeDataString(libraryName)}&collectionType=homevideos&paths={Uri.EscapeDataString(testRoot)}&refreshLibrary=false",
+                new AddVirtualFolderDto { LibraryOptions = new LibraryOptions() },
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.NoContent, createResponse.StatusCode);
+            created = true;
+
+            var libraryManager = (LibraryManager)factory.Services.GetRequiredService<ILibraryManager>();
+            await libraryManager.ValidateMediaLibraryInternal(new Progress<double>(), TestContext.Current.CancellationToken);
+            var views = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                "UserViews?presetViews=homevideos", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(views);
+            var library = Assert.Single(views.Items, item => item.Name == libraryName);
+            var rootItems = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={library.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(rootItems);
+            var holidaysItem = Assert.Single(rootItems.Items, item => item.Name == "Holidays");
+            Assert.Equal(BaseItemKind.Folder, holidaysItem.Type);
+
+            var children = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={holidaysItem.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(children);
+            var mixedItem = Assert.Single(children.Items, item => item.Name == "Mixed Day");
+            var nestedItem = Assert.Single(children.Items, item => item.Name == "Nested Day");
+            var photosItem = Assert.Single(children.Items, item => item.Name == "Photos Only");
+            Assert.Equal(BaseItemKind.Folder, mixedItem.Type);
+            Assert.Equal(BaseItemKind.Folder, nestedItem.Type);
+            Assert.Equal(BaseItemKind.PhotoAlbum, photosItem.Type);
+            var photoAlbumDetails = await client.GetFromJsonAsync<BaseItemDto>(
+                $"Items/{photosItem.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.Equal(BaseItemKind.PhotoAlbum, photoAlbumDetails?.Type);
+
+            var webChildren = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={holidaysItem.Id}&sortBy=IsFolder,SortName&fields=PrimaryImageAspectRatio,SortName,Path,ChildCount,MediaSourceCount",
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.NotNull(webChildren);
+            Assert.Equal(3, webChildren.Items.Count);
+            Assert.All(webChildren.Items, item => Assert.Equal(BaseItemKind.Folder, item.Type));
+
+            var mixedChildren = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={mixedItem.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(mixedChildren);
+            Assert.Single(mixedChildren.Items, item => item.Type == BaseItemKind.Video);
+            Assert.Single(mixedChildren.Items, item => item.Type == BaseItemKind.Photo);
+            var nestedChildren = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={nestedItem.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(nestedChildren);
+            Assert.Single(nestedChildren.Items, item => item.Type == BaseItemKind.Photo);
+            var nestedAlbum = Assert.Single(nestedChildren.Items, item => item.Name == "More Photos");
+            Assert.Equal(BaseItemKind.PhotoAlbum, nestedAlbum.Type);
+            var webNestedChildren = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={nestedItem.Id}&sortBy=IsFolder,SortName&fields=PrimaryImageAspectRatio,SortName,Path,ChildCount,MediaSourceCount",
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.NotNull(webNestedChildren);
+            Assert.Equal(BaseItemKind.Folder, Assert.Single(webNestedChildren.Items, item => item.Id.Equals(nestedAlbum.Id)).Type);
+        }
+        finally
+        {
+            if (created)
+            {
+                using var deleteResponse = await client.DeleteAsync(
+                    $"Library/VirtualFolders?name={Uri.EscapeDataString(libraryName)}&refreshLibrary=false",
+                    TestContext.Current.CancellationToken);
+                Assert.Equal(HttpStatusCode.NoContent, deleteResponse.StatusCode);
+            }
+
+            Directory.Delete(testRoot, true);
+        }
+    }
+
+    [Fact]
     public async Task HomeVideoDiscRip_WithPhoto_KeepsBothPhysicalEntriesBrowseable()
     {
         var testRoot = Path.Combine(Path.GetTempPath(), "jigglefin-homevideo-disc-photo-" + Guid.NewGuid().ToString("N"));

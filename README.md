@@ -45,7 +45,9 @@ open and potentially migrate that database. Jellyfin and Jigglefin cannot both b
   with additional child folders or both book and audiobook files remain browseable instead of
   hiding those entries, as do movie folders with `Extras` and music folders that mix tracks with
   non-disc subfolders. A multi-disc `MusicAlbum` exposes its physical disc folders in the folder
-  browser. Music-specific track lists remain compatible with Jellyfin Web.
+  browser. Home-video folders with both photos and videos, or photos and child folders, remain
+  physical folders; photo-only albums open through the Web folder browser. Music-specific track
+  lists remain compatible with Jellyfin Web.
 - Kodi-style NFO and legacy-style `movie.xml`, `<movie-file>.xml`, `series.xml`,
   `<episode-file>.xml`, `artist.xml`, and `album.xml` sidecars, local artwork, embedded tags, and
   filenames are used ahead of remote metadata. Network metadata providers are disabled by

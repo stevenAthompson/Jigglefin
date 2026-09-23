@@ -2,6 +2,7 @@
 
 using System;
 using Emby.Naming.Common;
+using Emby.Naming.Video;
 using Jellyfin.Data.Enums;
 using MediaBrowser.Controller.Drawing;
 using MediaBrowser.Controller.Entities;
@@ -49,6 +50,17 @@ namespace Emby.Server.Implementations.Library.Resolvers
                 if (collectionType == CollectionType.photos
                     || (collectionType == CollectionType.homevideos && args.LibraryOptions.EnablePhotos))
                 {
+                    // A photo album detail view can hide other physical entries. Keep
+                    // mixed video/photo folders and folders with child directories as
+                    // ordinary folders so clients can browse every path.
+                    foreach (var child in args.FileSystemChildren)
+                    {
+                        if (child.IsDirectory || VideoResolver.IsVideoFile(child.FullName, _namingOptions))
+                        {
+                            return null;
+                        }
+                    }
+
                     if (HasPhotos(args))
                     {
                         return new PhotoAlbum

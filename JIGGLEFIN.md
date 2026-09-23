@@ -100,6 +100,11 @@ covered by an API browse test.
 If a named movie directory also contains an `Extras` or `Trailers` directory, it remains a
 physical `Folder`: the main movie and bonus directory are both reachable through ordinary
 `Items` browsing instead of hiding the bonus path behind movie-detail extras handling.
+In a Home Videos and Photos library, a directory with both photos and videos, or photos and child
+directories, remains a physical `Folder`. A DVD/Blu-ray rip beside a standalone photo also
+remains a folder instead of replacing it with a single video. Photo-only directories may retain
+Jellyfin's `PhotoAlbum` type for detail endpoints, but folder-list responses present them as
+`Folder` items so the unmodified Web client can continue down the physical path.
 
 Book and audiobook directories also stay physical `Folder` items when they contain child
 directories, when their only media file has a different title from the directory, or when an

@@ -661,6 +661,7 @@ public class ItemsController : BaseJellyfinApiController
             {
                 if (itemDto.Type is BaseItemKind.MusicArtist
                     or BaseItemKind.MusicAlbum
+                    or BaseItemKind.PhotoAlbum
                     or BaseItemKind.Series
                     or BaseItemKind.Season)
                 {
