@@ -1,5 +1,7 @@
 # Jigglefin portable Windows server
 
+![Jigglefin logo](Jigglefin-logo.png)
+
 This is an early testing build of Jigglefin for Windows x64. It includes the .NET runtime and an
 unmodified, matching Jellyfin Web client. It also includes the official Jellyfin FFmpeg and
 FFprobe binaries for media probing and transcoding.

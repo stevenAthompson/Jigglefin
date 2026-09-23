@@ -12,7 +12,7 @@
     <ServerGarbageCollection>false</ServerGarbageCollection>
     <GenerateAssemblyInfo>false</GenerateAssemblyInfo>
     <GenerateDocumentationFile>true</GenerateDocumentationFile>
-    <ApplicationIcon>Jellyfin.Server.ico</ApplicationIcon>
+    <ApplicationIcon>..\branding\Jigglefin.ico</ApplicationIcon>
   </PropertyGroup>
 
   <ItemGroup>
@@ -20,7 +20,7 @@
   </ItemGroup>
 
   <ItemGroup>
-    <Content Include="Jellyfin.Server.ico" />
+    <Content Include="..\branding\Jigglefin.ico" Link="Jigglefin.ico" />
   </ItemGroup>
 
   <ItemGroup>

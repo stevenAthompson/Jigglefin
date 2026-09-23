@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title description">
+  <title id="title">Jigglefin</title>
+  <desc id="description">An abstract shark fin rising above two waves.</desc>
+  <circle cx="256" cy="256" r="225" fill="#082f54"/>
+  <path d="M149 302c51-39 82-116 104-183 18 89 61 151 120 183-40-16-75-13-106 7-39 25-83 23-118-7Z" fill="#59d8f0"/>
+  <path d="M253 119c18 89 61 151 120 183-40-16-75-13-106 7-8 5-17 9-26 12 42-52 45-111 12-202Z" fill="#1595c2"/>
+  <path d="M105 342c43-21 82-22 121-3 41 21 79 22 117 3 22-11 43-13 65-8" fill="none" stroke="#f5fbff" stroke-width="22" stroke-linecap="round"/>
+  <path d="M130 387c37-15 69-15 101 1 36 17 70 17 103 1 17-8 33-11 49-9" fill="none" stroke="#59d8f0" stroke-width="15" stroke-linecap="round"/>
+</svg>

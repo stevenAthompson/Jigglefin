@@ -66,6 +66,7 @@ if ($LASTEXITCODE -ne 0) {
 Copy-Item -LiteralPath $webDist -Destination (Join-Path $outputPath 'jellyfin-web') -Recurse
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'start-win.ps1') -Destination (Join-Path $outputPath 'Start-Jigglefin.ps1')
 Copy-Item -LiteralPath (Join-Path $repositoryRoot 'README-PORTABLE.md') -Destination (Join-Path $outputPath 'README-PORTABLE.md')
+Copy-Item -LiteralPath (Join-Path $repositoryRoot 'branding/jigglefin-256.png') -Destination (Join-Path $outputPath 'Jigglefin-logo.png')
 Copy-Item -LiteralPath (Join-Path $repositoryRoot 'LICENSE') -Destination (Join-Path $outputPath 'JIGGLEFIN-LICENSE')
 Copy-Item -LiteralPath $webLicense -Destination (Join-Path $outputPath 'JELLYFIN-WEB-LICENSE')
 foreach ($ffmpegFile in @('ffmpeg.exe', 'ffprobe.exe', 'FFMPEG-LICENSE.md', 'FFMPEG-COPYING.GPLv3')) {

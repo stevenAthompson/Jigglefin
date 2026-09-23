@@ -1,5 +1,7 @@
 # Jigglefin
 
+![Jigglefin logo](branding/jigglefin-256.png)
+
 Jigglefin is a Windows-focused, folder-first fork of Jellyfin Server. It keeps the standard
 Jellyfin API and media item types so unmodified Jellyfin clients can connect, browse, and stream.
 It is an early testing build, not yet a finished replacement for Jellyfin.
