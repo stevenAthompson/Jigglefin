@@ -222,6 +222,126 @@ public sealed class LocalSidecarLibraryTests
     }
 
     [Fact]
+    public async Task AudioBookXml_UsesSpecificOrUnambiguousSidecarsWithoutLeakingMetadata()
+    {
+        var testRoot = Path.Combine(Path.GetTempPath(), "jigglefin-audiobook-xml-" + Guid.NewGuid().ToString("N"));
+        var category = Path.Combine(testRoot, "Listening");
+        var mixedFolder = Path.Combine(category, "Mixed Shelf");
+        var dedicatedFolder = Path.Combine(category, "Dedicated Audio");
+        var alternateFolder = Path.Combine(category, "Archive Shelf");
+        var crossFormatFolder = Path.Combine(category, "Cross Format");
+        foreach (var folder in new[] { mixedFolder, dedicatedFolder, alternateFolder, crossFormatFolder })
+        {
+            Directory.CreateDirectory(folder);
+        }
+
+        var sample = Path.Combine(AppContext.BaseDirectory, "Test Data", "JigglefinSample.m4b");
+        File.Copy(sample, Path.Combine(mixedFolder, "First Audio.m4b"));
+        File.Copy(sample, Path.Combine(mixedFolder, "Second Audio.m4b"));
+        File.Copy(sample, Path.Combine(dedicatedFolder, "Dedicated Audio.m4b"));
+        File.Copy(sample, Path.Combine(alternateFolder, "Third Audio.m4b"));
+        File.Copy(sample, Path.Combine(crossFormatFolder, "Fourth Audio.m4b"));
+        await File.WriteAllBytesAsync(Path.Combine(crossFormatFolder, "Fourth Book.pdf"), [], TestContext.Current.CancellationToken);
+        await File.WriteAllTextAsync(
+            Path.Combine(mixedFolder, "First Audio.xml"),
+            "<Item><LocalTitle>Specific Audio Title</LocalTitle><ProductionYear>2022</ProductionYear><Overview>First audio only.</Overview></Item>",
+            TestContext.Current.CancellationToken);
+        await File.WriteAllTextAsync(
+            Path.Combine(mixedFolder, "audiobook.xml"),
+            "<Item><LocalTitle>Wrong Shared Title</LocalTitle></Item>",
+            TestContext.Current.CancellationToken);
+        await File.WriteAllTextAsync(
+            Path.Combine(dedicatedFolder, "book.xml"),
+            "<Item><LocalTitle>Dedicated Audio Title</LocalTitle><Overview>One audiobook in this folder.</Overview></Item>",
+            TestContext.Current.CancellationToken);
+        await File.WriteAllTextAsync(
+            Path.Combine(alternateFolder, "audiobook.xml"),
+            "<Item><LocalTitle>Archive Audio Title</LocalTitle><Overview>One audiobook in this archive.</Overview></Item>",
+            TestContext.Current.CancellationToken);
+        await File.WriteAllTextAsync(
+            Path.Combine(crossFormatFolder, "book.xml"),
+            "<Item><LocalTitle>Wrong Cross Format Title</LocalTitle></Item>",
+            TestContext.Current.CancellationToken);
+        await File.WriteAllTextAsync(
+            Path.Combine(crossFormatFolder, "metadata.opf"),
+            "<package xmlns='http://www.idpf.org/2007/opf'><metadata xmlns:dc='http://purl.org/dc/elements/1.1/'><dc:title>Wrong Cross Format OPF Title</dc:title></metadata></package>",
+            TestContext.Current.CancellationToken);
+
+        using var factory = new JellyfinApplicationFactory();
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.AddAuthHeader(await AuthHelper.CompleteStartupAsync(client));
+        var libraryName = "Jigglefin audiobook XML test " + Guid.NewGuid().ToString("N");
+        var created = false;
+
+        try
+        {
+            using var createResponse = await client.PostAsJsonAsync(
+                $"Library/VirtualFolders?name={Uri.EscapeDataString(libraryName)}&collectionType=books&paths={Uri.EscapeDataString(testRoot)}&refreshLibrary=false",
+                new AddVirtualFolderDto { LibraryOptions = new LibraryOptions() },
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.NoContent, createResponse.StatusCode);
+            created = true;
+
+            var libraryManager = (LibraryManager)factory.Services.GetRequiredService<ILibraryManager>();
+            await libraryManager.ValidateMediaLibraryInternal(new Progress<double>(), TestContext.Current.CancellationToken);
+
+            var views = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                "UserViews?presetViews=books", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(views);
+            var library = Assert.Single(views.Items, item => item.Name == libraryName);
+            var groups = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={library.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(groups);
+            var listening = Assert.Single(groups.Items, item => item.Name == "Listening");
+            var shelves = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={listening.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(shelves);
+            var mixed = Assert.Single(shelves.Items, item => item.Name == "Mixed Shelf");
+            var dedicated = Assert.Single(shelves.Items, item => item.Name == "Dedicated Audio Title");
+            Assert.Equal(BaseItemKind.AudioBook, dedicated.Type);
+            var archive = Assert.Single(shelves.Items, item => item.Name == "Archive Shelf");
+            var crossFormat = Assert.Single(shelves.Items, item => item.Name == "Cross Format");
+
+            var mixedItems = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={mixed.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(mixedItems);
+            var first = Assert.Single(mixedItems.Items, item => item.Name == "Specific Audio Title");
+            Assert.Equal(BaseItemKind.AudioBook, first.Type);
+            Assert.Equal(2022, first.ProductionYear);
+            Assert.Single(mixedItems.Items, item => item.Name == "Second Audio" && item.Type == BaseItemKind.AudioBook);
+            var firstDetails = await client.GetFromJsonAsync<BaseItemDto>(
+                $"Items/{first.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.Equal("First audio only.", firstDetails?.Overview);
+            var dedicatedDetails = await client.GetFromJsonAsync<BaseItemDto>(
+                $"Items/{dedicated.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.Equal("One audiobook in this folder.", dedicatedDetails?.Overview);
+
+            var archiveItems = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={archive.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(archiveItems);
+            Assert.Single(archiveItems.Items, item => item.Name == "Archive Audio Title" && item.Type == BaseItemKind.AudioBook);
+            var crossFormatItems = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={crossFormat.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(crossFormatItems);
+            Assert.Single(crossFormatItems.Items, item => item.Name == "Fourth Audio" && item.Type == BaseItemKind.AudioBook);
+            Assert.Single(crossFormatItems.Items, item => item.Name == "Fourth Book" && item.Type == BaseItemKind.Book);
+        }
+        finally
+        {
+            if (created)
+            {
+                using var deleteResponse = await client.DeleteAsync(
+                    $"Library/VirtualFolders?name={Uri.EscapeDataString(libraryName)}&refreshLibrary=false",
+                    TestContext.Current.CancellationToken);
+                Assert.Equal(HttpStatusCode.NoContent, deleteResponse.StatusCode);
+            }
+
+            Directory.Delete(testRoot, true);
+        }
+    }
+
+    [Fact]
     public async Task EmbyMusicXml_ProvidesArtistAndAlbumMetadataThroughPhysicalFolders()
     {
         var testRoot = Path.Combine(Path.GetTempPath(), "jigglefin-music-xml-" + Guid.NewGuid().ToString("N"));

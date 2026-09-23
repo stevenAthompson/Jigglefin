@@ -106,11 +106,13 @@ through the standard show and item endpoints; an adjacent episode NFO takes prio
 Jigglefin also reads legacy-style `artist.xml` and `album.xml` in physical music directories.
 The upstream OPF reader supplies local book metadata. A basename-matched `.opf` can describe one
 book in a mixed directory; generic `content.opf` and Calibre `metadata.opf` apply when the
-directory contains exactly one supported book file, even if its folder name differs. They cannot
+directory contains exactly one supported book or audiobook file, even if its folder name differs. They cannot
 overwrite the names of unrelated sibling books. A basename-matched `.xml` with legacy Emby-style
 fields likewise describes only its book; `book.xml` applies only when the directory contains one
-supported book file. OPF takes precedence if both formats are present. Other legacy XML media
-kinds remain work in progress.
+supported book or audiobook file. OPF takes precedence if both formats are present. Other legacy XML media
+kinds remain work in progress. Audiobooks also accept basename-matched `.xml` sidecars; generic
+`audiobook.xml` or `book.xml` applies only when the directory contains one supported book or
+audiobook media file, so it cannot rename sibling chapters or an adjacent ebook.
 
 A movie category with a single loose file, such as `Action/Loose Movie.mp4`, remains a physical
 `Folder` with a `Movie` child. A dedicated movie directory still resolves to a `Movie` when its

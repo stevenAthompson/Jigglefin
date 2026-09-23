@@ -3,6 +3,7 @@ using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Xml;
+using Emby.Naming.Common;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.IO;
@@ -23,16 +24,19 @@ namespace MediaBrowser.Providers.Books.OpenPackagingFormat
         private readonly IFileSystem _fileSystem;
 
         private readonly ILogger<OpfProvider> _logger;
+        private readonly NamingOptions _namingOptions;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="OpfProvider"/> class.
         /// </summary>
         /// <param name="fileSystem">Instance of the <see cref="IFileSystem"/> interface.</param>
         /// <param name="logger">Instance of the <see cref="ILogger{OpfProvider}"/> interface.</param>
-        public OpfProvider(IFileSystem fileSystem, ILogger<OpfProvider> logger)
+        /// <param name="namingOptions">The media naming options.</param>
+        public OpfProvider(IFileSystem fileSystem, ILogger<OpfProvider> logger, NamingOptions namingOptions)
         {
             _fileSystem = fileSystem;
             _logger = logger;
+            _namingOptions = namingOptions;
         }
 
         /// <inheritdoc />
@@ -41,7 +45,7 @@ namespace MediaBrowser.Providers.Books.OpenPackagingFormat
         /// <inheritdoc />
         public bool HasChanged(BaseItem item, IDirectoryService directoryService)
         {
-            var file = GetXmlFile(item.Path, item.IsInMixedFolder, directoryService);
+            var file = GetXmlFile(item.Path, directoryService);
 
             return file.Exists && _fileSystem.GetLastWriteTimeUtc(file) > item.DateLastSaved;
         }
@@ -49,7 +53,7 @@ namespace MediaBrowser.Providers.Books.OpenPackagingFormat
         /// <inheritdoc />
         public Task<MetadataResult<Book>> GetMetadata(ItemInfo info, IDirectoryService directoryService, CancellationToken cancellationToken)
         {
-            var path = GetXmlFile(info.Path, info.IsInMixedFolder, directoryService).FullName;
+            var path = GetXmlFile(info.Path, directoryService).FullName;
 
             try
             {
@@ -61,7 +65,7 @@ namespace MediaBrowser.Providers.Books.OpenPackagingFormat
             }
         }
 
-        private FileSystemMetadata GetXmlFile(string path, bool isInMixedFolder, IDirectoryService directoryService)
+        private FileSystemMetadata GetXmlFile(string path, IDirectoryService directoryService)
         {
             var fileInfo = _fileSystem.GetFileSystemInfo(path);
             var directoryInfo = fileInfo.IsDirectory ? fileInfo : _fileSystem.GetDirectoryInfo(Path.GetDirectoryName(path)!);
@@ -75,12 +79,12 @@ namespace MediaBrowser.Providers.Books.OpenPackagingFormat
                 return file;
             }
 
-            // A generic OPF is unambiguous with one book file, even when the
-            // folder name differs from that file. Never share it across books.
-            if (isInMixedFolder
-                && (!directoryInfo.Exists
-                    || directoryService.GetFileSystemEntries(directoryInfo.FullName)
-                        .Count(entry => !entry.IsDirectory && BookFileExtensions.IsBookFile(entry.FullName)) != 1))
+            // A generic OPF is unambiguous only when this directory contains
+            // one book or audiobook file, even if its folder name differs.
+            if (!directoryInfo.Exists
+                || directoryService.GetFileSystemEntries(directoryInfo.FullName)
+                    .Count(entry => !entry.IsDirectory
+                        && BookFileExtensions.IsBookOrAudioBookFile(entry.FullName, _namingOptions)) != 1)
             {
                 return file;
             }

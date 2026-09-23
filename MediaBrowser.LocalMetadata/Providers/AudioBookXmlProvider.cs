@@ -11,24 +11,24 @@ using Microsoft.Extensions.Logging;
 namespace MediaBrowser.LocalMetadata.Providers
 {
     /// <summary>
-    /// Reads legacy-style XML sidecars for physical book files.
+    /// Reads legacy-style XML sidecars for physical audiobook files.
     /// </summary>
-    public class BookXmlProvider : BaseXmlProvider<Book>
+    public class AudioBookXmlProvider : BaseXmlProvider<AudioBook>
     {
-        private readonly ILogger<BaseItemXmlParser<Book>> _logger;
+        private readonly ILogger<BaseItemXmlParser<AudioBook>> _logger;
         private readonly IProviderManager _providerManager;
         private readonly NamingOptions _namingOptions;
 
         /// <summary>
-        /// Initializes a new instance of the <see cref="BookXmlProvider"/> class.
+        /// Initializes a new instance of the <see cref="AudioBookXmlProvider"/> class.
         /// </summary>
         /// <param name="fileSystem">The file system.</param>
         /// <param name="logger">The XML parser logger.</param>
         /// <param name="providerManager">The provider manager.</param>
         /// <param name="namingOptions">The media naming options.</param>
-        public BookXmlProvider(
+        public AudioBookXmlProvider(
             IFileSystem fileSystem,
-            ILogger<BaseItemXmlParser<Book>> logger,
+            ILogger<BaseItemXmlParser<AudioBook>> logger,
             IProviderManager providerManager,
             NamingOptions namingOptions)
             : base(fileSystem)
@@ -39,13 +39,12 @@ namespace MediaBrowser.LocalMetadata.Providers
         }
 
         /// <inheritdoc />
-        /// <remarks>OPF and embedded metadata keep their default order of 50.</remarks>
         public override int Order => 51;
 
         /// <inheritdoc />
-        protected override void Fetch(MetadataResult<Book> result, string path, CancellationToken cancellationToken)
+        protected override void Fetch(MetadataResult<AudioBook> result, string path, CancellationToken cancellationToken)
         {
-            new BaseItemXmlParser<Book>(_logger, _providerManager).Fetch(result, path, cancellationToken);
+            new BaseItemXmlParser<AudioBook>(_logger, _providerManager).Fetch(result, path, cancellationToken);
         }
 
         /// <inheritdoc />
@@ -57,8 +56,8 @@ namespace MediaBrowser.LocalMetadata.Providers
                 return specificFile;
             }
 
-            // A shared sidecar is safe only when the directory contains one
-            // supported book or audiobook file, regardless of the folder type.
+            // Generic sidecars must not give the same metadata to sibling chapters,
+            // another audiobook, or an ebook in a mixed physical directory.
             if (directoryService.GetFileSystemEntries(info.ContainingFolderPath)
                 .Count(entry => !entry.IsDirectory
                     && BookFileExtensions.IsBookOrAudioBookFile(entry.FullName, _namingOptions)) != 1)
@@ -66,7 +65,8 @@ namespace MediaBrowser.LocalMetadata.Providers
                 return null;
             }
 
-            return directoryService.GetFile(Path.Combine(info.ContainingFolderPath, "book.xml"));
+            return directoryService.GetFile(Path.Combine(info.ContainingFolderPath, "audiobook.xml"))
+                ?? directoryService.GetFile(Path.Combine(info.ContainingFolderPath, "book.xml"));
         }
     }
 }
