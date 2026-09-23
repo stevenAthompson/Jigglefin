@@ -4,7 +4,9 @@ param(
     [string]$PackageDirectory,
 
     [ValidateRange(1, 600)]
-    [int]$TimeoutSeconds = 120
+    [int]$TimeoutSeconds = 120,
+
+    [switch]$HeadlessWebClient
 )
 
 $ErrorActionPreference = 'Stop'
@@ -46,6 +48,25 @@ $arguments = @(
 $serverProcess = $null
 $smokeSucceeded = $false
 try {
+    if ($HeadlessWebClient) {
+        $clientScript = Join-Path $repositoryRoot 'tests/WebClientSmoke/smoke.cjs'
+        $clientModule = Join-Path $repositoryRoot 'tests/WebClientSmoke/node_modules/playwright/package.json'
+        if (-not (Test-Path -LiteralPath $clientScript -PathType Leaf) -or -not (Test-Path -LiteralPath $clientModule -PathType Leaf)) {
+            throw 'Install the headless Web test dependencies with npm ci --prefix tests/WebClientSmoke first.'
+        }
+
+        $node = (Get-Command node -ErrorAction Stop).Source
+        $sampleVideo = Join-Path $smokeProfile 'Headless Web Movie.mp4'
+        $sampleAudioBook = Join-Path $smokeProfile 'Headless Web Audio.m4b'
+        & $ffmpeg -hide_banner -loglevel error -nostdin -f lavfi -i 'testsrc2=size=320x180:rate=24' `
+            -f lavfi -i 'sine=frequency=440:sample_rate=48000' -t 20 -c:v libx264 -preset veryfast `
+            -pix_fmt yuv420p -c:a aac -b:a 96k -movflags +faststart -y $sampleVideo
+        if ($LASTEXITCODE -ne 0) { throw 'Could not generate the headless Web movie sample.' }
+        & $ffmpeg -hide_banner -loglevel error -nostdin -f lavfi -i 'sine=frequency=523:sample_rate=48000' `
+            -t 20 -c:a aac -b:a 64k -f ipod -y $sampleAudioBook
+        if ($LASTEXITCODE -ne 0) { throw 'Could not generate the headless Web audiobook sample.' }
+    }
+
     $serverProcess = Start-Process -FilePath $server -ArgumentList $arguments -WorkingDirectory $package `
         -RedirectStandardOutput $stdout -RedirectStandardError $stderr -WindowStyle Hidden -PassThru
 
@@ -275,6 +296,25 @@ try {
         -OutFile $audioStreamPath -TimeoutSec 30 | Out-Null
     if ((Get-FileHash -LiteralPath $audioStreamPath -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $sampleAudioBook -Algorithm SHA256).Hash) {
         throw 'The authenticated audiobook stream did not match the sample file.'
+    }
+
+    if ($HeadlessWebClient) {
+        $oldBaseUrl = $env:JIGGLEFIN_TEST_BASE_URL
+        $oldUser = $env:JIGGLEFIN_TEST_USER
+        $oldPassword = $env:JIGGLEFIN_TEST_PASSWORD
+        try {
+            $env:JIGGLEFIN_TEST_BASE_URL = $baseUrl
+            $env:JIGGLEFIN_TEST_USER = $userName
+            $env:JIGGLEFIN_TEST_PASSWORD = $temporaryPassword
+            & $node $clientScript
+            if ($LASTEXITCODE -ne 0) {
+                throw "Headless Jellyfin Web smoke test failed with exit code $LASTEXITCODE"
+            }
+        } finally {
+            $env:JIGGLEFIN_TEST_BASE_URL = $oldBaseUrl
+            $env:JIGGLEFIN_TEST_USER = $oldUser
+            $env:JIGGLEFIN_TEST_PASSWORD = $oldPassword
+        }
     }
 
     $smokeSucceeded = $true

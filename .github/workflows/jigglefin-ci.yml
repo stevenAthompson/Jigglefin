@@ -75,9 +75,17 @@ jobs:
           $ffmpegPath = Join-Path $env:RUNNER_TEMP 'jellyfin-ffmpeg'
           .\scripts\package-win.ps1 -WebDistPath (Join-Path $env:RUNNER_TEMP 'jellyfin-web/dist') -FfmpegDirectory $ffmpegPath
 
+      - name: Install headless Jellyfin Web test
+        shell: pwsh
+        run: |
+          npm ci --prefix .\tests\WebClientSmoke --ignore-scripts --no-audit
+          if ($LASTEXITCODE -ne 0) { throw 'Headless Web test dependency install failed' }
+          & .\tests\WebClientSmoke\node_modules\.bin\playwright.cmd install chromium
+          if ($LASTEXITCODE -ne 0) { throw 'Headless Chromium install failed' }
+
       - name: Smoke-test packaged Windows server
         shell: pwsh
-        run: .\scripts\smoke-package-win.ps1 -PackageDirectory .\publish\Jigglefin-win-x64
+        run: .\scripts\smoke-package-win.ps1 -PackageDirectory .\publish\Jigglefin-win-x64 -HeadlessWebClient
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

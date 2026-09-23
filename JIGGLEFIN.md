@@ -194,8 +194,11 @@ then running `scripts/package-win.ps1 -WebDistPath <web-dist-path> -FfmpegDirect
 Before artifact upload, CI runs `scripts/smoke-package-win.ps1` against the assembled package.
 It uses a fresh temporary profile and random one-time admin password to check setup, login,
 physical movie and audiobook folders, local NFO fields, standard client playback negotiation,
-external subtitles, and direct media bytes; successful profiles
-are cleaned up after the server stops when Windows releases their files.
+external subtitles, direct media bytes, and headless playback in unmodified Jellyfin Web.
+Successful profiles are cleaned up after the server stops when Windows releases their files.
+To repeat the full client test locally after packaging, run `npm ci --prefix tests/WebClientSmoke`,
+`tests/WebClientSmoke/node_modules/.bin/playwright.cmd install chromium`, then
+`scripts/smoke-package-win.ps1 -PackageDirectory <package-path> -HeadlessWebClient`.
 The extracted package includes `Start-Jigglefin.ps1`; see its `README-PORTABLE.md` for first-run
 instructions. Its bundled FFmpeg is used by default.
 

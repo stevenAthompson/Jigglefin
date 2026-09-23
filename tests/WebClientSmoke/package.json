@@ -1,0 +1,11 @@
+{
+  "name": "jigglefin-web-client-smoke",
+  "version": "0.0.0",
+  "private": true,
+  "scripts": {
+    "test": "node smoke.cjs"
+  },
+  "devDependencies": {
+    "playwright": "1.63.0"
+  }
+}
