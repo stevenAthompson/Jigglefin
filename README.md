@@ -44,11 +44,11 @@ open and potentially migrate that database. Jellyfin and Jigglefin cannot both b
   automatically replace its parent category with a Movie or Series. Book and audiobook folders
   with additional child folders or both book and audiobook files remain browseable instead of
   hiding those entries, as do music folders that mix tracks with non-disc subfolders.
-- Kodi-style NFO and legacy-style `movie.xml`, `<movie-file>.xml`, `series.xml`, `artist.xml`, and
-  `album.xml` sidecars, local artwork, embedded tags, and filenames are used ahead of remote
-  metadata. Network metadata providers are disabled by default for new libraries; explicit
-  provider choices remain available. XML sidecars for books and other media types are not yet
-  covered by Jigglefin's readers.
+- Kodi-style NFO and legacy-style `movie.xml`, `<movie-file>.xml`, `series.xml`,
+  `<episode-file>.xml`, `artist.xml`, and `album.xml` sidecars, local artwork, embedded tags, and
+  filenames are used ahead of remote metadata. Network metadata providers are disabled by
+  default for new libraries; explicit provider choices remain available. XML sidecars for books
+  and other media types are not yet covered by Jigglefin's readers.
 - Media library entries are presented as folders in UserViews so standard clients use their
   built-in folder browser. The stored library type and child media types remain unchanged.
 - The standard web client has been checked against a packaged server for folder navigation and

@@ -219,6 +219,10 @@ public sealed class LocalSidecarLibraryTests
                 TestContext.Current.CancellationToken),
             TestContext.Current.CancellationToken);
         await File.WriteAllTextAsync(
+            Path.Combine(seriesFolder, "Example Show - S01E01.xml"),
+            "<Item><LocalTitle>Local XML Episode</LocalTitle><Overview>From the episode XML.</Overview></Item>",
+            TestContext.Current.CancellationToken);
+        await File.WriteAllTextAsync(
             Path.Combine(seriesFolder, "series.xml"),
             "<Series><LocalTitle>Local XML Series</LocalTitle><ProductionYear>2020</ProductionYear><Overview>From the series XML.</Overview></Series>",
             TestContext.Current.CancellationToken);
@@ -237,6 +241,14 @@ public sealed class LocalSidecarLibraryTests
         await File.WriteAllTextAsync(
             Path.Combine(precedenceFolder, "tvshow.nfo"),
             "<tvshow><title>Preferred Series NFO</title></tvshow>",
+            TestContext.Current.CancellationToken);
+        await File.WriteAllTextAsync(
+            Path.Combine(precedenceFolder, "Both Sources - S01E01.xml"),
+            "<Item><LocalTitle>Secondary Episode XML</LocalTitle></Item>",
+            TestContext.Current.CancellationToken);
+        await File.WriteAllTextAsync(
+            Path.Combine(precedenceFolder, "Both Sources - S01E01.nfo"),
+            "<episodedetails><title>Preferred Episode NFO</title></episodedetails>",
             TestContext.Current.CancellationToken);
         var markerFolder = Path.Combine(testRoot, "Drama", "XML Marker Show");
         var bonusFolder = Path.Combine(markerFolder, "Bonus Collection");
@@ -298,6 +310,18 @@ public sealed class LocalSidecarLibraryTests
             var details = await client.GetFromJsonAsync<BaseItemDto>(
                 $"Items/{series.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
             Assert.Equal("From the series XML.", details?.Overview);
+            var episodes = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Shows/{series.Id}/Episodes", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(episodes);
+            var xmlEpisode = Assert.Single(episodes.Items, item => item.Name == "Local XML Episode");
+            Assert.Equal(BaseItemKind.Episode, xmlEpisode.Type);
+            var episodeDetails = await client.GetFromJsonAsync<BaseItemDto>(
+                $"Items/{xmlEpisode.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.Equal("From the episode XML.", episodeDetails?.Overview);
+            var preferredEpisodes = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Shows/{preferredNfo.Id}/Episodes", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(preferredEpisodes);
+            Assert.Single(preferredEpisodes.Items, item => item.Name == "Preferred Episode NFO");
             var markerDetails = await client.GetFromJsonAsync<BaseItemDto>(
                 $"Items/{marker.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
             Assert.Equal("From the marker XML.", markerDetails?.Overview);

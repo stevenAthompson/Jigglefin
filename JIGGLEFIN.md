@@ -79,7 +79,8 @@ Another integration test checks `series.xml` in a show directory below a physica
 The normal `Series` item receives its local title, year, and overview, while the category remains
 visible as a folder. The XML also marks a show with only an unnumbered bonus subfolder as a
 `Series`; that subfolder and its playable episode remain browseable. A coexisting `tvshow.nfo`
-takes priority over the series XML.
+takes priority over the series XML. `<episode-file>.xml` supplies local episode title and overview
+through the standard show and item endpoints; an adjacent episode NFO takes priority.
 Jigglefin also reads legacy-style `artist.xml` and `album.xml` in physical music directories.
 XML readers for books and other media kinds remain work in progress.
 
