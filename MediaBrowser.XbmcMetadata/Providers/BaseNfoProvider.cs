@@ -34,8 +34,11 @@ namespace MediaBrowser.XbmcMetadata.Providers
 
             var file = GetXmlFile(info, directoryService);
 
-            if (file is null)
+            if (file?.Exists is not true)
             {
+                result.RemovedLocalSidecarProviderId = !string.IsNullOrEmpty(info.PreviousLocalNfoPath)
+                    ? ItemInfo.LocalNfoPathProviderId
+                    : null;
                 return Task.FromResult(result);
             }
 
@@ -49,6 +52,7 @@ namespace MediaBrowser.XbmcMetadata.Providers
                 };
 
                 Fetch(result, path, cancellationToken);
+                result.Item.ProviderIds[ItemInfo.LocalNfoPathProviderId] = path;
                 result.HasMetadata = true;
             }
             catch (FileNotFoundException)
@@ -66,17 +70,27 @@ namespace MediaBrowser.XbmcMetadata.Providers
         /// <inheritdoc />
         public bool HasChanged(BaseItem item, IDirectoryService directoryService)
         {
-            var file = GetXmlFile(new ItemInfo(item), directoryService);
+            var info = new ItemInfo(item);
+            var file = GetXmlFile(info, directoryService);
 
             if (file?.Exists is not true)
             {
-                return false;
+                return !string.IsNullOrEmpty(info.PreviousLocalNfoPath);
+            }
+
+            if (!string.IsNullOrEmpty(info.PreviousLocalNfoPath)
+                && !string.Equals(file.FullName, info.PreviousLocalNfoPath, StringComparison.Ordinal))
+            {
+                return true;
             }
 
             var fileTime = _fileSystem.GetLastWriteTimeUtc(file);
 
-            // 1 minute tolerance to avoid detecting our own file writes
-            return (fileTime - item.DateLastSaved) > TimeSpan.FromMinutes(1);
+            // The tolerance only protects installations that save NFOs themselves.
+            // Folder-first libraries normally read local sidecars without writing them,
+            // so an edit immediately after scanning must be picked up on the next scan.
+            var tolerance = item.IsSaveLocalMetadataEnabled() ? TimeSpan.FromMinutes(1) : TimeSpan.Zero;
+            return (fileTime - item.DateLastSaved) > tolerance;
         }
 
         protected abstract void Fetch(MetadataResult<T> result, string path, CancellationToken cancellationToken);

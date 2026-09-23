@@ -130,7 +130,10 @@ An artwork integration test confirms that a new physical movie uses its local `p
 standard image endpoint.
 An additional integration test checks legacy Emby `movie.xml` in a dedicated movie directory and
 `<movie-file>.xml` beside a loose movie. Both provide standard client title, year, and overview
-fields. If XML and NFO coexist, NFO takes priority.
+fields. If XML and NFO coexist, NFO takes priority. Subsequent scans also pick up NFO/XML edits
+and removals: deleting the preferred NFO falls through to XML, and removing the final sidecar
+returns the item to its path-derived title and year instead of retaining stale metadata. The
+internal sidecar provenance used for this is not included in client provider IDs.
 Another integration test checks `series.xml` in a show directory below a physical TV category.
 The normal `Series` item receives its local title, year, and overview, while the category remains
 visible as a folder. The XML also marks a show with only an unnumbered bonus subfolder as a
@@ -141,7 +144,8 @@ Jigglefin also reads legacy-style `artist.xml` and `album.xml` in physical music
 The upstream OPF reader supplies local book metadata. A basename-matched `.opf` can describe one
 book in a mixed directory; generic `content.opf` and Calibre `metadata.opf` apply when the
 directory contains exactly one supported book or audiobook file, even if its folder name differs. They cannot
-overwrite the names of unrelated sibling books. A basename-matched `.xml` with legacy Emby-style
+overwrite the names of unrelated sibling books. Removing a specific OPF on a later scan returns
+that book to its filename without applying an ambiguous shared OPF. A basename-matched `.xml` with legacy Emby-style
 fields likewise describes only its book; `book.xml` applies only when the directory contains one
 supported book or audiobook file. OPF takes precedence if both formats are present. Audiobooks
 also accept basename-matched `.xml` sidecars; generic

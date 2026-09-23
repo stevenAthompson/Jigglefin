@@ -1,3 +1,4 @@
+using System;
 using System.IO;
 using System.Threading;
 using System.Threading.Tasks;
@@ -51,8 +52,11 @@ namespace MediaBrowser.LocalMetadata
 
             var file = GetXmlFile(info, directoryService);
 
-            if (file is null)
+            if (file?.Exists is not true)
             {
+                result.RemovedLocalSidecarProviderId = !string.IsNullOrEmpty(info.PreviousLocalXmlPath)
+                    ? ItemInfo.LocalXmlPathProviderId
+                    : null;
                 return Task.FromResult(result);
             }
 
@@ -63,6 +67,7 @@ namespace MediaBrowser.LocalMetadata
                 result.Item = new T();
 
                 Fetch(result, path, cancellationToken);
+                result.Item.ProviderIds[ItemInfo.LocalXmlPathProviderId] = path;
                 result.HasMetadata = true;
             }
             catch (FileNotFoundException)
@@ -96,14 +101,17 @@ namespace MediaBrowser.LocalMetadata
         /// <inheritdoc />
         public bool HasChanged(BaseItem item, IDirectoryService directoryService)
         {
-            var file = GetXmlFile(new ItemInfo(item), directoryService);
+            var info = new ItemInfo(item);
+            var file = GetXmlFile(info, directoryService);
 
-            if (file is null)
+            if (file?.Exists is not true)
             {
-                return false;
+                return !string.IsNullOrEmpty(info.PreviousLocalXmlPath);
             }
 
-            return file.Exists && FileSystem.GetLastWriteTimeUtc(file) > item.DateLastSaved;
+            return (!string.IsNullOrEmpty(info.PreviousLocalXmlPath)
+                    && !string.Equals(file.FullName, info.PreviousLocalXmlPath, StringComparison.Ordinal))
+                || FileSystem.GetLastWriteTimeUtc(file) > item.DateLastSaved;
         }
     }
 }

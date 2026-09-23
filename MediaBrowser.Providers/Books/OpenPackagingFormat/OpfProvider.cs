@@ -1,3 +1,4 @@
+using System;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -45,19 +46,42 @@ namespace MediaBrowser.Providers.Books.OpenPackagingFormat
         /// <inheritdoc />
         public bool HasChanged(BaseItem item, IDirectoryService directoryService)
         {
+            var info = new ItemInfo(item);
             var file = GetXmlFile(item.Path, directoryService);
 
-            return file.Exists && _fileSystem.GetLastWriteTimeUtc(file) > item.DateLastSaved;
+            if (!file.Exists)
+            {
+                return !string.IsNullOrEmpty(info.PreviousLocalOpfPath);
+            }
+
+            return (!string.IsNullOrEmpty(info.PreviousLocalOpfPath)
+                    && !string.Equals(file.FullName, info.PreviousLocalOpfPath, StringComparison.Ordinal))
+                || _fileSystem.GetLastWriteTimeUtc(file) > item.DateLastSaved;
         }
 
         /// <inheritdoc />
         public Task<MetadataResult<Book>> GetMetadata(ItemInfo info, IDirectoryService directoryService, CancellationToken cancellationToken)
         {
-            var path = GetXmlFile(info.Path, directoryService).FullName;
+            var file = GetXmlFile(info.Path, directoryService);
+            if (!file.Exists)
+            {
+                return Task.FromResult(new MetadataResult<Book>
+                {
+                    RemovedLocalSidecarProviderId = !string.IsNullOrEmpty(info.PreviousLocalOpfPath)
+                        ? ItemInfo.LocalOpfPathProviderId
+                        : null
+                });
+            }
 
             try
             {
-                return Task.FromResult(ReadOpfData(path, cancellationToken));
+                var result = ReadOpfData(file.FullName, cancellationToken);
+                if (result.HasMetadata && result.Item is not null)
+                {
+                    result.Item.ProviderIds[ItemInfo.LocalOpfPathProviderId] = file.FullName;
+                }
+
+                return Task.FromResult(result);
             }
             catch (FileNotFoundException)
             {

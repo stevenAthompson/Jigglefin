@@ -11,6 +11,7 @@ using Jellyfin.Data.Enums;
 using Jellyfin.Extensions.Json;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.Entities;
@@ -110,6 +111,14 @@ public sealed class LocalSidecarLibraryTests
             Assert.NotNull(refreshedBooks);
             Assert.Single(refreshedBooks.Items, item => item.Name == "Specific Local Title");
             Assert.Single(refreshedBooks.Items, item => item.Name == "Second Book");
+
+            File.Delete(Path.Combine(mixedFolder, "First Book.opf"));
+            await libraryManager.ValidateMediaLibraryInternal(new Progress<double>(), TestContext.Current.CancellationToken);
+            var withoutSpecificOpf = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={mixed.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(withoutSpecificOpf);
+            Assert.Single(withoutSpecificOpf.Items, item => item.Name == "First Book" && item.Type == BaseItemKind.Book);
+            Assert.Single(withoutSpecificOpf.Items, item => item.Name == "Second Book" && item.Type == BaseItemKind.Book);
         }
         finally
         {
@@ -1013,6 +1022,32 @@ public sealed class LocalSidecarLibraryTests
                 $"Items/{loose.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
             Assert.Equal("Dedicated XML overview.", dedicatedDetails?.Overview);
             Assert.Equal("Loose XML overview.", looseDetails?.Overview);
+
+            var dedicatedXmlPath = Path.Combine(dedicatedFolder, "movie.xml");
+            await File.WriteAllTextAsync(
+                dedicatedXmlPath,
+                "<Item><LocalTitle>Updated XML Title</LocalTitle><Overview>Updated XML overview.</Overview></Item>",
+                TestContext.Current.CancellationToken);
+            File.SetLastWriteTimeUtc(dedicatedXmlPath, DateTime.UtcNow.AddMinutes(1));
+            await libraryManager.ValidateMediaLibraryInternal(new Progress<double>(), TestContext.Current.CancellationToken);
+            var updatedDedicated = await client.GetFromJsonAsync<BaseItemDto>(
+                $"Items/{dedicated.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.Equal("Updated XML Title", updatedDedicated?.Name);
+            Assert.Equal("Updated XML overview.", updatedDedicated?.Overview);
+
+            File.Delete(Path.Combine(precedenceFolder, "movie.nfo"));
+            await libraryManager.ValidateMediaLibraryInternal(new Progress<double>(), TestContext.Current.CancellationToken);
+            var fallbackDetails = await client.GetFromJsonAsync<BaseItemDto>(
+                $"Items/{preferredNfo.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.Equal("Secondary XML Title", fallbackDetails?.Name);
+
+            File.Delete(Path.Combine(precedenceFolder, "movie.xml"));
+            await libraryManager.ValidateMediaLibraryInternal(new Progress<double>(), TestContext.Current.CancellationToken);
+            var withoutSidecars = await client.GetFromJsonAsync<BaseItemDto>(
+                $"Items/{preferredNfo.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(withoutSidecars);
+            Assert.Equal("Precedence Movie (2023)", withoutSidecars.Name);
+            Assert.Equal(2023, withoutSidecars.ProductionYear);
         }
         finally
         {
@@ -1202,6 +1237,14 @@ public sealed class LocalSidecarLibraryTests
                 TestContext.Current.CancellationToken);
             Assert.NotNull(movieDetails);
             Assert.Equal("From the local NFO.", movieDetails.Overview);
+            var storedMovie = Assert.IsType<MediaBrowser.Controller.Entities.Movies.Movie>(libraryManager.GetItemById(movie.Id));
+            Assert.True(storedMovie.ProviderIds.ContainsKey(ItemInfo.LocalNfoPathProviderId));
+            var clientDetails = await client.GetFromJsonAsync<BaseItemDto>(
+                $"Items/{movie.Id}?fields=ProviderIds",
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.NotNull(clientDetails);
+            Assert.DoesNotContain(ItemInfo.LocalNfoPathProviderId, clientDetails.ProviderIds.Keys);
 
             using var streamResponse = await client.GetAsync(
                 $"Videos/{movie.Id}/stream?static=true",
@@ -1214,6 +1257,42 @@ public sealed class LocalSidecarLibraryTests
             using var rangeResponse = await client.SendAsync(rangeRequest, TestContext.Current.CancellationToken);
             Assert.Equal(HttpStatusCode.PartialContent, rangeResponse.StatusCode);
             Assert.Equal(videoBytes[100..200], await rangeResponse.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken));
+
+            var nfoPath = Path.Combine(movieFolder, "movie.nfo");
+            await File.WriteAllTextAsync(
+                nfoPath,
+                "<movie><title>Updated Local Title</title><year>2021</year><plot>Updated from the local NFO.</plot></movie>",
+                TestContext.Current.CancellationToken);
+            File.SetLastWriteTimeUtc(nfoPath, storedMovie.DateLastSaved.AddSeconds(2));
+            await libraryManager.ValidateMediaLibraryInternal(new Progress<double>(), TestContext.Current.CancellationToken);
+
+            var rescannedMovies = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={action.Id}",
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.NotNull(rescannedMovies);
+            var rescannedMovie = Assert.Single(rescannedMovies.Items);
+            Assert.Equal(movie.Id, rescannedMovie.Id);
+            Assert.Equal("Updated Local Title", rescannedMovie.Name);
+            Assert.Equal(2021, rescannedMovie.ProductionYear);
+            var rescannedDetails = await client.GetFromJsonAsync<BaseItemDto>(
+                $"Items/{movie.Id}",
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.Equal("Updated from the local NFO.", rescannedDetails?.Overview);
+
+            File.Delete(nfoPath);
+            await libraryManager.ValidateMediaLibraryInternal(new Progress<double>(), TestContext.Current.CancellationToken);
+            var withoutSidecar = await client.GetFromJsonAsync<BaseItemDto>(
+                $"Items/{movie.Id}",
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.NotNull(withoutSidecar);
+            Assert.Equal("Example Movie (2020)", withoutSidecar.Name);
+            Assert.Equal(2020, withoutSidecar.ProductionYear);
+            Assert.Null(withoutSidecar.Overview);
+            var storedWithoutSidecar = Assert.IsType<MediaBrowser.Controller.Entities.Movies.Movie>(libraryManager.GetItemById(movie.Id));
+            Assert.False(storedWithoutSidecar.ProviderIds.ContainsKey(ItemInfo.LocalNfoPathProviderId));
         }
         finally
         {

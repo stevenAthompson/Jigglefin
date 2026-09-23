@@ -4,6 +4,7 @@
 
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Net.Http;
 using System.Threading;
@@ -800,6 +801,7 @@ namespace MediaBrowser.Providers.Manager
             var foundImageTypes = new List<ImageType>();
 
             // Do not execute local providers if we are identifying or replacing with local metadata saving enabled
+            var removedLocalSidecars = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
             if (options.SearchResult is null && !(isSavingMetadata && options.ReplaceAllMetadata))
             {
                 foreach (var provider in providers.OfType<ILocalMetadataProvider<TItemType>>())
@@ -812,6 +814,10 @@ namespace MediaBrowser.Providers.Manager
                     try
                     {
                         var localItem = await provider.GetMetadata(itemInfo, options.DirectoryService, cancellationToken).ConfigureAwait(false);
+                        if (!string.IsNullOrEmpty(localItem.RemovedLocalSidecarProviderId))
+                        {
+                            removedLocalSidecars.Add(localItem.RemovedLocalSidecarProviderId);
+                        }
 
                         if (localItem.HasMetadata)
                         {
@@ -890,6 +896,30 @@ namespace MediaBrowser.Providers.Manager
                 refreshResult.Failures += remoteResult.Failures;
             }
 
+            if (removedLocalSidecars.Count > 0)
+            {
+                // A deleted sidecar must not leave its former fields cached indefinitely. Let
+                // a replacement local sidecar or another selected provider supply fields,
+                // then fill any missing title/year from the physical path.
+                foreach (var providerId in removedLocalSidecars)
+                {
+                    metadata.Item.ProviderIds.Remove(providerId);
+                }
+                var path = item.Path?.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
+                var pathName = item.IsFolder ? Path.GetFileName(path) : Path.GetFileNameWithoutExtension(path);
+                if (!string.IsNullOrWhiteSpace(pathName))
+                {
+                    if (string.IsNullOrWhiteSpace(temp.Item.Name))
+                    {
+                        temp.Item.Name = pathName;
+                    }
+
+                    temp.Item.ProductionYear ??= LibraryManager.ParseName(pathName).Year;
+                }
+
+                refreshResult.UpdateType |= ItemUpdateType.MetadataImport;
+            }
+
             if (providers.Any(i => i is not ICustomMetadataProvider))
             {
                 if (refreshResult.UpdateType > ItemUpdateType.None)
@@ -899,7 +929,8 @@ namespace MediaBrowser.Providers.Manager
                     // item would turn a provider being temporarily unreachable into permanent data loss.
                     // A single failure is not enough: Identify asks for the erasure precisely because the
                     // previous match was wrong, and an unrelated provider throwing must not undo that.
-                    if (!options.RemoveOldMetadata || (refreshResult.Failures > 0 && !hasRemoteMetadata))
+                    if (removedLocalSidecars.Count == 0
+                        && (!options.RemoveOldMetadata || (refreshResult.Failures > 0 && !hasRemoteMetadata)))
                     {
                         // Add existing metadata to provider result if it does not exist there
                         MergeData(metadata, temp, [], false, false);
@@ -911,7 +942,8 @@ namespace MediaBrowser.Providers.Manager
                     }
                     else
                     {
-                        var shouldReplace = (options.MetadataRefreshMode > MetadataRefreshMode.ValidationOnly && options.ReplaceAllMetadata)
+                        var shouldReplace = removedLocalSidecars.Count > 0
+                            || (options.MetadataRefreshMode > MetadataRefreshMode.ValidationOnly && options.ReplaceAllMetadata)
                             // Case for Scan for new and updated files
                             || (options.MetadataRefreshMode == MetadataRefreshMode.Default && !options.ReplaceAllMetadata);
                         MergeData(temp, metadata, item.LockedFields, shouldReplace, true);

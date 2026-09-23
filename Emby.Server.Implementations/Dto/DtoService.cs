@@ -1258,7 +1258,12 @@ namespace Emby.Server.Implementations.Dto
 
             if (options.ContainsField(ItemFields.ProviderIds))
             {
-                dto.ProviderIds = item.ProviderIds;
+                // Sidecar provenance is stored internally in ProviderIds but is not a
+                // Jellyfin external provider id and must not appear in client DTOs.
+                dto.ProviderIds = item.ProviderIds.Keys.Any(ItemInfo.IsInternalLocalMetadataProviderId)
+                    ? item.ProviderIds.Where(id => !ItemInfo.IsInternalLocalMetadataProviderId(id.Key))
+                        .ToDictionary(id => id.Key, id => id.Value, StringComparer.OrdinalIgnoreCase)
+                    : item.ProviderIds;
             }
 
             dto.RunTimeTicks = item.RunTimeTicks;

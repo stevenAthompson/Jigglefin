@@ -36,6 +36,9 @@ namespace MediaBrowser.Controller.Providers
 
         public bool HasMetadata { get; set; }
 
+        // Signals that a previously imported local sidecar disappeared.
+        public string RemovedLocalSidecarProviderId { get; set; }
+
         public T Item { get; set; }
 
         /// <summary>
