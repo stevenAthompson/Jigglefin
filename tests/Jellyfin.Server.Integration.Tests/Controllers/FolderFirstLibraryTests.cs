@@ -1154,6 +1154,18 @@ public sealed class FolderFirstLibraryTests
                     $"No Action folder for {library.CollectionType}; first level: {string.Join(", ", firstLevel.Items.Select(item => item.Name + ":" + item.Type))}");
                 var actionFolder = Assert.Single(firstLevel.Items, item => item.Name == "Action");
                 Assert.Equal(BaseItemKind.Folder, actionFolder.Type);
+                // Android TV's folder grid sends a parent-only items request with
+                // these fields and uses the returned folder path and child count.
+                var androidTvFirstLevel = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                    $"Items?parentId={libraryView.Id}&fields=CanDelete,ChildCount,DateCreated,Genres,MediaSourceCount,MediaSources,MediaStreams,Overview,Path,PrimaryImageAspectRatio",
+                    JsonDefaults.Options,
+                    TestContext.Current.CancellationToken);
+                Assert.NotNull(androidTvFirstLevel);
+                var androidTvAction = Assert.Single(androidTvFirstLevel.Items, item => item.Id.Equals(actionFolder.Id));
+                Assert.Equal(BaseItemKind.Folder, androidTvAction.Type);
+                Assert.True(androidTvAction.IsFolder);
+                Assert.Equal(Path.Combine(testRoot, library.ExpectedKind.ToString(), "Action"), androidTvAction.Path);
+                Assert.True(androidTvAction.ChildCount > 0);
                 var nativeFirstLevel = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
                     $"Users/{userId}/Items?parentId={libraryView.Id}&includeItemTypes={folderBrowseTypes}&sortBy=SortName&sortOrder=Ascending",
                     JsonDefaults.Options,

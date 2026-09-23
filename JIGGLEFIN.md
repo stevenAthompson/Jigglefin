@@ -61,6 +61,10 @@ request shape through the legacy user-scoped API as well as the current endpoint
 contract coverage, not yet a full Swiftfin UI test.
 The same broad type filter inside a series keeps physical season and bonus folders browseable
 without inserting the pathless generated `Season Unknown` into the folder list.
+[Jellyfin Android TV's folder grid](https://github.com/jellyfin/jellyfin-androidtv/blob/master/app/src/main/java/org/jellyfin/androidtv/ui/browsing/BrowsingUtils.kt)
+uses a parent-only `Items` request with requested item fields. An integration test verifies that
+this shape returns a navigable physical folder with its path and child count. Native UI testing
+remains outstanding.
 
 The resolver chain now leaves an arbitrary TV grouping directory as a `Folder` unless it contains
 `tvshow.nfo`, `series.xml`, or episode/season evidence. A music grouping directory is not inferred to be a
