@@ -110,7 +110,7 @@ public class CoreResolutionIgnoreRuleTest
             fileSystemMetadata,
             MakeParent()));
 
-        Assert.True(_rule.ShouldIgnore(
+        Assert.False(_rule.ShouldIgnore(
             fileSystemMetadata,
             MakeParent(type: typeof(Folder))));
     }

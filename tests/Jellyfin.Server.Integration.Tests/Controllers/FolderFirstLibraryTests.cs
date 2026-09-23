@@ -280,6 +280,91 @@ public sealed class FolderFirstLibraryTests
     }
 
     [Fact]
+    public async Task MovieWithExtrasFolder_KeepsPhysicalExtrasBrowseable()
+    {
+        var testRoot = Path.Combine(Path.GetTempPath(), "jigglefin-movie-extras-" + Guid.NewGuid().ToString("N"));
+        var movieFolder = Path.Combine(testRoot, "Action", "Named Movie");
+        var extrasFolder = Path.Combine(movieFolder, "Extras");
+        var trailersFolder = Path.Combine(movieFolder, "Trailers");
+        Directory.CreateDirectory(extrasFolder);
+        Directory.CreateDirectory(trailersFolder);
+        await File.WriteAllBytesAsync(Path.Combine(movieFolder, "Named Movie.mp4"), [], TestContext.Current.CancellationToken);
+        await File.WriteAllBytesAsync(Path.Combine(extrasFolder, "Featurette.mp4"), [], TestContext.Current.CancellationToken);
+        await File.WriteAllBytesAsync(Path.Combine(trailersFolder, "Preview.mp4"), [], TestContext.Current.CancellationToken);
+
+        using var factory = new JellyfinApplicationFactory();
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.AddAuthHeader(await AuthHelper.CompleteStartupAsync(client));
+        var libraryName = "Jigglefin movie extras " + Guid.NewGuid().ToString("N");
+        var created = false;
+
+        try
+        {
+            using var createResponse = await client.PostAsJsonAsync(
+                $"Library/VirtualFolders?name={Uri.EscapeDataString(libraryName)}&collectionType=movies&paths={Uri.EscapeDataString(testRoot)}&refreshLibrary=false",
+                new AddVirtualFolderDto { LibraryOptions = new LibraryOptions() },
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.NoContent, createResponse.StatusCode);
+            created = true;
+
+            var libraryManager = (LibraryManager)factory.Services.GetRequiredService<ILibraryManager>();
+            await libraryManager.ValidateMediaLibraryInternal(new Progress<double>(), TestContext.Current.CancellationToken);
+
+            var views = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                "UserViews?presetViews=movies", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(views);
+            var library = Assert.Single(views.Items, item => item.Name == libraryName);
+            var rootItems = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={library.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(rootItems);
+            var action = Assert.Single(rootItems.Items, item => item.Name == "Action");
+            var actionItems = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={action.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(actionItems);
+            var movie = Assert.Single(actionItems.Items, item => item.Name == "Named Movie");
+            Assert.Equal(BaseItemKind.Folder, movie.Type);
+
+            var movieItems = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={movie.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(movieItems);
+            Assert.Single(movieItems.Items, item => item.Name == "Named Movie" && item.Type == BaseItemKind.Movie);
+            var extras = Assert.Single(movieItems.Items, item => item.Name == "Extras");
+            Assert.Equal(BaseItemKind.Folder, extras.Type);
+            var extraItems = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={extras.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(extraItems);
+            Assert.Single(extraItems.Items, item => item.Name == "Featurette" && item.Type == BaseItemKind.Movie);
+            var trailers = Assert.Single(movieItems.Items, item => item.Name == "Trailers");
+            Assert.Equal(BaseItemKind.Folder, trailers.Type);
+            var trailerItems = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={trailers.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(trailerItems);
+            Assert.Single(trailerItems.Items, item => item.Name == "Preview" && item.Type == BaseItemKind.Movie);
+
+            await libraryManager.ValidateMediaLibraryInternal(new Progress<double>(), TestContext.Current.CancellationToken);
+            var refreshedMovieItems = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={movie.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(refreshedMovieItems);
+            Assert.Single(refreshedMovieItems.Items, item => item.Name == "Named Movie" && item.Type == BaseItemKind.Movie);
+            Assert.Single(refreshedMovieItems.Items, item => item.Id.Equals(extras.Id));
+            Assert.Single(refreshedMovieItems.Items, item => item.Id.Equals(trailers.Id));
+        }
+        finally
+        {
+            if (created)
+            {
+                using var deleteResponse = await client.DeleteAsync(
+                    $"Library/VirtualFolders?name={Uri.EscapeDataString(libraryName)}&refreshLibrary=false",
+                    TestContext.Current.CancellationToken);
+                Assert.Equal(HttpStatusCode.NoContent, deleteResponse.StatusCode);
+            }
+
+            Directory.Delete(testRoot, true);
+        }
+    }
+
+    [Fact]
     public async Task MovieDiscRips_PreservePhysicalCategoryAndSiblingFolders()
     {
         var testRoot = Path.Combine(Path.GetTempPath(), "jigglefin-movie-disc-subfolders-" + Guid.NewGuid().ToString("N"));

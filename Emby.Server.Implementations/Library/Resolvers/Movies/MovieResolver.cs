@@ -426,11 +426,6 @@ namespace Emby.Server.Implementations.Library.Resolvers.Movies
 
                 if (child.IsDirectory)
                 {
-                    if (NamingOptions.AllExtrasTypesFolderNames.ContainsKey(filename))
-                    {
-                        continue;
-                    }
-
                     if (IsDvdDirectory(child.FullName, filename, directoryService))
                     {
                         folderRipType = VideoType.Dvd;
@@ -445,6 +440,8 @@ namespace Emby.Server.Implementations.Library.Resolvers.Movies
                         continue;
                     }
 
+                    // Keep every remaining directory, including Extras/Trailers,
+                    // physical instead of letting the movie item hide it.
                     multiDiscFolders.Add(child);
                 }
                 else if (IsDvdFile(filename))

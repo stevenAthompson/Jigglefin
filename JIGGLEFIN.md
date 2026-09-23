@@ -88,6 +88,9 @@ A movie category with a single loose file, such as `Action/Loose Movie.mp4`, rem
 `Folder` with a `Movie` child. A dedicated movie directory still resolves to a `Movie` when its
 name matches the video filename or it contains `movie.nfo` or `movie.xml`; this distinction is
 covered by an API browse test.
+If a named movie directory also contains an `Extras` or `Trailers` directory, it remains a
+physical `Folder`: the main movie and bonus directory are both reachable through ordinary
+`Items` browsing instead of hiding the bonus path behind movie-detail extras handling.
 
 Book and audiobook directories also stay physical `Folder` items when they contain child
 directories, when their only media file has a different title from the directory, or when an

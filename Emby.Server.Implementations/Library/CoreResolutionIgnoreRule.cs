@@ -56,9 +56,11 @@ namespace Emby.Server.Implementations.Library
 
             if (fileInfo.IsDirectory)
             {
-                // Ignore extras for unsupported types
+                // An ordinary folder is browsed physically in Jigglefin, so
+                // retain its Extras/Trailers children. Non-folder media items
+                // still use Jellyfin's separate extras handling.
                 return _namingOptions.AllExtrasTypesFolderNames.ContainsKey(fileInfo.Name)
-                    && parent is not UserRootFolder;
+                    && parent is not Folder;
             }
 
             // Don't resolve theme songs
