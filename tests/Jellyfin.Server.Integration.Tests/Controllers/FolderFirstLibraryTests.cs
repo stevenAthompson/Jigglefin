@@ -472,9 +472,10 @@ public sealed class FolderFirstLibraryTests
             Path.Combine(looseEpisodeFolder, "Another Show - S01E01.mkv"),
             [],
             TestContext.Current.CancellationToken);
+        var snapshotBytes = Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl5aZkAAAAASUVORK5CYII=");
         await File.WriteAllBytesAsync(
             Path.Combine(testRoot, nameof(BaseItemKind.Video), "Action", "Home Clip", "Snapshot.png"),
-            Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl5aZkAAAAASUVORK5CYII="),
+            snapshotBytes,
             TestContext.Current.CancellationToken);
 
         using var factory = new JellyfinApplicationFactory();
@@ -569,7 +570,14 @@ public sealed class FolderFirstLibraryTests
                     Assert.Single(files.Items, item => item.Type == library.ExpectedKind);
                     if (library.CollectionType == "homevideos")
                     {
-                        Assert.Single(files.Items, item => item.Type == BaseItemKind.Photo);
+                        var photo = Assert.Single(files.Items, item => item.Type == BaseItemKind.Photo);
+                        using var imageResponse = await client.GetAsync(
+                            $"Items/{photo.Id}/Images/Primary", TestContext.Current.CancellationToken);
+                        Assert.Equal(HttpStatusCode.OK, imageResponse.StatusCode);
+                        Assert.Equal("image/png", imageResponse.Content.Headers.ContentType?.MediaType);
+                        var imageBytes = await imageResponse.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken);
+                        Assert.True(imageBytes.Length > 8);
+                        Assert.True(imageBytes.AsSpan(0, 8).SequenceEqual(snapshotBytes.AsSpan(0, 8)));
                     }
                 }
                 else
