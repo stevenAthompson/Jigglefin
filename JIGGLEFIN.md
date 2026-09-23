@@ -80,6 +80,11 @@ A movie category with a single loose file, such as `Action/Loose Movie.mp4`, rem
 name matches the video filename or it contains `movie.nfo` or `movie.xml`; this distinction is
 covered by an API browse test.
 
+Book and audiobook directories also stay physical `Folder` items when they contain child
+directories, or when their only media file has a different title from the directory. This keeps
+loose books and nested bonus folders browseable in standard clients. A directory named for its
+single book or audiobook still resolves to the usual `Book` or `AudioBook` item.
+
 Further resolver work will preserve more physical directory arrangements while assigning compatible
 Jellyfin item kinds from deterministic path rules and local sidecars. In particular, ambiguous
 file/folder name collisions and mixed-content directories need more coverage.

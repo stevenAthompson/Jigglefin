@@ -141,11 +141,28 @@ namespace Emby.Server.Implementations.Library.Resolvers.Audio
 
         private AudioBook FindAudioBook(ItemResolveArgs args, bool parseName)
         {
+            var children = args.GetActualFileSystemChildren().ToList();
+            if (children.Any(child => child.IsDirectory))
+            {
+                // A single audiobook file must not swallow unrelated physical subfolders.
+                return null;
+            }
+
             // TODO: Allow GetMultiDiscMovie in here
-            var result = ResolveMultipleAudio(args.Parent, args.GetActualFileSystemChildren(), parseName);
+            var result = ResolveMultipleAudio(args.Parent, children, parseName);
 
             if (result is null || result.Items.Count != 1 || result.Items[0] is not AudioBook item)
             {
+                return null;
+            }
+
+            var folderName = new AudioBookNameParser(_namingOptions).Parse(Path.GetFileName(args.Path)).Name;
+            var fileName = Path.GetFileNameWithoutExtension(item.Path);
+            var fileTitle = new AudioBookNameParser(_namingOptions).Parse(fileName).Name;
+            if (!string.Equals(folderName, fileTitle, StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(fileName, "audiobook", StringComparison.OrdinalIgnoreCase))
+            {
+                // One loose audiobook does not make its containing category a book item.
                 return null;
             }
 

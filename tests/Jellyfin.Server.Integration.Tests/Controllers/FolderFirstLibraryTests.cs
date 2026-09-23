@@ -23,6 +23,109 @@ namespace Jellyfin.Server.Integration.Tests.Controllers;
 public sealed class FolderFirstLibraryTests
 {
     [Fact]
+    public async Task BookAndAudioBook_WithChildFolders_KeepAllPhysicalEntriesBrowseable()
+    {
+        var testRoot = Path.Combine(Path.GetTempPath(), "jigglefin-book-subfolders-" + Guid.NewGuid().ToString("N"));
+        var categoryFolder = Path.Combine(testRoot, "Action");
+        var bookFolder = Path.Combine(categoryFolder, "Book Collection");
+        var audioBookFolder = Path.Combine(categoryFolder, "Audio Collection");
+        Directory.CreateDirectory(Path.Combine(bookFolder, "Bonus Books"));
+        Directory.CreateDirectory(Path.Combine(audioBookFolder, "Bonus Audio"));
+        await File.WriteAllBytesAsync(
+            Path.Combine(bookFolder, "First Book.pdf"),
+            [],
+            TestContext.Current.CancellationToken);
+        await File.WriteAllBytesAsync(
+            Path.Combine(bookFolder, "Bonus Books", "Second Book.pdf"),
+            [],
+            TestContext.Current.CancellationToken);
+        var audiobookBytes = await File.ReadAllBytesAsync(
+            Path.Combine(AppContext.BaseDirectory, "Test Data", "JigglefinSample.m4b"),
+            TestContext.Current.CancellationToken);
+        await File.WriteAllBytesAsync(
+            Path.Combine(audioBookFolder, "First Audio.m4b"),
+            audiobookBytes,
+            TestContext.Current.CancellationToken);
+        await File.WriteAllBytesAsync(
+            Path.Combine(audioBookFolder, "Bonus Audio", "Second Audio.m4b"),
+            audiobookBytes,
+            TestContext.Current.CancellationToken);
+
+        using var factory = new JellyfinApplicationFactory();
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.AddAuthHeader(await AuthHelper.CompleteStartupAsync(client));
+        var libraryName = "Jigglefin book subfolders " + Guid.NewGuid().ToString("N");
+        var created = false;
+
+        try
+        {
+            using var createResponse = await client.PostAsJsonAsync(
+                $"Library/VirtualFolders?name={Uri.EscapeDataString(libraryName)}&collectionType=books&paths={Uri.EscapeDataString(testRoot)}&refreshLibrary=false",
+                new AddVirtualFolderDto { LibraryOptions = new LibraryOptions() },
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.NoContent, createResponse.StatusCode);
+            created = true;
+
+            var libraryManager = (LibraryManager)factory.Services.GetRequiredService<ILibraryManager>();
+            await libraryManager.ValidateMediaLibraryInternal(new Progress<double>(), TestContext.Current.CancellationToken);
+
+            var views = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                "UserViews?presetViews=books", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(views);
+            var library = Assert.Single(views.Items, item => item.Name == libraryName);
+            var rootItems = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={library.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(rootItems);
+            var action = Assert.Single(rootItems.Items, item => item.Name == "Action");
+            Assert.Equal(BaseItemKind.Folder, action.Type);
+
+            var collections = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={action.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(collections);
+            foreach (var (folderName, fileKind, bonusName) in new[]
+            {
+                ("Book Collection", BaseItemKind.Book, "Bonus Books"),
+                ("Audio Collection", BaseItemKind.AudioBook, "Bonus Audio")
+            })
+            {
+                var folder = Assert.Single(collections.Items, item => item.Name == folderName);
+                Assert.Equal(BaseItemKind.Folder, folder.Type);
+                var children = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                    $"Items?parentId={folder.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+                Assert.NotNull(children);
+                var mediaFile = Assert.Single(children.Items, item => item.Type == fileKind);
+                if (fileKind == BaseItemKind.AudioBook)
+                {
+                    using var streamResponse = await client.GetAsync(
+                        $"Audio/{mediaFile.Id}/stream?static=true", TestContext.Current.CancellationToken);
+                    Assert.Equal(HttpStatusCode.OK, streamResponse.StatusCode);
+                    Assert.Equal(audiobookBytes, await streamResponse.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken));
+                }
+
+                var bonus = Assert.Single(children.Items, item => item.Name == bonusName);
+                Assert.Equal(BaseItemKind.Folder, bonus.Type);
+                var bonusChildren = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                    $"Items?parentId={bonus.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+                Assert.NotNull(bonusChildren);
+                Assert.Single(bonusChildren.Items, item => item.Type == fileKind);
+            }
+        }
+        finally
+        {
+            if (created)
+            {
+                using var deleteResponse = await client.DeleteAsync(
+                    $"Library/VirtualFolders?name={Uri.EscapeDataString(libraryName)}&refreshLibrary=false",
+                    TestContext.Current.CancellationToken);
+                Assert.Equal(HttpStatusCode.NoContent, deleteResponse.StatusCode);
+            }
+
+            Directory.Delete(testRoot, true);
+        }
+    }
+
+    [Fact]
     public async Task LibraryViews_ListPhysicalGroupsBeforeMedia()
     {
         var testRoot = Path.Combine(Path.GetTempPath(), "jigglefin-folder-view-" + Guid.NewGuid().ToString("N"));

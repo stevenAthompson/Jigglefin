@@ -54,6 +54,13 @@ namespace Emby.Server.Implementations.Library.Resolvers.Books
 
         private Book? GetBook(ItemResolveArgs args)
         {
+            // A book item cannot expose sibling directories to a folder-browsing client.
+            // Keep mixed book directories as physical folders so their children remain visible.
+            if (args.FileSystemChildren.Any(f => f.IsDirectory))
+            {
+                return null;
+            }
+
             var bookFiles = args.FileSystemChildren.Where(f =>
             {
                 var fileExtension = Path.GetExtension(f.FullName.AsSpan());
@@ -63,19 +70,27 @@ namespace Emby.Server.Implementations.Library.Resolvers.Books
                     StringComparison.OrdinalIgnoreCase);
             }).ToList();
 
-            // directory is only considered a book when it contains exactly one supported file
-            // other library structures with multiple books to a directory will get picked up as individual files
+            // A dedicated book directory has one supported file and no child directories.
+            // Other layouts are physical folders whose books are resolved individually.
             if (bookFiles.Count != 1)
             {
                 return null;
             }
 
-            var result = BookFileNameParser.Parse(Path.GetFileName(args.Path));
+            var folderName = Path.GetFileName(args.Path);
+            var fileName = Path.GetFileNameWithoutExtension(bookFiles[0].FullName);
+            var result = BookFileNameParser.Parse(folderName);
+            var fileTitle = BookFileNameParser.Parse(fileName).Name ?? fileName;
+            if (!string.Equals(result.Name ?? folderName, fileTitle, StringComparison.OrdinalIgnoreCase))
+            {
+                // A grouping directory with one loose book is still a physical folder.
+                return null;
+            }
 
             return new Book
             {
                 Path = bookFiles[0].FullName,
-                Name = result.Name ?? string.Empty,
+                Name = result.Name ?? folderName,
                 IndexNumber = result.Index,
                 ParentIndexNumber = result.ParentIndex,
                 ProductionYear = result.Year,
