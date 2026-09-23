@@ -61,6 +61,9 @@ A separate integration test writes a valid local WAV file, browses it as a stand
 item, and verifies full and byte-range streaming through the unmodified audio endpoint.
 The library browse test also uses an original, synthetic M4B audiobook to verify full and byte-range
 audio streaming from the standard `AudioBook` item.
+With the verified Jellyfin FFmpeg path, additional end-to-end tests transcode a folder-browsed movie
+to an HLS transport-stream segment and a folder-browsed M4B audiobook to MP3. Windows CI prepares
+the same FFmpeg binaries before its test step and includes them in the portable package.
 Another checks that a Kodi-style `movie.nfo` supplies the title, year, and plot in standard client
 responses while its physical parent folder remains browseable. That test uses an original,
 synthetically generated MP4 and also checks full and byte-range direct video streaming.
@@ -114,6 +117,10 @@ dotnet restore Jellyfin.sln --locked-mode
 dotnet build Jellyfin.sln --configuration Debug --no-restore
 dotnet test Jellyfin.sln --configuration Debug --no-build
 ```
+
+Set `JIGGLEFIN_TEST_FFMPEG` to a Jellyfin FFmpeg executable before running tests to exercise the
+movie and audiobook transcoding checks locally. Without it, those two checks are skipped; Windows
+CI sets it to the verified binary that goes into the portable package.
 
 Run without an embedded web client during server work:
 

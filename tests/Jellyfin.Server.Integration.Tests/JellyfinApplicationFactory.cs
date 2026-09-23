@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Concurrent;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using Emby.Server.Implementations;
@@ -42,6 +43,11 @@ namespace Jellyfin.Server.Integration.Tests
             StartupHelpers.PerformStaticInitialization();
         }
 
+        /// <summary>
+        /// Gets the FFmpeg path for tests that need real transcoding.
+        /// </summary>
+        public string? FfmpegPath { get; init; }
+
         /// <inheritdoc/>
         protected override IHostBuilder CreateHostBuilder()
         {
@@ -51,10 +57,9 @@ namespace Jellyfin.Server.Integration.Tests
         /// <inheritdoc/>
         protected override void ConfigureWebHost(IWebHostBuilder builder)
         {
-            // Skip ffmpeg check for testing
-            Environment.SetEnvironmentVariable("JELLYFIN_FFMPEG__NOVALIDATION", "true");
             // Specify the startup command line options
-            var commandLineOpts = new StartupOptions();
+            var commandLineOpts = new StartupOptions { FFmpegPath = FfmpegPath };
+            var skipFfmpegValidation = FfmpegPath is null ? "true" : "false";
 
             // Use a temporary directory for the application paths
             var webHostPathRoot = Path.Combine(_testPathRoot, "test-host-" + Path.GetFileNameWithoutExtension(Path.GetRandomFileName()));
@@ -75,6 +80,7 @@ namespace Jellyfin.Server.Integration.Tests
 
             // Create a copy of the application configuration to use for startup
             var startupConfig = Program.CreateAppConfiguration(commandLineOpts, appPaths);
+            startupConfig["FFmpeg:novalidation"] = skipFfmpegValidation;
 
             ILoggerFactory loggerFactory = new SerilogLoggerFactory();
 
@@ -96,7 +102,11 @@ namespace Jellyfin.Server.Integration.Tests
                         .SetBasePath(appPaths.ConfigurationDirectoryPath)
                         .AddInMemoryCollection(ConfigurationOptions.DefaultConfiguration)
                         .AddEnvironmentVariables("JELLYFIN_")
-                        .AddInMemoryCollection(commandLineOpts.ConvertToConfig());
+                        .AddInMemoryCollection(commandLineOpts.ConvertToConfig())
+                        .AddInMemoryCollection(new Dictionary<string, string?>
+                        {
+                            ["FFmpeg:novalidation"] = skipFfmpegValidation
+                        });
                 })
                 .ConfigureServices(e => e
                     .AddSingleton<IStartupLogger, NullStartupLogger<object>>()

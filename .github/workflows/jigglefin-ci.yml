@@ -36,7 +36,13 @@ jobs:
       - name: Build
         run: dotnet build Jellyfin.sln --configuration Release --no-restore
 
+      - name: Prepare verified Jellyfin FFmpeg
+        shell: pwsh
+        run: .\scripts\prepare-ffmpeg.ps1 -OutputDirectory (Join-Path $env:RUNNER_TEMP 'jellyfin-ffmpeg')
+
       - name: Test
+        env:
+          JIGGLEFIN_TEST_FFMPEG: ${{ runner.temp }}\jellyfin-ffmpeg\ffmpeg.exe
         run: dotnet test Jellyfin.sln --configuration Release --no-restore --no-build --verbosity minimal
 
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
@@ -67,7 +73,6 @@ jobs:
         shell: pwsh
         run: |
           $ffmpegPath = Join-Path $env:RUNNER_TEMP 'jellyfin-ffmpeg'
-          .\scripts\prepare-ffmpeg.ps1 -OutputDirectory $ffmpegPath
           .\scripts\package-win.ps1 -WebDistPath (Join-Path $env:RUNNER_TEMP 'jellyfin-web/dist') -FfmpegDirectory $ffmpegPath
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1

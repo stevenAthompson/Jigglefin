@@ -48,7 +48,8 @@ open and potentially migrate that database. Jellyfin and Jigglefin cannot both b
   built-in folder browser. The stored library type and child media types remain unchanged.
 - The standard web client has been checked against a packaged server for folder navigation and
   playback of a synthetic movie. Automated API tests cover browse paths and direct or byte-range
-  streaming for movie, music, and audiobook samples. Native client coverage and more ambiguous
+  streaming for movie, music, and audiobook samples. Windows CI also uses its bundled FFmpeg to
+  verify movie-to-HLS and audiobook-to-MP3 transcoding. Native client coverage and more ambiguous
   mixed-content layouts remain work in progress.
 
 The detailed design and upstream merge strategy are in [JIGGLEFIN.md](JIGGLEFIN.md).
