@@ -33,6 +33,9 @@ The first milestone establishes local-first policy without changing the wire pro
 
 The same local-first provider defaults also apply when a client creates a library through the API
 without `TypeOptions`. Explicit per-type provider choices are preserved.
+Adding a library while an initial scan is still running queues a follow-up scan. Otherwise a
+fresh installation can miss the new library if the active scan has already passed the root.
+System-owned view queries also tolerate a missing user context during background artwork work.
 
 The library entry views for Movies, TV Shows, and Books now list the immediate children of their
 physical media folders. This keeps an `Action/Example Movie/Example Movie.mkv` tree navigable as

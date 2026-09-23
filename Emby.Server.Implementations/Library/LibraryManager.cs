@@ -3880,13 +3880,9 @@ namespace Emby.Server.Implementations.Library
 
         internal Task StartScanInBackground()
         {
-            // An active scan already handles library structure changes, so this request can be dropped.
-            if (IsScanRunning)
-            {
-                return Task.CompletedTask;
-            }
-
-            // Queue instead of restarting so a scan that starts after the check is allowed to finish.
+            // A running scan may already have passed the library root before a new
+            // folder was added. TaskManager queues and coalesces a follow-up scan
+            // when the scheduled library scan is already running.
             return Task.Run(QueueLibraryScan);
         }
 

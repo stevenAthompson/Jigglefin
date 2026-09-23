@@ -7,6 +7,17 @@ namespace Jellyfin.Controller.Tests.Entities;
 
 public class InternalItemsQueryTests
 {
+    [Fact]
+    public void SetUser_NullForSystemOwnedView_DoesNotAddUserRestrictions()
+    {
+        var query = new InternalItemsQuery();
+
+        query.SetUser(null!);
+
+        Assert.Null(query.User);
+        Assert.False(query.UserHasContentRestrictions);
+    }
+
     public static TheoryData<ItemFilter[]> ApplyFilters_Invalid()
     {
         var data = new TheoryData<ItemFilter[]>();

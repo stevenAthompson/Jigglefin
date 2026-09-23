@@ -125,6 +125,7 @@ try {
 
     $mediaDeadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
     $movie = $null
+    $lastBrowseState = 'No library view response yet.'
     while ([DateTime]::UtcNow -lt $mediaDeadline) {
         $serverProcess.Refresh()
         if ($serverProcess.HasExited) {
@@ -134,12 +135,15 @@ try {
         try {
             $views = Invoke-RestMethod -Uri "$baseUrl/UserViews?presetViews=movies" -Headers $authenticatedHeaders -TimeoutSec 5
             $library = @($views.Items | Where-Object Name -EQ $libraryName) | Select-Object -First 1
+            $lastBrowseState = 'Library view is not listed.'
             if ($library -and $library.Type -eq 'Folder' -and -not $library.CollectionType) {
                 $groups = Invoke-RestMethod -Uri "$baseUrl/Items?parentId=$($library.Id)" -Headers $authenticatedHeaders -TimeoutSec 5
                 $action = @($groups.Items | Where-Object Name -EQ 'Action') | Select-Object -First 1
+                $lastBrowseState = 'Library view exists, but its Action folder is not listed.'
                 if ($action -and $action.Type -eq 'Folder') {
                     $films = Invoke-RestMethod -Uri "$baseUrl/Items?parentId=$($action.Id)" -Headers $authenticatedHeaders -TimeoutSec 5
                     $movie = @($films.Items | Where-Object { $_.Name -eq 'Jigglefin Local Smoke Film' -and $_.Type -eq 'Movie' }) | Select-Object -First 1
+                    $lastBrowseState = 'Action exists; movie items: ' + [string]::Join(', ', @($films.Items | ForEach-Object { "$($_.Name):$($_.Type)" }))
                     if ($movie) {
                         break
                     }
@@ -147,11 +151,12 @@ try {
             }
         } catch {
             # The library scan is asynchronous; retry until the path is indexed.
+            $lastBrowseState = 'Browse request failed: ' + $_.Exception.Message.Substring(0, [Math]::Min(160, $_.Exception.Message.Length))
         }
         Start-Sleep -Milliseconds 1000
     }
     if (-not $movie) {
-        throw "The packaged server did not expose the NFO-titled sample movie through its physical folders within $TimeoutSeconds seconds."
+        throw "The packaged server did not expose the NFO-titled sample movie through its physical folders within $TimeoutSeconds seconds. Last observation: $lastBrowseState"
     }
     $movieDetails = Invoke-RestMethod -Uri "$baseUrl/Items/$($movie.Id)" -Headers $authenticatedHeaders -TimeoutSec 15
     if ($movieDetails.ProductionYear -ne 2026 -or $movieDetails.Overview -ne 'Smoke-test local metadata.') {

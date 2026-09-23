@@ -524,8 +524,15 @@ namespace MediaBrowser.Controller.Entities
         /// </summary>
         public bool UserHasContentRestrictions { get; private set; }
 
-        public void SetUser(User user)
+        public void SetUser(User? user)
         {
+            // System-owned views (for example, dynamically generated library artwork)
+            // may query without a user. Match the nullable-user constructor's behavior.
+            if (user is null)
+            {
+                return;
+            }
+
             var maxRating = user.MaxParentalRatingScore;
             if (maxRating.HasValue)
             {

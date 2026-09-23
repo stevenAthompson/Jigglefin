@@ -19,7 +19,7 @@ public class LibraryManagerScanTests
     [Theory]
     [InlineData(true)]
     [InlineData(false)]
-    public async Task StartScanInBackground_QueuesOnlyWhenIdle(bool scanRunning)
+    public async Task StartScanInBackground_QueuesFollowUpEvenWhenRunning(bool scanRunning)
     {
         var fixture = new Fixture().Customize(new AutoMoqCustomization());
         fixture.Register(() => new NamingOptions());
@@ -32,7 +32,7 @@ public class LibraryManagerScanTests
 
         await manager.StartScanInBackground().ConfigureAwait(true);
 
-        tasks.Verify(t => t.QueueScheduledTask<RefreshMediaLibraryTask>(), scanRunning ? Times.Never() : Times.Once());
+        tasks.Verify(t => t.QueueScheduledTask<RefreshMediaLibraryTask>(), Times.Once());
         tasks.Verify(t => t.CancelIfRunningAndQueue<RefreshMediaLibraryTask>(), Times.Never());
     }
 
