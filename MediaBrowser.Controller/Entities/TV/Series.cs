@@ -284,7 +284,9 @@ namespace MediaBrowser.Controller.Entities.TV
                 return LibraryManager.GetItemsResult(query);
             }
 
-            if (query.HasFilters)
+            var isBroadFolderBrowse = query.IncludeItemTypes.Contains(BaseItemKind.Folder)
+                && !query.HasFiltersOtherThanIncludeItemTypes;
+            if (query.HasFilters && !isBroadFolderBrowse)
             {
                 return base.GetItemsInternal(query);
             }

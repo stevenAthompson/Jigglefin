@@ -363,6 +363,15 @@ public sealed class FolderFirstLibraryTests
                 TestContext.Current.CancellationToken);
             Assert.NotNull(nameSortedSeasonItems);
             Assert.Equal(BaseItemKind.Folder, Assert.Single(nameSortedSeasonItems.Items, item => item.Id.Equals(season.Id)).Type);
+            var nativeSeasonItems = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={series.Id}&includeItemTypes=Folder,CollectionFolder,Series,Season,Episode,Video&sortBy=SortName",
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.NotNull(nativeSeasonItems);
+            Assert.Equal(2, nativeSeasonItems.Items.Count);
+            Assert.Equal(BaseItemKind.Folder, Assert.Single(nativeSeasonItems.Items, item => item.Id.Equals(season.Id)).Type);
+            Assert.Single(nativeSeasonItems.Items, item => item.Name == "Bonus Collection" && item.Type == BaseItemKind.Folder);
+            Assert.DoesNotContain(nativeSeasonItems.Items, item => item.Name == "Season Unknown");
             Assert.Single(webFolderSeasonItems.Items, item => item.Name == "Bonus Collection" && item.Type == BaseItemKind.Folder);
             Assert.DoesNotContain(webFolderSeasonItems.Items, item => item.Name == "Season Unknown");
             var pagedWebSeasonItems = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
@@ -388,6 +397,13 @@ public sealed class FolderFirstLibraryTests
             Assert.NotNull(webSeasonChildren);
             Assert.Single(webSeasonChildren.Items, item => item.Type == BaseItemKind.Episode);
             Assert.Single(webSeasonChildren.Items, item => item.Id.Equals(seasonBonus.Id));
+            var nativeSeasonChildren = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={season.Id}&includeItemTypes=Folder,CollectionFolder,Series,Season,Episode,Video&sortBy=SortName",
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.NotNull(nativeSeasonChildren);
+            Assert.Single(nativeSeasonChildren.Items, item => item.Type == BaseItemKind.Episode);
+            Assert.Single(nativeSeasonChildren.Items, item => item.Id.Equals(seasonBonus.Id) && item.Type == BaseItemKind.Folder);
             var seasonBonusChildren = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
                 $"Items?parentId={seasonBonus.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
             Assert.NotNull(seasonBonusChildren);
