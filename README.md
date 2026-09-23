@@ -63,7 +63,7 @@ open and potentially migrate that database. Jellyfin and Jigglefin cannot both b
   navigable; direct details retain their standard media types.
 - The unmodified Jellyfin Web client is tested headlessly against the packaged server for physical
   movie and audiobook folder navigation and sustained playback of synthetic media. Automated API
-  tests cover browse paths and direct or byte-range
+  tests cover browse paths, rename/removal rescans, and direct or byte-range
   streaming for movie, music, and audiobook samples. Windows CI also uses its bundled FFmpeg to
   verify movie-to-HLS and audiobook-to-MP3 transcoding, plus local external subtitle delivery.
   Before uploading the ZIP, CI starts the packaged server with an isolated profile, completes
@@ -71,8 +71,10 @@ open and potentially migrate that database. Jellyfin and Jigglefin cannot both b
   local movie NFO metadata, client playback negotiation, external subtitles, direct streaming,
   and headless Web playback. A Swiftfin-style API test checks folder browsing with broad item-type
   filters, including physical series and music albums; an Android TV-style items query checks
-  folder paths and child counts. Native client UI coverage and more
-  ambiguous mixed-content layouts remain work in progress.
+  folder paths and child counts. Unmodified Android TV and Android mobile apps were also tested
+  in a CLI-only emulator for native browsing and playback. Swiftfin UI coverage and more
+  ambiguous mixed-content layouts remain work in progress. Android TV 0.19.10 plays audiobooks
+  but does not automatically resume saved audio bookmarks; the server retains those positions.
 
 The detailed design and upstream merge strategy are in [JIGGLEFIN.md](JIGGLEFIN.md).
 

@@ -88,6 +88,11 @@ The unmodified [Jellyfin Android mobile app](https://github.com/jellyfin/jellyfi
 metadata, and played each 20-second sample to completion. This was a CLI-only native-client
 check, not an automated CI test.
 
+An integration test renames and removes physical movie, audiobook, and music-album directories,
+rescanning after each change. The old entries disappear; renamed entries keep their standard
+media kinds and stream from the new paths; removed playable files no longer appear in recursive
+queries. This protects the filesystem-as-source-of-truth rule beyond the initial library scan.
+
 The resolver chain now leaves an arbitrary TV grouping directory as a `Folder` unless it contains
 `tvshow.nfo`, `series.xml`, or episode/season evidence. A music grouping directory is not inferred to be a
 `MusicArtist` merely because it contains an album; an explicit `artist.nfo` or `artist.xml`
