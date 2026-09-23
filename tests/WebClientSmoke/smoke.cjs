@@ -74,7 +74,61 @@ async function main() {
         assert.ok(audiobook.duration >= 18 && audiobook.duration <= 22, 'The audiobook duration did not match the synthetic sample.');
         assert.ok(mediaResponses.some((response) => /\/Audio\/.*\/universal/.test(response.path) && response.status === 206));
 
-        console.log(`Jellyfin Web headless smoke passed: movie ${movie.currentTime.toFixed(1)}s and audiobook ${audiobook.currentTime.toFixed(1)}s played through physical folders.`);
+        await page.goto(`${baseUrl}/web/#/home`, { waitUntil: 'domcontentloaded' });
+        await page.getByText('Jigglefin Package Smoke Music', { exact: true }).filter({ visible: true }).first().click();
+        await page.getByText('Rock', { exact: true }).filter({ visible: true }).first().click();
+        await page.getByText('Smoke Album', { exact: true }).filter({ visible: true }).first().click();
+        const trackLink = page.getByText('Track 01', { exact: true }).filter({ visible: true }).first();
+        await trackLink.waitFor();
+        const musicTrackId = await trackLink.getAttribute('data-id');
+        assert.ok(musicTrackId, 'The music card has no item ID.');
+        const musicResponse = page.waitForResponse((response) => {
+            const path = new URL(response.url()).pathname;
+            return path.includes(`/Audio/${musicTrackId}/`) && (response.status() === 200 || response.status() === 206);
+        }, { timeout: 12000 });
+        await page.locator('.cardOverlayContainer button[data-action="resume"][title="Play"]').first().click();
+        await musicResponse;
+        await page.locator('audio').waitFor({ state: 'attached' });
+        await page.waitForFunction(() => {
+            const audio = document.querySelector('audio');
+            return audio && audio.currentTime >= 2 && !audio.paused && audio.readyState >= 3 && !audio.error;
+        }, null, { timeout: 12000 });
+        const music = await page.locator('audio').evaluate((audio) => ({
+            currentTime: audio.currentTime,
+            duration: audio.duration,
+            paused: audio.paused,
+            error: audio.error?.message
+        }));
+        assert.ok(music.duration >= 18 && music.duration <= 22, 'The music duration did not match the synthetic sample.');
+        assert.ok(mediaResponses.some((response) => response.path.includes(`/Audio/${musicTrackId}/`) && (response.status === 200 || response.status === 206)));
+
+        const priorVideoResponses = mediaResponses.filter((response) => /\/Videos\/.*\/stream\.mp4/.test(response.path) && response.status === 206).length;
+        await page.goto(`${baseUrl}/web/#/home`, { waitUntil: 'domcontentloaded' });
+        await page.getByText('Jigglefin Package Smoke TV', { exact: true }).filter({ visible: true }).first().click();
+        await page.getByText('Drama', { exact: true }).filter({ visible: true }).first().click();
+        await page.getByText('Smoke Show', { exact: true }).filter({ visible: true }).first().click();
+        await page.getByText('Season 1', { exact: true }).filter({ visible: true }).first().click();
+        const episodeResponse = page.waitForResponse((response) => {
+            const path = new URL(response.url()).pathname;
+            return /\/Videos\/.*\/stream\.mp4/.test(path) && response.status() === 206;
+        }, { timeout: 12000 });
+        await page.locator('.cardOverlayContainer button[data-action="resume"][title="Play"]').first().click();
+        await episodeResponse;
+        await page.locator('video').waitFor({ state: 'attached' });
+        await page.waitForFunction(() => {
+            const video = document.querySelector('video');
+            return video && video.currentTime >= 2 && !video.paused && video.readyState >= 3 && !video.error;
+        }, null, { timeout: 12000 });
+        const episode = await page.locator('video').evaluate((video) => ({
+            currentTime: video.currentTime,
+            duration: video.duration,
+            paused: video.paused,
+            error: video.error?.message
+        }));
+        assert.ok(episode.duration >= 18 && episode.duration <= 22, 'The TV episode duration did not match the synthetic sample.');
+        assert.ok(mediaResponses.filter((response) => /\/Videos\/.*\/stream\.mp4/.test(response.path) && response.status === 206).length > priorVideoResponses);
+
+        console.log(`Jellyfin Web headless smoke passed: movie ${movie.currentTime.toFixed(1)}s, audiobook ${audiobook.currentTime.toFixed(1)}s, music ${music.currentTime.toFixed(1)}s, and TV ${episode.currentTime.toFixed(1)}s played through physical folders.`);
     } finally {
         await browser.close();
     }

@@ -260,8 +260,9 @@ SHA256 digest. It can also be reproduced locally by building that web commit wit
 then running `scripts/package-win.ps1 -WebDistPath <web-dist-path> -FfmpegDirectory <ffmpeg-path>`.
 Before artifact upload, CI runs `scripts/smoke-package-win.ps1` against the assembled package.
 It uses a fresh temporary profile and random one-time admin password to check setup, login,
-physical movie and audiobook folders, local NFO fields, standard client playback negotiation,
-external subtitles, direct media bytes, and headless playback in unmodified Jellyfin Web.
+physical movie, audiobook, music, and TV folders, local NFO fields, standard client playback negotiation,
+external subtitles, direct media bytes, and headless playback of all four media types in unmodified
+Jellyfin Web.
 Successful profiles are cleaned up after the server stops when Windows releases their files.
 To repeat the full client test locally after packaging, run `npm ci --prefix tests/WebClientSmoke`,
 `tests/WebClientSmoke/node_modules/.bin/playwright.cmd install chromium`, then

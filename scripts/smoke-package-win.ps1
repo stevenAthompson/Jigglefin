@@ -308,6 +308,122 @@ try {
         throw 'The authenticated audiobook stream did not match the sample file.'
     }
 
+    $musicRoot = Join-Path $smokeProfile 'music-media'
+    $albumDirectory = Join-Path $musicRoot 'Rock/Smoke Album'
+    New-Item -ItemType Directory -Path $albumDirectory | Out-Null
+    Copy-Item -LiteralPath $sampleAudioBook -Destination (Join-Path $albumDirectory 'Track 01.m4a')
+    [System.IO.File]::WriteAllText(
+        (Join-Path $albumDirectory 'album.nfo'),
+        '<album><title>Smoke Album</title></album>')
+    $musicLibraryName = 'Jigglefin Package Smoke Music'
+    $musicLibraryUrl = "$baseUrl/Library/VirtualFolders?name=$([Uri]::EscapeDataString($musicLibraryName))&collectionType=music&paths=$([Uri]::EscapeDataString($musicRoot))&refreshLibrary=true"
+    Invoke-WebRequest -Uri $musicLibraryUrl -Method Post -Headers $authenticatedHeaders -ContentType 'application/json' `
+        -Body '{"LibraryOptions":{}}' -TimeoutSec 30 | Out-Null
+
+    $musicDeadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    $musicTrack = $null
+    $lastMusicBrowseState = 'No music library view response yet.'
+    while ([DateTime]::UtcNow -lt $musicDeadline) {
+        $serverProcess.Refresh()
+        if ($serverProcess.HasExited) {
+            throw "Packaged server exited during music scan with code $($serverProcess.ExitCode)."
+        }
+
+        try {
+            $views = Invoke-RestMethod -Uri "$baseUrl/UserViews?presetViews=music" -Headers $authenticatedHeaders -TimeoutSec 5
+            $musicLibrary = @($views.Items | Where-Object Name -EQ $musicLibraryName) | Select-Object -First 1
+            $lastMusicBrowseState = 'Music library view is not listed.'
+            if ($musicLibrary -and $musicLibrary.Type -eq 'Folder' -and -not $musicLibrary.CollectionType) {
+                $musicGroups = Invoke-RestMethod -Uri "$baseUrl/Items?parentId=$($musicLibrary.Id)" -Headers $authenticatedHeaders -TimeoutSec 5
+                $rock = @($musicGroups.Items | Where-Object Name -EQ 'Rock') | Select-Object -First 1
+                $lastMusicBrowseState = 'Music library exists, but its Rock folder is not listed.'
+                if ($rock -and $rock.Type -eq 'Folder') {
+                    $albums = Invoke-RestMethod -Uri "$baseUrl/Items?parentId=$($rock.Id)" -Headers $authenticatedHeaders -TimeoutSec 5
+                    $album = @($albums.Items | Where-Object { $_.Name -eq 'Smoke Album' -and $_.Type -eq 'MusicAlbum' }) | Select-Object -First 1
+                    $lastMusicBrowseState = 'Rock exists; album items: ' + [string]::Join(', ', @($albums.Items | ForEach-Object { "$($_.Name):$($_.Type)" }))
+                    if ($album) {
+                        $tracks = Invoke-RestMethod -Uri "$baseUrl/Items?parentId=$($album.Id)" -Headers $authenticatedHeaders -TimeoutSec 5
+                        $musicTrack = @($tracks.Items | Where-Object Type -EQ 'Audio') | Select-Object -First 1
+                        if ($musicTrack) { break }
+                        $lastMusicBrowseState = 'Album exists, but no Audio track is listed.'
+                    }
+                }
+            }
+        } catch {
+            $lastMusicBrowseState = 'Music browse request failed: ' + $_.Exception.Message.Substring(0, [Math]::Min(160, $_.Exception.Message.Length))
+        }
+        Start-Sleep -Milliseconds 1000
+    }
+    if (-not $musicTrack) {
+        throw "The packaged server did not expose the track through its physical music folders within $TimeoutSeconds seconds. Last observation: $lastMusicBrowseState"
+    }
+    $musicStreamPath = Join-Path $smokeProfile 'streamed-track.m4a'
+    Invoke-WebRequest -Uri "$baseUrl/Audio/$($musicTrack.Id)/stream?static=true" -Headers $authenticatedHeaders `
+        -OutFile $musicStreamPath -TimeoutSec 30 | Out-Null
+    if ((Get-FileHash -LiteralPath $musicStreamPath -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $sampleAudioBook -Algorithm SHA256).Hash) {
+        throw 'The authenticated music track stream did not match the sample file.'
+    }
+
+    $tvRoot = Join-Path $smokeProfile 'tv-media'
+    $seasonDirectory = Join-Path $tvRoot 'Drama/Smoke Show/Season 1'
+    New-Item -ItemType Directory -Path $seasonDirectory | Out-Null
+    Copy-Item -LiteralPath $sampleVideo -Destination (Join-Path $seasonDirectory 'Smoke Show - S01E01.mp4')
+    [System.IO.File]::WriteAllText(
+        (Join-Path (Split-Path -Parent $seasonDirectory) 'tvshow.nfo'),
+        '<tvshow><title>Smoke Show</title></tvshow>')
+    $tvLibraryName = 'Jigglefin Package Smoke TV'
+    $tvLibraryUrl = "$baseUrl/Library/VirtualFolders?name=$([Uri]::EscapeDataString($tvLibraryName))&collectionType=tvshows&paths=$([Uri]::EscapeDataString($tvRoot))&refreshLibrary=true"
+    Invoke-WebRequest -Uri $tvLibraryUrl -Method Post -Headers $authenticatedHeaders -ContentType 'application/json' `
+        -Body '{"LibraryOptions":{}}' -TimeoutSec 30 | Out-Null
+
+    $tvDeadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    $episode = $null
+    $lastTvBrowseState = 'No TV library view response yet.'
+    while ([DateTime]::UtcNow -lt $tvDeadline) {
+        $serverProcess.Refresh()
+        if ($serverProcess.HasExited) {
+            throw "Packaged server exited during TV scan with code $($serverProcess.ExitCode)."
+        }
+
+        try {
+            $views = Invoke-RestMethod -Uri "$baseUrl/UserViews?presetViews=tvshows" -Headers $authenticatedHeaders -TimeoutSec 5
+            $tvLibrary = @($views.Items | Where-Object Name -EQ $tvLibraryName) | Select-Object -First 1
+            $lastTvBrowseState = 'TV library view is not listed.'
+            if ($tvLibrary -and $tvLibrary.Type -eq 'Folder' -and -not $tvLibrary.CollectionType) {
+                $tvGroups = Invoke-RestMethod -Uri "$baseUrl/Items?parentId=$($tvLibrary.Id)" -Headers $authenticatedHeaders -TimeoutSec 5
+                $drama = @($tvGroups.Items | Where-Object Name -EQ 'Drama') | Select-Object -First 1
+                $lastTvBrowseState = 'TV library exists, but its Drama folder is not listed.'
+                if ($drama -and $drama.Type -eq 'Folder') {
+                    $shows = Invoke-RestMethod -Uri "$baseUrl/Items?parentId=$($drama.Id)" -Headers $authenticatedHeaders -TimeoutSec 5
+                    $show = @($shows.Items | Where-Object { $_.Name -eq 'Smoke Show' -and $_.Type -eq 'Series' }) | Select-Object -First 1
+                    $lastTvBrowseState = 'Drama exists; show items: ' + [string]::Join(', ', @($shows.Items | ForEach-Object { "$($_.Name):$($_.Type)" }))
+                    if ($show) {
+                        $seasons = Invoke-RestMethod -Uri "$baseUrl/Items?parentId=$($show.Id)" -Headers $authenticatedHeaders -TimeoutSec 5
+                        $season = @($seasons.Items | Where-Object { $_.Name -eq 'Season 1' -and $_.Type -eq 'Season' }) | Select-Object -First 1
+                        if ($season) {
+                            $episodes = Invoke-RestMethod -Uri "$baseUrl/Items?parentId=$($season.Id)" -Headers $authenticatedHeaders -TimeoutSec 5
+                            $episode = @($episodes.Items | Where-Object Type -EQ 'Episode') | Select-Object -First 1
+                            if ($episode) { break }
+                        }
+                        $lastTvBrowseState = 'Show exists, but its physical season or episode is not listed.'
+                    }
+                }
+            }
+        } catch {
+            $lastTvBrowseState = 'TV browse request failed: ' + $_.Exception.Message.Substring(0, [Math]::Min(160, $_.Exception.Message.Length))
+        }
+        Start-Sleep -Milliseconds 1000
+    }
+    if (-not $episode) {
+        throw "The packaged server did not expose the episode through its physical TV folders within $TimeoutSeconds seconds. Last observation: $lastTvBrowseState"
+    }
+    $episodeStreamPath = Join-Path $smokeProfile 'streamed-episode.mp4'
+    Invoke-WebRequest -Uri "$baseUrl/Videos/$($episode.Id)/stream?static=true" -Headers $authenticatedHeaders `
+        -OutFile $episodeStreamPath -TimeoutSec 30 | Out-Null
+    if ((Get-FileHash -LiteralPath $episodeStreamPath -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $sampleVideo -Algorithm SHA256).Hash) {
+        throw 'The authenticated TV episode stream did not match the sample file.'
+    }
+
     if ($HeadlessWebClient) {
         $oldBaseUrl = $env:JIGGLEFIN_TEST_BASE_URL
         $oldUser = $env:JIGGLEFIN_TEST_USER
@@ -328,7 +444,7 @@ try {
     }
 
     $smokeSucceeded = $true
-    Write-Host "Packaged server smoke test passed: API version $($publicInfo.Version), bundled Web HTTP $($webResponse.StatusCode), login, movie and audiobook folder browse, local NFO and audiobook XML metadata, client playback negotiation, external subtitle, and direct media streams."
+    Write-Host "Packaged server smoke test passed: API version $($publicInfo.Version), bundled Web HTTP $($webResponse.StatusCode), login, movie, audiobook, music, and TV folder browse, local NFO and audiobook XML metadata, client playback negotiation, external subtitle, and direct media streams."
 } catch {
     Write-Warning "Package smoke test failed. Isolated profile and logs: $smokeProfile"
     foreach ($logPath in @($stdout, $stderr)) {
