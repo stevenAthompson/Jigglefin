@@ -25,6 +25,92 @@ namespace Jellyfin.Server.Integration.Tests.Controllers;
 public sealed class FolderFirstLibraryTests
 {
     [Theory]
+    [InlineData("movies", "Named Item.mp4", BaseItemKind.Movie)]
+    [InlineData("tvshows", "Named Item - S01E01.mp4", BaseItemKind.Series)]
+    [InlineData("books", "Named Item.pdf", BaseItemKind.Book)]
+    [InlineData("music", "Track 01.mp3", BaseItemKind.MusicAlbum)]
+    public async Task NestedGroupingFolders_StayPhysicalBeforeTypedMedia(
+        string collectionType,
+        string mediaFileName,
+        BaseItemKind mediaKind)
+    {
+        var testRoot = Path.Combine(Path.GetTempPath(), "jigglefin-nested-groups-" + Guid.NewGuid().ToString("N"));
+        var mediaFolder = Path.Combine(testRoot, "Genre", "Decade", "Named Item");
+        Directory.CreateDirectory(mediaFolder);
+        await File.WriteAllBytesAsync(Path.Combine(mediaFolder, mediaFileName), [], TestContext.Current.CancellationToken);
+
+        using var factory = new JellyfinApplicationFactory();
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.AddAuthHeader(await AuthHelper.CompleteStartupAsync(client));
+        var libraryName = "Jigglefin nested groups " + Guid.NewGuid().ToString("N");
+        var created = false;
+
+        try
+        {
+            using var createResponse = await client.PostAsJsonAsync(
+                $"Library/VirtualFolders?name={Uri.EscapeDataString(libraryName)}&collectionType={collectionType}&paths={Uri.EscapeDataString(testRoot)}&refreshLibrary=false",
+                new AddVirtualFolderDto { LibraryOptions = new LibraryOptions() },
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.NoContent, createResponse.StatusCode);
+            created = true;
+
+            var libraryManager = (LibraryManager)factory.Services.GetRequiredService<ILibraryManager>();
+            await libraryManager.ValidateMediaLibraryInternal(new Progress<double>(), TestContext.Current.CancellationToken);
+
+            var views = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"UserViews?presetViews={collectionType}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(views);
+            var library = Assert.Single(views.Items, item => item.Name == libraryName);
+            Assert.Equal(BaseItemKind.Folder, library.Type);
+            var parentId = library.Id;
+            foreach (var (name, path) in new[]
+            {
+                ("Genre", Path.Combine(testRoot, "Genre")),
+                ("Decade", Path.Combine(testRoot, "Genre", "Decade"))
+            })
+            {
+                var children = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                    $"Items?parentId={parentId}&fields=Path",
+                    JsonDefaults.Options,
+                    TestContext.Current.CancellationToken);
+                Assert.NotNull(children);
+                var folder = Assert.Single(children.Items, item => item.Name == name);
+                Assert.Equal(BaseItemKind.Folder, folder.Type);
+                Assert.Equal(path, folder.Path);
+                var nativeChildren = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                    $"Items?parentId={parentId}&includeItemTypes=Folder,CollectionFolder,Movie,Series,MusicAlbum,Book&sortBy=SortName",
+                    JsonDefaults.Options,
+                    TestContext.Current.CancellationToken);
+                Assert.NotNull(nativeChildren);
+                Assert.Equal(folder.Id, Assert.Single(nativeChildren.Items, item => item.Name == name).Id);
+                parentId = folder.Id;
+            }
+
+            var mediaEntries = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={parentId}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(mediaEntries);
+            var media = Assert.Single(mediaEntries.Items);
+            Assert.Equal(mediaKind, media.Type);
+            var details = await client.GetFromJsonAsync<BaseItemDto>(
+                $"Items/{media.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.Equal(mediaKind, details?.Type);
+        }
+        finally
+        {
+            if (created)
+            {
+                using var deleteResponse = await client.DeleteAsync(
+                    $"Library/VirtualFolders?name={Uri.EscapeDataString(libraryName)}&refreshLibrary=false",
+                    TestContext.Current.CancellationToken);
+                Assert.Equal(HttpStatusCode.NoContent, deleteResponse.StatusCode);
+            }
+
+            Directory.Delete(testRoot, true);
+        }
+    }
+
+    [Theory]
     [InlineData("movies", "Existing Movie.mp4")]
     [InlineData("tvshows", "Existing Show - S01E01.mkv")]
     [InlineData("music", "Existing Track.mp3")]

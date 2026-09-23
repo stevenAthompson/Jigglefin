@@ -96,6 +96,9 @@ queries. This protects the filesystem-as-source-of-truth rule beyond the initial
 Another integration test keeps an empty category and its empty child browseable alongside populated
 media in Movies, TV Shows, Music, Books, Home Videos, and Music Videos libraries, including the
 folder-list request used by Jellyfin Web.
+An additional browse test verifies that two arbitrary grouping levels retain their physical paths
+before a typed movie, series, book, or music album, including the broad sorted item query used by
+native folder browsers.
 
 The resolver chain now leaves an arbitrary TV grouping directory as a `Folder` unless it contains
 `tvshow.nfo`, `series.xml`, or episode/season evidence. A music grouping directory is not inferred to be a
