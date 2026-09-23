@@ -124,6 +124,104 @@ public sealed class LocalSidecarLibraryTests
     }
 
     [Fact]
+    public async Task BookXml_UsesSpecificOrUnambiguousSidecarsAfterOpf()
+    {
+        var testRoot = Path.Combine(Path.GetTempPath(), "jigglefin-book-xml-" + Guid.NewGuid().ToString("N"));
+        var authorFolder = Path.Combine(testRoot, "Example Author");
+        var mixedFolder = Path.Combine(authorFolder, "Mixed Shelf");
+        var dedicatedFolder = Path.Combine(authorFolder, "Dedicated Book");
+        var opfFolder = Path.Combine(authorFolder, "With OPF");
+        Directory.CreateDirectory(mixedFolder);
+        Directory.CreateDirectory(dedicatedFolder);
+        Directory.CreateDirectory(opfFolder);
+        await File.WriteAllBytesAsync(Path.Combine(mixedFolder, "First Book.pdf"), [], TestContext.Current.CancellationToken);
+        await File.WriteAllBytesAsync(Path.Combine(mixedFolder, "Second Book.pdf"), [], TestContext.Current.CancellationToken);
+        await File.WriteAllBytesAsync(Path.Combine(dedicatedFolder, "Dedicated Book.pdf"), [], TestContext.Current.CancellationToken);
+        await File.WriteAllBytesAsync(Path.Combine(opfFolder, "With OPF.pdf"), [], TestContext.Current.CancellationToken);
+        await File.WriteAllTextAsync(
+            Path.Combine(mixedFolder, "First Book.xml"),
+            "<Item><LocalTitle>Specific XML Title</LocalTitle><ProductionYear>2021</ProductionYear><Overview>First book only.</Overview></Item>",
+            TestContext.Current.CancellationToken);
+        await File.WriteAllTextAsync(
+            Path.Combine(mixedFolder, "book.xml"),
+            "<Item><LocalTitle>Wrong Shared Title</LocalTitle></Item>",
+            TestContext.Current.CancellationToken);
+        await File.WriteAllTextAsync(
+            Path.Combine(dedicatedFolder, "book.xml"),
+            "<Item><LocalTitle>Dedicated XML Title</LocalTitle><Overview>One book in this folder.</Overview></Item>",
+            TestContext.Current.CancellationToken);
+        await File.WriteAllTextAsync(
+            Path.Combine(opfFolder, "With OPF.xml"),
+            "<Item><LocalTitle>Secondary XML Title</LocalTitle></Item>",
+            TestContext.Current.CancellationToken);
+        await File.WriteAllTextAsync(
+            Path.Combine(opfFolder, "With OPF.opf"),
+            "<package xmlns='http://www.idpf.org/2007/opf'><metadata xmlns:dc='http://purl.org/dc/elements/1.1/'><dc:title>Preferred OPF Title</dc:title></metadata></package>",
+            TestContext.Current.CancellationToken);
+
+        using var factory = new JellyfinApplicationFactory();
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.AddAuthHeader(await AuthHelper.CompleteStartupAsync(client));
+        var libraryName = "Jigglefin book XML test " + Guid.NewGuid().ToString("N");
+        var created = false;
+
+        try
+        {
+            using var createResponse = await client.PostAsJsonAsync(
+                $"Library/VirtualFolders?name={Uri.EscapeDataString(libraryName)}&collectionType=books&paths={Uri.EscapeDataString(testRoot)}&refreshLibrary=false",
+                new AddVirtualFolderDto { LibraryOptions = new LibraryOptions() },
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.NoContent, createResponse.StatusCode);
+            created = true;
+
+            var libraryManager = (LibraryManager)factory.Services.GetRequiredService<ILibraryManager>();
+            await libraryManager.ValidateMediaLibraryInternal(new Progress<double>(), TestContext.Current.CancellationToken);
+
+            var views = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                "UserViews?presetViews=books", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(views);
+            var library = Assert.Single(views.Items, item => item.Name == libraryName);
+            var authors = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={library.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(authors);
+            var author = Assert.Single(authors.Items, item => item.Name == "Example Author");
+            var shelves = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={author.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(shelves);
+            var mixed = Assert.Single(shelves.Items, item => item.Name == "Mixed Shelf");
+            var dedicated = Assert.Single(shelves.Items, item => item.Name == "Dedicated XML Title");
+            Assert.Equal(BaseItemKind.Book, dedicated.Type);
+            Assert.Single(shelves.Items, item => item.Name == "Preferred OPF Title" && item.Type == BaseItemKind.Book);
+
+            var mixedBooks = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={mixed.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(mixedBooks);
+            var first = Assert.Single(mixedBooks.Items, item => item.Name == "Specific XML Title");
+            Assert.Equal(2021, first.ProductionYear);
+            Assert.Single(mixedBooks.Items, item => item.Name == "Second Book" && item.Type == BaseItemKind.Book);
+            var firstDetails = await client.GetFromJsonAsync<BaseItemDto>(
+                $"Items/{first.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.Equal("First book only.", firstDetails?.Overview);
+            var dedicatedDetails = await client.GetFromJsonAsync<BaseItemDto>(
+                $"Items/{dedicated.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.Equal("One book in this folder.", dedicatedDetails?.Overview);
+        }
+        finally
+        {
+            if (created)
+            {
+                using var deleteResponse = await client.DeleteAsync(
+                    $"Library/VirtualFolders?name={Uri.EscapeDataString(libraryName)}&refreshLibrary=false",
+                    TestContext.Current.CancellationToken);
+                Assert.Equal(HttpStatusCode.NoContent, deleteResponse.StatusCode);
+            }
+
+            Directory.Delete(testRoot, true);
+        }
+    }
+
+    [Fact]
     public async Task EmbyMusicXml_ProvidesArtistAndAlbumMetadataThroughPhysicalFolders()
     {
         var testRoot = Path.Combine(Path.GetTempPath(), "jigglefin-music-xml-" + Guid.NewGuid().ToString("N"));

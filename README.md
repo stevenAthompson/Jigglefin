@@ -49,11 +49,12 @@ open and potentially migrate that database. Jellyfin and Jigglefin cannot both b
   physical folders; photo-only albums open through the Web folder browser. Music-specific track
   lists remain compatible with Jellyfin Web.
 - Kodi-style NFO and legacy-style `movie.xml`, `<movie-file>.xml`, `series.xml`,
-  `<episode-file>.xml`, `artist.xml`, and `album.xml` sidecars, local artwork, embedded tags, and
+  `<episode-file>.xml`, `artist.xml`, `album.xml`, and `<book-file>.xml` sidecars, local artwork, embedded tags, and
   filenames are used ahead of remote metadata. Network metadata providers are disabled by
   default for new libraries; explicit provider choices remain available. Book OPF sidecars are
   supported without applying a shared `metadata.opf` to unrelated books in a mixed folder.
-  Legacy Emby XML sidecars for books and other media types are not yet covered.
+  A shared `book.xml` is read only when its folder has exactly one book file; OPF takes precedence
+  over book XML. Other legacy XML media types remain work in progress.
 - Media library entries are presented as folders in UserViews so standard clients use their
   built-in folder browser. Web folder-list responses also keep shows, seasons, artists, and albums
   navigable; direct details retain their standard media types.
