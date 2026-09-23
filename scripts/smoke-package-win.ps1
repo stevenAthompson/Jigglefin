@@ -245,6 +245,7 @@ try {
 
     $bookDeadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
     $audioBook = $null
+    $audioBookDetails = $null
     $lastBookBrowseState = 'No book library view response yet.'
     while ([DateTime]::UtcNow -lt $bookDeadline) {
         $serverProcess.Refresh()
@@ -265,7 +266,12 @@ try {
                     $audioBook = @($books.Items | Where-Object { $_.Name -eq 'Smoke Audio Book' -and $_.Type -eq 'AudioBook' }) | Select-Object -First 1
                     $lastBookBrowseState = 'Fantasy exists; book items: ' + [string]::Join(', ', @($books.Items | ForEach-Object { "$($_.Name):$($_.Type)" }))
                     if ($audioBook) {
-                        break
+                        # The item may be listed before its asynchronous local metadata refresh finishes.
+                        $audioBookDetails = Invoke-RestMethod -Uri "$baseUrl/Items/$($audioBook.Id)" -Headers $authenticatedHeaders -TimeoutSec 5
+                        if ($audioBookDetails.ProductionYear -eq 2026 -and $audioBookDetails.Overview -eq 'Local audiobook sidecar metadata.') {
+                            break
+                        }
+                        $lastBookBrowseState = "Audiobook exists, but XML metadata is pending: year=$($audioBookDetails.ProductionYear), overview=$($audioBookDetails.Overview)"
                     }
                 }
             }
@@ -274,12 +280,8 @@ try {
         }
         Start-Sleep -Milliseconds 1000
     }
-    if (-not $audioBook) {
-        throw "The packaged server did not expose the sample audiobook through physical folders within $TimeoutSeconds seconds. Last observation: $lastBookBrowseState"
-    }
-    $audioBookDetails = Invoke-RestMethod -Uri "$baseUrl/Items/$($audioBook.Id)" -Headers $authenticatedHeaders -TimeoutSec 15
-    if ($audioBookDetails.ProductionYear -ne 2026 -or $audioBookDetails.Overview -ne 'Local audiobook sidecar metadata.') {
-        throw 'The packaged server did not apply local audiobook XML metadata to standard item details.'
+    if (-not $audioBook -or $audioBookDetails.ProductionYear -ne 2026 -or $audioBookDetails.Overview -ne 'Local audiobook sidecar metadata.') {
+        throw "The packaged server did not expose the audiobook and its local XML metadata through physical folders within $TimeoutSeconds seconds. Last observation: $lastBookBrowseState"
     }
 
     $audioPlaybackPayload = @{
