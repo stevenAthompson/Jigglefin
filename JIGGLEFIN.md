@@ -71,6 +71,11 @@ Android TV's details screen has no playback actions for `AudioBook` items. Jiggl
 presents playable audiobooks as `Audio` DTOs only to the Jellyfin Android TV client; stored item
 kinds and responses to other clients remain `AudioBook`. Untagged audio's minimum-date sentinel
 is omitted from DTOs, allowing the local XML year to display instead of `Jan 1, 1`.
+The unmodified [Jellyfin Android mobile app](https://github.com/jellyfin/jellyfin-android/releases/tag/v2.7.3)
+2.7.3 (libre release) was also tested in the headless emulator. It browsed
+`Books/Fantasy/Native Test Audio` and `Movies/Action/Native Test Movie`, showed the local XML/NFO
+metadata, and played each 20-second sample to completion. This was a CLI-only native-client
+check, not an automated CI test.
 
 The resolver chain now leaves an arbitrary TV grouping directory as a `Folder` unless it contains
 `tvshow.nfo`, `series.xml`, or episode/season evidence. A music grouping directory is not inferred to be a
