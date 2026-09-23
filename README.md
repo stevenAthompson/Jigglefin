@@ -1,191 +1,81 @@
-<h1 align="center">Jigglefin</h1>
-<h3 align="center">A folder-first, Jellyfin-compatible media server</h3>
-
-> [!IMPORTANT]
-> Jigglefin is an early-stage fork of Jellyfin Server. It preserves Jellyfin's API and media
-> entity contracts so existing Jellyfin applications can connect, while making local folders,
-> embedded tags, and Kodi/Emby-style sidecar metadata authoritative by default. See
-> [JIGGLEFIN.md](JIGGLEFIN.md) for the current architecture and roadmap.
-
-Jigglefin testing builds are available as the `Jigglefin-win-x64` artifact from the
-[Windows CI workflow](https://github.com/stevenAthompson/Jigglefin/actions/workflows/jigglefin-ci.yml).
-The Jellyfin download links below are for upstream Jellyfin, not Jigglefin.
-
----
-
-<p align="center">
-<img alt="Logo Banner" src="https://raw.githubusercontent.com/jellyfin/jellyfin-ux/master/branding/SVG/banner-logo-solid.svg?sanitize=true"/>
-<br/>
-<br/>
-<a href="https://github.com/jellyfin/jellyfin"><img alt="GPL 2.0 License" src="https://img.shields.io/github/license/jellyfin/jellyfin.svg"/></a>
-<a href="https://github.com/jellyfin/jellyfin/releases"><img alt="Current Release" src="https://img.shields.io/github/release/jellyfin/jellyfin.svg"/></a>
-<a href="https://translate.jellyfin.org/projects/jellyfin/jellyfin-core/?utm_source=widget"><img alt="Translation Status" src="https://translate.jellyfin.org/widgets/jellyfin/-/jellyfin-core/svg-badge.svg"/></a>
-<a href="https://hub.docker.com/r/jellyfin/jellyfin"><img alt="Docker Pull Count" src="https://img.shields.io/docker/pulls/jellyfin/jellyfin.svg"/></a>
-<br/>
-<a href="https://opencollective.com/jellyfin"><img alt="Donate" src="https://img.shields.io/opencollective/all/jellyfin.svg?label=backers"/></a>
-<a href="https://features.jellyfin.org"><img alt="Submit Feature Requests" src="https://img.shields.io/badge/fider-vote%20on%20features-success.svg"/></a>
-<a href="https://matrix.to/#/#jellyfinorg:matrix.org"><img alt="Chat on Matrix" src="https://img.shields.io/matrix/jellyfinorg:matrix.org.svg?logo=matrix"/></a>
-<a href="https://github.com/jellyfin/jellyfin/releases.atom"><img alt="Release RSS Feed" src="https://img.shields.io/badge/rss-releases-ffa500?logo=rss" /></a>
-<a href="https://github.com/jellyfin/jellyfin/commits/master.atom"><img alt="Master Commits RSS Feed" src="https://img.shields.io/badge/rss-commits-ffa500?logo=rss" /></a>
-</p>
-
----
-
-Jigglefin is based on Jellyfin, a Free Software Media System that puts you in control of managing and streaming your media. Jigglefin keeps the standard Jellyfin client protocol while developing a filesystem-first library model.
-
-There are no strings attached, no premium licenses or features, and no hidden agendas: just a team that wants to build something better and work together to achieve it. We welcome anyone who is interested in joining us in our quest!
-
-For further details, please see [our documentation page](https://jellyfin.org/docs/). To receive the latest updates, get help with Jellyfin, and join the community, please visit [one of our communication channels](https://jellyfin.org/docs/general/getting-help). For more information about the project, please see our [about page](https://jellyfin.org/docs/general/about).
-
-<strong>Want to get started?</strong><br/>
-Check out our <a href="https://jellyfin.org/downloads">downloads page</a> or our <a href="https://jellyfin.org/docs/general/installation/">installation guide</a>, then see our <a href="https://jellyfin.org/docs/general/quick-start">quick start guide</a>. You can also <a href="https://jellyfin.org/docs/general/installation/source">build from source</a>.<br/>
-
-<strong>Something not working right?</strong><br/>
-Open an <a href="https://jellyfin.org/docs/general/contributing/issues">Issue</a> on GitHub.<br/>
-
-<strong>Want to contribute?</strong><br/>
-Check out our <a href="https://jellyfin.org/contribute">contributing choose-your-own-adventure</a> to see where you can help, then see our <a href="https://jellyfin.org/docs/general/contributing/">contributing guide</a> and our <a href="https://jellyfin.org/docs/general/community-standards">community standards</a>.<br/>
-
-<strong>New idea or improvement?</strong><br/>
-Check out our <a href="https://features.jellyfin.org/?view=most-wanted">feature request hub</a>.<br/>
-
-<strong>Don't see Jellyfin in your language?</strong><br/>
-Check out our <a href="https://translate.jellyfin.org">Weblate instance</a> to help translate Jellyfin and its subprojects.<br/>
-
-<a href="https://translate.jellyfin.org/engage/jellyfin/?utm_source=widget">
-<img src="https://translate.jellyfin.org/widgets/jellyfin/-/jellyfin-web/multi-auto.svg" alt="Detailed Translation Status"/>
-</a>
-
----
-
-## Jellyfin Server
-
-This repository contains the code for Jellyfin's backend server. Note that this is only one of many projects under the Jellyfin GitHub [organization](https://github.com/jellyfin/) on GitHub. If you want to contribute, you can start by checking out our [documentation](https://jellyfin.org/docs/general/contributing/index.html) to see what to work on.
-
-## Server Development
-
-These instructions will help you get set up with a local development environment in order to contribute to this repository. Before you start, please be sure to completely read our [guidelines on development contributions](https://jellyfin.org/docs/general/contributing/development.html). Note that this project is supported on all major operating systems except FreeBSD, which is still incompatible.
-
-### Prerequisites
-
-Before the project can be built, you must first install the [.NET 10 SDK](https://dotnet.microsoft.com/download/dotnet) on your system.
-
-Instructions to run this project from the command line are included here, but you will also need to install an IDE if you want to debug the server while it is running. Any IDE that supports .NET 6 development will work, but two options are recent versions of [Visual Studio](https://visualstudio.microsoft.com/downloads/) (at least 2022) and [Visual Studio Code](https://code.visualstudio.com/Download).
-
-[ffmpeg](https://github.com/jellyfin/jellyfin-ffmpeg) will also need to be installed.
-
-### Cloning the Repository
-
-After dependencies have been installed you will need to clone a local copy of this repository. If you just want to run the server from source you can clone this repository directly, but if you are intending to contribute code changes to the project, you should [set up your own fork](https://jellyfin.org/docs/general/contributing/development.html#set-up-your-copy-of-the-repo) of the repository. The following example shows how you can clone the repository directly over HTTPS.
-
-```bash
-git clone https://github.com/jellyfin/jellyfin.git
-```
-
-### Installing the Web Client
-
-The server is configured to host the static files required for the [web client](https://github.com/jellyfin/jellyfin-web) in addition to serving the backend by default. Before you can run the server, you will need to get a copy of the web client since they are not included in this repository directly.
-
-Note that it is recommended for development to [host the web client separately](#hosting-the-web-client-separately) from the web server with some additional configuration, in which case you can skip this step.
-
-There are two options to get the files for the web client.
-
-1. Build them from source following the instructions on the [jellyfin-web repository](https://github.com/jellyfin/jellyfin-web)
-2. Get the pre-built files from an existing installation of the server. For example, with a Windows server installation the client files are located at `C:\Program Files\Jellyfin\Server\jellyfin-web`
-
-### Running The Server
-
-The following instructions will help you get the project up and running via the command line, or your preferred IDE.
-
-#### Running With Visual Studio
-
-To run the project with Visual Studio you can open the Solution (`.sln`) file and then press `F5` to run the server.
-
-#### Running With Visual Studio Code
-
-To run the project with Visual Studio Code you will first need to open the repository directory with Visual Studio Code using the `Open Folder...` option.
-
-Second, you need to [install the recommended extensions for the workspace](https://code.visualstudio.com/docs/editor/extension-gallery#_recommended-extensions). Note that extension recommendations are classified as either "Workspace Recommendations" or "Other Recommendations", but only the "Workspace Recommendations" are required.
-
-After the required extensions are installed, you can run the server by pressing `F5`.
-
-#### Running From the Command Line
-
-To run the server from the command line you can use the `dotnet run` command. The example below shows how to do this if you have cloned the repository into a directory named `jellyfin` (the default directory name) and should work on all operating systems.
-
-```bash
-cd jellyfin                          # Move into the repository directory
-dotnet run --project Jellyfin.Server --webdir /absolute/path/to/jellyfin-web/dist # Run the server startup project
-```
-
-A second option is to build the project and then run the resulting executable file directly. When running the executable directly you can easily add command line options. Add the `--help` flag to list details on all the supported command line options.
-
-1. Build the project
-
-```bash
-dotnet build                       # Build the project
-cd Jellyfin.Server/bin/Debug/net10.0 # Change into the build output directory
-```
-
-2. Execute the build output. On Linux, Mac, etc. use `./jellyfin` and on Windows use `jellyfin.exe`.
-
-#### Accessing the Hosted Web Client
-
-If the Server is configured to host the Web Client, and the Server is running, the Web Client can be accessed at `http://localhost:8096` by default.
-
-API documentation can be viewed at `http://localhost:8096/api-docs/swagger/index.html`
-
-
-### Running from GitHub Codespaces
-
-As Jellyfin will run on a container on a GitHub hosted server, JF needs to handle some things differently.
-
-**NOTE:** Depending on the selected configuration (if you just click 'create codespace' it will create a default configuration one) it might take 20-30 seconds to load all extensions and prepare the environment while VS Code is already open. Just give it some time and wait until you see `Downloading .NET version(s) 7.0.15~x64 ...... Done!` in the output tab.
-
-**NOTE:** If you want to access the JF instance from outside, like with a WebClient on another PC, remember to set the "ports" in the lower VS Code window to public.
-
-**NOTE:** When first opening the server instance with any WebUI, you will be sent to the login instead of the setup page. Refresh the login page once and you should be redirected to the Setup.
-
-There are two configurations for you to choose from.
-#### Default - Development Jellyfin Server
-This creates a container that has everything to run and debug the Jellyfin Media server but does not setup anything else. Each time you create a new container you have to run through the whole setup again. There is also no ffmpeg, webclient or media preloaded. Use the `.NET Launch (nowebclient)` launch config to start the server.
-
-> Keep in mind that as this has no web client you have to connect to it via an external client. This can be just another codespace container running the WebUI. vuejs does not work from the get-go as it does not support the setup steps.
-
-#### Development Jellyfin Server ffmpeg
-this extends the default server with a default installation of ffmpeg6 though the means described here: https://jellyfin.org/docs/general/installation/linux#repository-manual
-If you want to install a specific ffmpeg version, follow the comments embedded in the `.devcontainer/Dev - Server Ffmpeg/install.ffmpeg.sh` file.
-
-Use the `ghcs .NET Launch (nowebclient, ffmpeg)` launch config to run with the jellyfin-ffmpeg enabled.
-
-
-### Running The Tests
-
-This repository also includes unit tests that are used to validate functionality as part of a CI pipeline on Azure. There are several ways to run these tests.
-
-1. Run tests from the command line using `dotnet test`
-2. Run tests in Visual Studio using the [Test Explorer](https://docs.microsoft.com/en-us/visualstudio/test/run-unit-tests-with-test-explorer)
-3. Run individual tests in Visual Studio Code using the associated [CodeLens annotation](https://github.com/OmniSharp/omnisharp-vscode/wiki/How-to-run-and-debug-unit-tests)
-
-### Advanced Configuration
-
-The following sections describe some more advanced scenarios for running the server from source that build upon the standard instructions above.
-
-#### Hosting The Web Client Separately
-
-It is not necessary to host the frontend web client as part of the backend server. Hosting these two components separately may be useful for frontend developers who would prefer to host the client in a separate webpack development server for a tighter development loop. See the [jellyfin-web](https://github.com/jellyfin/jellyfin-web#getting-started) repo for instructions on how to do this.
-
-To instruct the server not to host the web content, there is a `nowebclient` configuration flag that must be set. This can be specified using the command line
-switch `--nowebclient` or the environment variable `JELLYFIN_NOWEBCONTENT=true`.
-
-Since this is a common scenario, there is also a separate launch profile defined for Visual Studio called `Jellyfin.Server (nowebcontent)` that can be selected from the 'Start Debugging' dropdown in the main toolbar.
-
-**NOTE:** The setup wizard cannot be run if the web client is hosted separately.
-
----
-<p align="center">
-This project is supported by:
-<br/>
-<br/>
-<a href="https://www.jetbrains.com"><img src="https://gist.githubusercontent.com/anthonylavado/e8b2403deee9581e0b4cb8cd675af7db/raw/199ae22980ef5da64882ec2de3e8e5c03fe535b8/jetbrains.svg" height="50px" alt="JetBrains logo"></a>
-</p>
+# Jigglefin
+
+Jigglefin is a Windows-focused, folder-first fork of Jellyfin Server. It keeps the standard
+Jellyfin API and media item types so unmodified Jellyfin clients can connect, browse, and stream.
+It is an early testing build, not yet a finished replacement for Jellyfin.
+
+The filesystem is the source of truth. A movie library such as:
+
+    Movies/
+      Action/
+        Loose Movie.mp4
+      Comedy/
+        Matched Movie (2020)/
+          Matched Movie (2020).mp4
+          movie.nfo
+
+opens as Action and Comedy folders in the normal client library tile. The loose file is a Movie
+item; the dedicated movie directory is one Movie item with local NFO metadata. TV, music, books,
+audiobooks, home videos/photos, and music videos use the same folder-first approach while
+retaining their usual Jellyfin media item kinds.
+
+## Try the Windows build
+
+Download the Jigglefin-win-x64 ZIP from a successful run of
+[Jigglefin CI](https://github.com/stevenAthompson/Jigglefin/actions/workflows/jigglefin-ci.yml).
+This portable package includes the .NET runtime, unmodified Jellyfin Web, and verified official
+Jellyfin FFmpeg and FFprobe binaries. It does not require a separate FFmpeg installation.
+
+1. Extract the ZIP somewhere you can keep between upgrades.
+2. Run Start-Jigglefin.ps1 in PowerShell from the extracted folder.
+3. Open http://localhost:8096/web/, create an admin account, and add folders as media libraries.
+4. Connect other Jellyfin clients to the server address, such as http://WINDOWS-HOST:8096.
+
+Read the included README-PORTABLE.md for profile locations, command-line options, and cautions.
+Jigglefin stores its data under %LOCALAPPDATA%\jigglefin and does not open an existing Jellyfin
+profile by default. Do not point it at a Jellyfin profile unless you intentionally want it to
+open and potentially migrate that database. Jellyfin and Jigglefin cannot both bind port 8096.
+
+## Current behavior and limits
+
+- Physical category folders stay navigable. A single loose movie or named TV episode does not
+  automatically replace its parent category with a Movie or Series.
+- Kodi-style movie.nfo and other local sidecar readers, local artwork, embedded tags, and
+  filenames are used ahead of remote metadata. Network metadata providers are disabled by
+  default for new libraries; explicit provider choices remain available.
+- Media library entries are presented as folders in UserViews so standard clients use their
+  built-in folder browser. The stored library type and child media types remain unchanged.
+- The standard web client has been checked against a packaged server for folder navigation and
+  playback of a synthetic movie. Automated API tests cover browse paths and direct or byte-range
+  streaming for movie, music, and audiobook samples. Native client coverage and more ambiguous
+  mixed-content layouts remain work in progress.
+
+The detailed design and upstream merge strategy are in [JIGGLEFIN.md](JIGGLEFIN.md).
+
+## Build from source on Windows
+
+Install the .NET 10 SDK and FFmpeg, then run these commands in PowerShell:
+
+    git clone https://github.com/stevenAthompson/Jigglefin.git
+    cd Jigglefin
+    git switch jigglefin
+    dotnet restore Jellyfin.sln --locked-mode
+    dotnet build Jellyfin.sln --configuration Debug --no-restore
+    dotnet test Jellyfin.sln --configuration Debug --no-build
+    .\scripts\dev-run.ps1
+
+The development launcher runs the server without an embedded web client. The CI workflow builds
+the web client from a pinned upstream commit and packages the self-contained Windows server. See
+[JIGGLEFIN.md](JIGGLEFIN.md) for the equivalent local packaging commands.
+
+The master branch is kept as a clean mirror of jellyfin/jellyfin for upstream updates. Jigglefin
+changes live on the jigglefin branch in focused, tested commits.
+
+## Upstream and licenses
+
+Jigglefin is based on [Jellyfin Server](https://github.com/jellyfin/jellyfin), which remains the
+majority of this codebase. The portable package also includes unmodified builds of
+[Jellyfin Web](https://github.com/jellyfin/jellyfin-web) and
+[Jellyfin FFmpeg](https://github.com/jellyfin/jellyfin-ffmpeg). Jigglefin is an independent fork,
+not an official Jellyfin release. The source and packaged license files identify the applicable
+licenses for each component.
