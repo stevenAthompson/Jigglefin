@@ -60,8 +60,10 @@ open and potentially migrate that database. Jellyfin and Jigglefin cannot both b
 - The standard web client has been checked against a packaged server for folder navigation and
   playback of a synthetic movie. Automated API tests cover browse paths and direct or byte-range
   streaming for movie, music, and audiobook samples. Windows CI also uses its bundled FFmpeg to
-  verify movie-to-HLS and audiobook-to-MP3 transcoding. Native client coverage and more ambiguous
-  mixed-content layouts remain work in progress.
+  verify movie-to-HLS and audiobook-to-MP3 transcoding. Before uploading the ZIP, CI starts the
+  packaged server with an isolated profile, completes setup with a throwaway password, and checks
+  authenticated folder browsing, local movie NFO metadata, and direct streaming. Native client
+  coverage and more ambiguous mixed-content layouts remain work in progress.
 
 The detailed design and upstream merge strategy are in [JIGGLEFIN.md](JIGGLEFIN.md).
 

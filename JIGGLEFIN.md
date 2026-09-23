@@ -181,6 +181,10 @@ package includes the official Jellyfin FFmpeg 8.1.2-5 Windows binaries, verified
 SHA256 digest. It can also be reproduced locally by building that web commit with `npm ci` and
 `npm run build:production`, running `scripts/prepare-ffmpeg.ps1 -OutputDirectory <ffmpeg-path>`,
 then running `scripts/package-win.ps1 -WebDistPath <web-dist-path> -FfmpegDirectory <ffmpeg-path>`.
+Before artifact upload, CI runs `scripts/smoke-package-win.ps1` against the assembled package.
+It uses a fresh temporary profile and random one-time admin password to check setup, login,
+physical movie-folder browsing, local NFO fields, and direct video bytes; successful profiles
+are cleaned up after the server stops when Windows releases their files.
 The extracted package includes `Start-Jigglefin.ps1`; see its `README-PORTABLE.md` for first-run
 instructions. Its bundled FFmpeg is used by default.
 

@@ -13,10 +13,15 @@ $package = (Resolve-Path -LiteralPath $PackageDirectory -ErrorAction Stop).Path
 $server = Join-Path $package 'jellyfin.exe'
 $ffmpeg = Join-Path $package 'ffmpeg.exe'
 $web = Join-Path $package 'jellyfin-web'
+$repositoryRoot = Split-Path -Parent $PSScriptRoot
+$sampleVideo = Join-Path $repositoryRoot 'tests/Jellyfin.Server.Integration.Tests/Test Data/JigglefinSample.mp4'
 foreach ($requiredFile in @($server, $ffmpeg, (Join-Path $web 'index.html'), (Join-Path $web 'config.json'))) {
     if (-not (Test-Path -LiteralPath $requiredFile -PathType Leaf)) {
         throw "The Windows package is missing $requiredFile"
     }
+}
+if (-not (Test-Path -LiteralPath $sampleVideo -PathType Leaf)) {
+    throw "The package smoke sample is missing: $sampleVideo"
 }
 
 # The package uses Jellyfin's default port. Never mistake an existing local server for this test instance.
@@ -36,6 +41,7 @@ $arguments = @(
 )
 
 $serverProcess = $null
+$smokeSucceeded = $false
 try {
     $serverProcess = Start-Process -FilePath $server -ArgumentList $arguments -WorkingDirectory $package `
         -RedirectStandardOutput $stdout -RedirectStandardError $stderr -WindowStyle Hidden -PassThru
@@ -75,7 +81,92 @@ try {
     if (-not ($listeners | Where-Object OwningProcess -EQ $serverProcess.Id)) {
         throw "Port 8096 is not owned by the packaged server process $($serverProcess.Id)."
     }
-    Write-Host "Packaged server smoke test passed: API version $($publicInfo.Version), bundled Web HTTP $($webResponse.StatusCode)."
+    if ($publicInfo.StartupWizardCompleted -ne $false) {
+        throw 'The smoke test did not start with a fresh, unconfigured server profile.'
+    }
+
+    # Complete the first-run wizard only in this newly generated, isolated profile.
+    $temporaryPassword = 'Tmp-' + [Guid]::NewGuid().ToString('N') + '!1'
+    $userName = 'JigglefinSmoke'
+    $firstUser = Invoke-RestMethod -Uri "$baseUrl/Startup/User" -TimeoutSec 15
+    if (-not $firstUser.Name) {
+        throw 'The packaged server did not initialize its first startup user.'
+    }
+    $userPayload = @{ Name = $userName; Password = $temporaryPassword } | ConvertTo-Json -Compress
+    Invoke-WebRequest -Uri "$baseUrl/Startup/User" -Method Post -ContentType 'application/json' `
+        -Body $userPayload -TimeoutSec 15 | Out-Null
+    Invoke-WebRequest -Uri "$baseUrl/Startup/Complete" -Method Post -Body '' -TimeoutSec 15 | Out-Null
+
+    $deviceId = [Guid]::NewGuid().ToString('N')
+    $clientHeader = 'MediaBrowser Client="Jigglefin%20Package%20Smoke", DeviceId="' + $deviceId + '", Device="Windows", Version="13.0.0"'
+    $authPayload = @{ Username = $userName; Pw = $temporaryPassword } | ConvertTo-Json -Compress
+    $authentication = Invoke-RestMethod -Uri "$baseUrl/Users/AuthenticateByName" -Method Post `
+        -Headers @{ Authorization = $clientHeader } -ContentType 'application/json' -Body $authPayload -TimeoutSec 15
+    if (-not $authentication.AccessToken) {
+        throw 'The packaged server did not issue an access token for its temporary smoke-test user.'
+    }
+    $authenticatedHeaders = @{ Authorization = "$clientHeader, Token=$($authentication.AccessToken)" }
+    $me = Invoke-RestMethod -Uri "$baseUrl/Users/Me" -Headers $authenticatedHeaders -TimeoutSec 15
+    if ($me.Name -ne $userName) {
+        throw 'The authenticated user endpoint did not return the temporary smoke-test user.'
+    }
+
+    $mediaRoot = Join-Path $smokeProfile 'media'
+    $movieDirectory = Join-Path $mediaRoot 'Action/Smoke Film (2026)'
+    New-Item -ItemType Directory -Path $movieDirectory | Out-Null
+    Copy-Item -LiteralPath $sampleVideo -Destination (Join-Path $movieDirectory 'Smoke Film (2026).mp4')
+    [System.IO.File]::WriteAllText(
+        (Join-Path $movieDirectory 'movie.nfo'),
+        '<movie><title>Jigglefin Local Smoke Film</title><year>2026</year><plot>Smoke-test local metadata.</plot></movie>')
+    $libraryName = 'Jigglefin Package Smoke Movies'
+    $libraryUrl = "$baseUrl/Library/VirtualFolders?name=$([Uri]::EscapeDataString($libraryName))&collectionType=movies&paths=$([Uri]::EscapeDataString($mediaRoot))&refreshLibrary=true"
+    Invoke-WebRequest -Uri $libraryUrl -Method Post -Headers $authenticatedHeaders -ContentType 'application/json' `
+        -Body '{"LibraryOptions":{}}' -TimeoutSec 30 | Out-Null
+
+    $mediaDeadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    $movie = $null
+    while ([DateTime]::UtcNow -lt $mediaDeadline) {
+        $serverProcess.Refresh()
+        if ($serverProcess.HasExited) {
+            throw "Packaged server exited during media scan with code $($serverProcess.ExitCode)."
+        }
+
+        try {
+            $views = Invoke-RestMethod -Uri "$baseUrl/UserViews?presetViews=movies" -Headers $authenticatedHeaders -TimeoutSec 5
+            $library = @($views.Items | Where-Object Name -EQ $libraryName) | Select-Object -First 1
+            if ($library -and $library.Type -eq 'Folder' -and -not $library.CollectionType) {
+                $groups = Invoke-RestMethod -Uri "$baseUrl/Items?parentId=$($library.Id)" -Headers $authenticatedHeaders -TimeoutSec 5
+                $action = @($groups.Items | Where-Object Name -EQ 'Action') | Select-Object -First 1
+                if ($action -and $action.Type -eq 'Folder') {
+                    $films = Invoke-RestMethod -Uri "$baseUrl/Items?parentId=$($action.Id)" -Headers $authenticatedHeaders -TimeoutSec 5
+                    $movie = @($films.Items | Where-Object { $_.Name -eq 'Jigglefin Local Smoke Film' -and $_.Type -eq 'Movie' }) | Select-Object -First 1
+                    if ($movie) {
+                        break
+                    }
+                }
+            }
+        } catch {
+            # The library scan is asynchronous; retry until the path is indexed.
+        }
+        Start-Sleep -Milliseconds 1000
+    }
+    if (-not $movie) {
+        throw "The packaged server did not expose the NFO-titled sample movie through its physical folders within $TimeoutSeconds seconds."
+    }
+    $movieDetails = Invoke-RestMethod -Uri "$baseUrl/Items/$($movie.Id)" -Headers $authenticatedHeaders -TimeoutSec 15
+    if ($movieDetails.ProductionYear -ne 2026 -or $movieDetails.Overview -ne 'Smoke-test local metadata.') {
+        throw 'The packaged server did not apply local Kodi-style movie metadata to standard item details.'
+    }
+
+    $streamPath = Join-Path $smokeProfile 'streamed-movie.mp4'
+    Invoke-WebRequest -Uri "$baseUrl/Videos/$($movie.Id)/stream?static=true" -Headers $authenticatedHeaders `
+        -OutFile $streamPath -TimeoutSec 30 | Out-Null
+    if ((Get-FileHash -LiteralPath $streamPath -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $sampleVideo -Algorithm SHA256).Hash) {
+        throw 'The authenticated video stream did not match the sample file.'
+    }
+
+    $smokeSucceeded = $true
+    Write-Host "Packaged server smoke test passed: API version $($publicInfo.Version), bundled Web HTTP $($webResponse.StatusCode), login, folder browse, local NFO metadata, and direct movie stream."
 } catch {
     Write-Warning "Package smoke test failed. Isolated profile and logs: $smokeProfile"
     foreach ($logPath in @($stdout, $stderr)) {
@@ -91,8 +182,35 @@ try {
     if ($null -ne $serverProcess) {
         $serverProcess.Refresh()
         if (-not $serverProcess.HasExited) {
-            Stop-Process -Id $serverProcess.Id -Force
+            Stop-Process -Id $serverProcess.Id -Force -ErrorAction SilentlyContinue
             Wait-Process -Id $serverProcess.Id -Timeout 10 -ErrorAction SilentlyContinue
+        }
+    }
+
+    if ($smokeSucceeded) {
+        $tempRootFull = [System.IO.Path]::GetFullPath($tempRoot).TrimEnd([System.IO.Path]::DirectorySeparatorChar)
+        $smokePathFull = [System.IO.Path]::GetFullPath($smokeProfile)
+        $isOwnTempProfile = $smokePathFull.StartsWith(
+            $tempRootFull + [System.IO.Path]::DirectorySeparatorChar,
+            [StringComparison]::OrdinalIgnoreCase) `
+            -and [System.IO.Path]::GetFileName($smokePathFull) -match '^jigglefin-package-smoke-[0-9a-f]{32}$'
+        if ($isOwnTempProfile) {
+            $cleanupError = $null
+            for ($attempt = 0; $attempt -lt 10; $attempt++) {
+                try {
+                    Remove-Item -LiteralPath $smokePathFull -Recurse -Force
+                    $cleanupError = $null
+                    break
+                } catch {
+                    $cleanupError = $_
+                    Start-Sleep -Milliseconds 500
+                }
+            }
+            if ($null -ne $cleanupError) {
+                Write-Warning "Could not remove the isolated smoke-test profile at $smokePathFull`: $cleanupError"
+            }
+        } else {
+            Write-Warning "Refusing to remove a smoke-test profile outside the expected temp directory: $smokePathFull"
         }
     }
 }
