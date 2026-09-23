@@ -92,6 +92,9 @@ An integration test renames and removes physical movie, audiobook, and music-alb
 rescanning after each change. The old entries disappear; renamed entries keep their standard
 media kinds and stream from the new paths; removed playable files no longer appear in recursive
 queries. This protects the filesystem-as-source-of-truth rule beyond the initial library scan.
+Another integration test keeps an empty category and its empty child browseable alongside populated
+media in Movies, TV Shows, Music, Books, Home Videos, and Music Videos libraries, including the
+folder-list request used by Jellyfin Web.
 
 The resolver chain now leaves an arbitrary TV grouping directory as a `Folder` unless it contains
 `tvshow.nfo`, `series.xml`, or episode/season evidence. A music grouping directory is not inferred to be a

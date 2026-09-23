@@ -24,6 +24,81 @@ namespace Jellyfin.Server.Integration.Tests.Controllers;
 
 public sealed class FolderFirstLibraryTests
 {
+    [Theory]
+    [InlineData("movies", "Existing Movie.mp4")]
+    [InlineData("tvshows", "Existing Show - S01E01.mkv")]
+    [InlineData("music", "Existing Track.mp3")]
+    [InlineData("books", "Existing Book.pdf")]
+    [InlineData("homevideos", "Existing Clip.mp4")]
+    [InlineData("musicvideos", "Existing Video.mp4")]
+    public async Task EmptyPhysicalFolders_RemainBrowseableBesideMedia(string collectionType, string mediaFileName)
+    {
+        var testRoot = Path.Combine(Path.GetTempPath(), "jigglefin-empty-media-folders-" + Guid.NewGuid().ToString("N"));
+        var emptyChild = Path.Combine(testRoot, "Coming Soon", "Unsorted");
+        var populated = Path.Combine(testRoot, "Action", "Named Item");
+        Directory.CreateDirectory(emptyChild);
+        Directory.CreateDirectory(populated);
+        await File.WriteAllBytesAsync(Path.Combine(populated, mediaFileName), [], TestContext.Current.CancellationToken);
+
+        using var factory = new JellyfinApplicationFactory();
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.AddAuthHeader(await AuthHelper.CompleteStartupAsync(client));
+        var libraryName = "Jigglefin empty media folders " + Guid.NewGuid().ToString("N");
+        var created = false;
+
+        try
+        {
+            using var createResponse = await client.PostAsJsonAsync(
+                $"Library/VirtualFolders?name={Uri.EscapeDataString(libraryName)}&collectionType={collectionType}&paths={Uri.EscapeDataString(testRoot)}&refreshLibrary=false",
+                new AddVirtualFolderDto { LibraryOptions = new LibraryOptions() },
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.NoContent, createResponse.StatusCode);
+            created = true;
+
+            var libraryManager = (LibraryManager)factory.Services.GetRequiredService<ILibraryManager>();
+            await libraryManager.ValidateMediaLibraryInternal(new Progress<double>(), TestContext.Current.CancellationToken);
+
+            var views = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"UserViews?presetViews={collectionType}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(views);
+            var library = Assert.Single(views.Items, item => item.Name == libraryName);
+            var categories = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={library.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(categories);
+            var emptyCategory = Assert.Single(categories.Items, item => item.Name == "Coming Soon");
+            Assert.Equal(BaseItemKind.Folder, emptyCategory.Type);
+            var children = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={emptyCategory.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(children);
+            var unsorted = Assert.Single(children.Items, item => item.Name == "Unsorted");
+            Assert.Equal(BaseItemKind.Folder, unsorted.Type);
+            var webChildren = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={emptyCategory.Id}&sortBy=IsFolder,SortName&fields=PrimaryImageAspectRatio,SortName,Path,ChildCount,MediaSourceCount",
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.NotNull(webChildren);
+            Assert.Equal(unsorted.Id, Assert.Single(webChildren.Items).Id);
+            var leaf = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={unsorted.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(leaf);
+            Assert.Empty(leaf.Items);
+            Assert.Single(categories.Items, item => item.Name == "Action" && item.Type == BaseItemKind.Folder);
+        }
+        finally
+        {
+            if (created)
+            {
+                using var deleteResponse = await client.DeleteAsync(
+                    $"Library/VirtualFolders?name={Uri.EscapeDataString(libraryName)}&refreshLibrary=false",
+                    TestContext.Current.CancellationToken);
+                Assert.Equal(HttpStatusCode.NoContent, deleteResponse.StatusCode);
+            }
+
+            Directory.Delete(testRoot, true);
+        }
+    }
+
     [Fact]
     public async Task HomeVideoPhotos_KeepMixedFoldersAndPhotoAlbumsBrowseable()
     {
