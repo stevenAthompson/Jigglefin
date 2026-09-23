@@ -23,6 +23,80 @@ namespace Jellyfin.Server.Integration.Tests.Controllers;
 public sealed class FolderFirstLibraryTests
 {
     [Fact]
+    public async Task MultiChapterAudioBook_KeepsEveryPhysicalAudioFileBrowseable()
+    {
+        var testRoot = Path.Combine(Path.GetTempPath(), "jigglefin-audiobook-chapters-" + Guid.NewGuid().ToString("N"));
+        var bookFolder = Path.Combine(testRoot, "Example Author", "Example Book");
+        Directory.CreateDirectory(bookFolder);
+        var audioBytes = await File.ReadAllBytesAsync(
+            Path.Combine(AppContext.BaseDirectory, "Test Data", "JigglefinSample.m4b"),
+            TestContext.Current.CancellationToken);
+        foreach (var chapterName in new[] { "Chapter 1.m4b", "Chapter 2.m4b", "Extra.m4b" })
+        {
+            await File.WriteAllBytesAsync(Path.Combine(bookFolder, chapterName), audioBytes, TestContext.Current.CancellationToken);
+        }
+
+        using var factory = new JellyfinApplicationFactory();
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.AddAuthHeader(await AuthHelper.CompleteStartupAsync(client));
+        var libraryName = "Jigglefin audiobook chapters " + Guid.NewGuid().ToString("N");
+        var created = false;
+
+        try
+        {
+            using var createResponse = await client.PostAsJsonAsync(
+                $"Library/VirtualFolders?name={Uri.EscapeDataString(libraryName)}&collectionType=books&paths={Uri.EscapeDataString(testRoot)}&refreshLibrary=false",
+                new AddVirtualFolderDto { LibraryOptions = new LibraryOptions() },
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.NoContent, createResponse.StatusCode);
+            created = true;
+
+            var libraryManager = (LibraryManager)factory.Services.GetRequiredService<ILibraryManager>();
+            await libraryManager.ValidateMediaLibraryInternal(new Progress<double>(), TestContext.Current.CancellationToken);
+
+            var views = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                "UserViews?presetViews=books", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(views);
+            var library = Assert.Single(views.Items, item => item.Name == libraryName);
+            var authors = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={library.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(authors);
+            var author = Assert.Single(authors.Items, item => item.Name == "Example Author");
+            Assert.Equal(BaseItemKind.Folder, author.Type);
+            var books = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={author.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(books);
+            var book = Assert.Single(books.Items, item => item.Name == "Example Book");
+            Assert.Equal(BaseItemKind.Folder, book.Type);
+            var chapters = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={book.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(chapters);
+            Assert.Equal(3, chapters.Items.Count);
+            Assert.All(chapters.Items, item => Assert.Equal(BaseItemKind.AudioBook, item.Type));
+            Assert.Contains(chapters.Items, item => item.Name == "Chapter 1");
+            Assert.Contains(chapters.Items, item => item.Name == "Extra");
+            var secondChapter = Assert.Single(chapters.Items, item => item.Name == "Chapter 2");
+            using var streamResponse = await client.GetAsync(
+                $"Audio/{secondChapter.Id}/stream?static=true", TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.OK, streamResponse.StatusCode);
+            Assert.Equal(audioBytes, await streamResponse.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken));
+        }
+        finally
+        {
+            if (created)
+            {
+                using var deleteResponse = await client.DeleteAsync(
+                    $"Library/VirtualFolders?name={Uri.EscapeDataString(libraryName)}&refreshLibrary=false",
+                    TestContext.Current.CancellationToken);
+                Assert.Equal(HttpStatusCode.NoContent, deleteResponse.StatusCode);
+            }
+
+            Directory.Delete(testRoot, true);
+        }
+    }
+
+    [Fact]
     public async Task Series_WithUnnumberedVideoSubfolder_KeepsPhysicalFolderBrowseable()
     {
         var testRoot = Path.Combine(Path.GetTempPath(), "jigglefin-series-subfolder-" + Guid.NewGuid().ToString("N"));
