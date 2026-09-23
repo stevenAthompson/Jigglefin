@@ -81,9 +81,13 @@ name matches the video filename or it contains `movie.nfo` or `movie.xml`; this 
 covered by an API browse test.
 
 Book and audiobook directories also stay physical `Folder` items when they contain child
-directories, or when their only media file has a different title from the directory. This keeps
-loose books and nested bonus folders browseable in standard clients. A directory named for its
-single book or audiobook still resolves to the usual `Book` or `AudioBook` item.
+directories, when their only media file has a different title from the directory, or when an
+EPUB and audiobook share the same directory. This keeps loose books, mixed formats, and nested
+bonus folders browseable in standard clients. A directory named for its single book or
+audiobook still resolves to the usual `Book` or `AudioBook` item.
+Music directories with tracks alongside an unrelated child directory likewise stay `Folder`
+items, so the tracks and child directory remain visible. A normal album without such children,
+including a recognized `Disc 1`-style multi-disc layout, still resolves as `MusicAlbum`.
 
 Further resolver work will preserve more physical directory arrangements while assigning compatible
 Jellyfin item kinds from deterministic path rules and local sidecars. In particular, ambiguous

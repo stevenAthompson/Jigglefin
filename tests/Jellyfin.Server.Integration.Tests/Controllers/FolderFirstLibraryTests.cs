@@ -23,14 +23,89 @@ namespace Jellyfin.Server.Integration.Tests.Controllers;
 public sealed class FolderFirstLibraryTests
 {
     [Fact]
+    public async Task MusicAlbum_WithOtherPhysicalSubfolder_RemainsBrowseable()
+    {
+        var testRoot = Path.Combine(Path.GetTempPath(), "jigglefin-music-subfolder-" + Guid.NewGuid().ToString("N"));
+        var mixedFolder = Path.Combine(testRoot, "Action", "Mixed Album");
+        var bonusFolder = Path.Combine(mixedFolder, "Bonus Material");
+        var discFolder = Path.Combine(testRoot, "Action", "Multi Disc Album", "Disc 1");
+        Directory.CreateDirectory(bonusFolder);
+        Directory.CreateDirectory(discFolder);
+        await File.WriteAllBytesAsync(Path.Combine(mixedFolder, "Track 01.mp3"), [], TestContext.Current.CancellationToken);
+        await File.WriteAllBytesAsync(Path.Combine(bonusFolder, "Bonus Track.mp3"), [], TestContext.Current.CancellationToken);
+        await File.WriteAllBytesAsync(Path.Combine(discFolder, "Track 01.mp3"), [], TestContext.Current.CancellationToken);
+
+        using var factory = new JellyfinApplicationFactory();
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.AddAuthHeader(await AuthHelper.CompleteStartupAsync(client));
+        var libraryName = "Jigglefin music subfolder " + Guid.NewGuid().ToString("N");
+        var created = false;
+
+        try
+        {
+            using var createResponse = await client.PostAsJsonAsync(
+                $"Library/VirtualFolders?name={Uri.EscapeDataString(libraryName)}&collectionType=music&paths={Uri.EscapeDataString(testRoot)}&refreshLibrary=false",
+                new AddVirtualFolderDto { LibraryOptions = new LibraryOptions() },
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.NoContent, createResponse.StatusCode);
+            created = true;
+
+            var libraryManager = (LibraryManager)factory.Services.GetRequiredService<ILibraryManager>();
+            await libraryManager.ValidateMediaLibraryInternal(new Progress<double>(), TestContext.Current.CancellationToken);
+
+            var views = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                "UserViews?presetViews=music", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(views);
+            var library = Assert.Single(views.Items, item => item.Name == libraryName);
+            var rootItems = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={library.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(rootItems);
+            var action = Assert.Single(rootItems.Items, item => item.Name == "Action");
+            var actionItems = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={action.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(actionItems);
+            var mixed = Assert.Single(actionItems.Items, item => item.Name == "Mixed Album");
+            Assert.Equal(BaseItemKind.Folder, mixed.Type);
+            var multiDiscAlbum = Assert.Single(actionItems.Items, item => item.Name == "Multi Disc Album");
+            Assert.Equal(BaseItemKind.MusicAlbum, multiDiscAlbum.Type);
+
+            var children = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={mixed.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(children);
+            Assert.Single(children.Items, item => item.Type == BaseItemKind.Audio);
+            var bonus = Assert.Single(children.Items, item => item.Name == "Bonus Material");
+            Assert.True(bonus.IsFolder);
+            var bonusChildren = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={bonus.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(bonusChildren);
+            Assert.Single(bonusChildren.Items, item => item.Type == BaseItemKind.Audio);
+        }
+        finally
+        {
+            if (created)
+            {
+                using var deleteResponse = await client.DeleteAsync(
+                    $"Library/VirtualFolders?name={Uri.EscapeDataString(libraryName)}&refreshLibrary=false",
+                    TestContext.Current.CancellationToken);
+                Assert.Equal(HttpStatusCode.NoContent, deleteResponse.StatusCode);
+            }
+
+            Directory.Delete(testRoot, true);
+        }
+    }
+
+    [Fact]
     public async Task BookAndAudioBook_WithChildFolders_KeepAllPhysicalEntriesBrowseable()
     {
         var testRoot = Path.Combine(Path.GetTempPath(), "jigglefin-book-subfolders-" + Guid.NewGuid().ToString("N"));
         var categoryFolder = Path.Combine(testRoot, "Action");
         var bookFolder = Path.Combine(categoryFolder, "Book Collection");
         var audioBookFolder = Path.Combine(categoryFolder, "Audio Collection");
+        var dualFormatFolder = Path.Combine(categoryFolder, "Dual Format Title");
         Directory.CreateDirectory(Path.Combine(bookFolder, "Bonus Books"));
         Directory.CreateDirectory(Path.Combine(audioBookFolder, "Bonus Audio"));
+        Directory.CreateDirectory(dualFormatFolder);
         await File.WriteAllBytesAsync(
             Path.Combine(bookFolder, "First Book.pdf"),
             [],
@@ -48,6 +123,14 @@ public sealed class FolderFirstLibraryTests
             TestContext.Current.CancellationToken);
         await File.WriteAllBytesAsync(
             Path.Combine(audioBookFolder, "Bonus Audio", "Second Audio.m4b"),
+            audiobookBytes,
+            TestContext.Current.CancellationToken);
+        await File.WriteAllBytesAsync(
+            Path.Combine(dualFormatFolder, "Dual Format Title.epub"),
+            [],
+            TestContext.Current.CancellationToken);
+        await File.WriteAllBytesAsync(
+            Path.Combine(dualFormatFolder, "Dual Format Title.m4b"),
             audiobookBytes,
             TestContext.Current.CancellationToken);
 
@@ -110,6 +193,14 @@ public sealed class FolderFirstLibraryTests
                 Assert.NotNull(bonusChildren);
                 Assert.Single(bonusChildren.Items, item => item.Type == fileKind);
             }
+
+            var dualFormat = Assert.Single(collections.Items, item => item.Name == "Dual Format Title");
+            Assert.Equal(BaseItemKind.Folder, dualFormat.Type);
+            var dualFormatItems = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={dualFormat.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(dualFormatItems);
+            Assert.Single(dualFormatItems.Items, item => item.Type == BaseItemKind.Book);
+            Assert.Single(dualFormatItems.Items, item => item.Type == BaseItemKind.AudioBook);
         }
         finally
         {

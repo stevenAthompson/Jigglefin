@@ -10,6 +10,7 @@ using Emby.Naming.Audio;
 using Emby.Naming.AudioBook;
 using Emby.Naming.Common;
 using Emby.Naming.Video;
+using Emby.Server.Implementations.Library.Resolvers.Books;
 using Jellyfin.Data.Enums;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
@@ -142,9 +143,9 @@ namespace Emby.Server.Implementations.Library.Resolvers.Audio
         private AudioBook FindAudioBook(ItemResolveArgs args, bool parseName)
         {
             var children = args.GetActualFileSystemChildren().ToList();
-            if (children.Any(child => child.IsDirectory))
+            if (children.Any(child => child.IsDirectory || BookResolver.IsBookFile(child.FullName)))
             {
-                // A single audiobook file must not swallow unrelated physical subfolders.
+                // A single audiobook file must not swallow other physical media entries.
                 return null;
             }
 

@@ -14,7 +14,11 @@ namespace Emby.Server.Implementations.Library.Resolvers.Books
 {
     public class BookResolver : ItemResolver<Book>
     {
-        private readonly string[] _validExtensions = { ".azw", ".azw3", ".cb7", ".cbr", ".cbt", ".cbz", ".epub", ".mobi", ".pdf" };
+        private static readonly string[] _validExtensions = { ".azw", ".azw3", ".cb7", ".cbr", ".cbt", ".cbz", ".epub", ".mobi", ".pdf" };
+        private static readonly string[] _companionExtensions = { ".nfo", ".xml", ".opf", ".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".avif", ".txt", ".json" };
+
+        internal static bool IsBookFile(string path)
+            => _validExtensions.Contains(Path.GetExtension(path.AsSpan()), StringComparison.OrdinalIgnoreCase);
 
         protected override Book? Resolve(ItemResolveArgs args)
         {
@@ -31,9 +35,7 @@ namespace Emby.Server.Implementations.Library.Resolvers.Books
                 return GetBook(args);
             }
 
-            var extension = Path.GetExtension(args.Path.AsSpan());
-
-            if (!_validExtensions.Contains(extension, StringComparison.OrdinalIgnoreCase))
+            if (!IsBookFile(args.Path))
             {
                 return null;
             }
@@ -61,19 +63,19 @@ namespace Emby.Server.Implementations.Library.Resolvers.Books
                 return null;
             }
 
-            var bookFiles = args.FileSystemChildren.Where(f =>
-            {
-                var fileExtension = Path.GetExtension(f.FullName.AsSpan());
-
-                return _validExtensions.Contains(
-                    fileExtension,
-                    StringComparison.OrdinalIgnoreCase);
-            }).ToList();
+            var bookFiles = args.FileSystemChildren.Where(f => IsBookFile(f.FullName)).ToList();
 
             // A dedicated book directory has one supported file and no child directories.
             // Other layouts are physical folders whose books are resolved individually.
             if (bookFiles.Count != 1)
             {
+                return null;
+            }
+
+            if (args.FileSystemChildren.Any(f => !IsBookFile(f.FullName)
+                && !_companionExtensions.Contains(Path.GetExtension(f.FullName.AsSpan()), StringComparison.OrdinalIgnoreCase)))
+            {
+                // A book cannot replace a directory that also contains another media file.
                 return null;
             }
 

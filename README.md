@@ -42,7 +42,8 @@ open and potentially migrate that database. Jellyfin and Jigglefin cannot both b
 
 - Physical category folders stay navigable. A single loose movie or named TV episode does not
   automatically replace its parent category with a Movie or Series. Book and audiobook folders
-  with additional child folders also remain browseable instead of hiding those children.
+  with additional child folders or both book and audiobook files remain browseable instead of
+  hiding those entries, as do music folders that mix tracks with non-disc subfolders.
 - Kodi-style NFO and legacy Emby `movie.xml`, `<movie-file>.xml`, and `series.xml` sidecars, local
   artwork, embedded tags, and filenames are used ahead of remote metadata. Network metadata
   providers are disabled by default for new libraries; explicit provider choices remain

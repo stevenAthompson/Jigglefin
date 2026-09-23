@@ -130,6 +130,15 @@ namespace Emby.Server.Implementations.Library.Resolvers.Audio
             bool allowSubfolders,
             IDirectoryService directoryService)
         {
+            var parser = new AlbumParser(_namingOptions);
+            var directories = list.Where(fileSystemInfo => fileSystemInfo.IsDirectory).ToList();
+            if (directories.Any(fileSystemInfo => !parser.IsMultiPart(fileSystemInfo.FullName)))
+            {
+                // A track beside an unrelated subfolder does not make the whole physical
+                // directory an album; keep both the track and subfolder browseable.
+                return false;
+            }
+
             // Check for audio files before digging down into directories
             var foundAudioFile = list.Any(fileSystemInfo => !fileSystemInfo.IsDirectory && AudioFileParser.IsAudioFile(fileSystemInfo.FullName, _namingOptions));
             if (foundAudioFile)
@@ -145,10 +154,6 @@ namespace Emby.Server.Implementations.Library.Resolvers.Audio
             }
 
             var discSubfolderCount = 0;
-
-            var parser = new AlbumParser(_namingOptions);
-
-            var directories = list.Where(fileSystemInfo => fileSystemInfo.IsDirectory);
 
             var result = Parallel.ForEach(directories, (fileSystemInfo, state) =>
             {

@@ -15,12 +15,9 @@ public class AudioResolverTests
     private static readonly NamingOptions _namingOptions = new();
 
     [Theory]
-    [InlineData("words.mp3")] // single non-tagged file
-    [InlineData("chapter 01.mp3")]
-    [InlineData("part 1.mp3")]
-    [InlineData("chapter 01.mp3", "non-media.txt")]
-    [InlineData("title.mp3", "title.epub")]
-    [InlineData("01.mp3", "subdirectory/")] // single media file with sub-directory - note that this will hide any contents in the subdirectory
+    [InlineData("title.mp3")]
+    [InlineData("audiobook.mp3")]
+    [InlineData("title.mp3", "non-media.txt")]
     public void Resolve_AudiobookDirectory_SingleResult(params string[] children)
     {
         var resolved = TestResolveChildren("/parent/title", children);
@@ -32,6 +29,13 @@ public class AudioResolverTests
     [InlineData] // no contents
     [InlineData("subdirectory/")]
     [InlineData("non-media.txt")]
+    /* A loose file or another physical media entry leaves the directory browseable. */
+    [InlineData("words.mp3")]
+    [InlineData("chapter 01.mp3")]
+    [InlineData("part 1.mp3")]
+    [InlineData("chapter 01.mp3", "non-media.txt")]
+    [InlineData("book title.mp3", "book title.epub")]
+    [InlineData("01.mp3", "subdirectory/")]
     /* Names don't indicate parts of a single book. */
     [InlineData("Name.mp3", "Another Name.mp3")]
     /* Results that are an audio book but not currently navigable as such (multiple chapters and/or parts). */
