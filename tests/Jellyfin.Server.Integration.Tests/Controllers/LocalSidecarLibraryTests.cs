@@ -9,9 +9,11 @@ using Emby.Server.Implementations.Library;
 using Jellyfin.Api.Models.LibraryStructureDto;
 using Jellyfin.Data.Enums;
 using Jellyfin.Extensions.Json;
+using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Dto;
+using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Querying;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
@@ -350,6 +352,80 @@ public sealed class LocalSidecarLibraryTests
             Assert.NotNull(crossFormatItems);
             Assert.Single(crossFormatItems.Items, item => item.Name == "Fourth Audio" && item.Type == BaseItemKind.AudioBook);
             Assert.Single(crossFormatItems.Items, item => item.Name == "Fourth Book" && item.Type == BaseItemKind.Book);
+        }
+        finally
+        {
+            if (created)
+            {
+                using var deleteResponse = await client.DeleteAsync(
+                    $"Library/VirtualFolders?name={Uri.EscapeDataString(libraryName)}&refreshLibrary=false",
+                    TestContext.Current.CancellationToken);
+                Assert.Equal(HttpStatusCode.NoContent, deleteResponse.StatusCode);
+            }
+
+            Directory.Delete(testRoot, true);
+        }
+    }
+
+    [Fact]
+    public async Task MovieLocalArtwork_IsExposedThroughStandardImageApi()
+    {
+        var testRoot = Path.Combine(Path.GetTempPath(), "jigglefin-movie-artwork-" + Guid.NewGuid().ToString("N"));
+        var movieFolder = Path.Combine(testRoot, "Action", "Artwork Movie");
+        Directory.CreateDirectory(movieFolder);
+        File.Copy(
+            Path.Combine(AppContext.BaseDirectory, "Test Data", "JigglefinSample.mp4"),
+            Path.Combine(movieFolder, "Artwork Movie.mp4"));
+        var png = Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO6ZAy0AAAAASUVORK5CYII=");
+        await File.WriteAllBytesAsync(Path.Combine(movieFolder, "poster.png"), png, TestContext.Current.CancellationToken);
+        await File.WriteAllBytesAsync(Path.Combine(movieFolder, "fanart.png"), png, TestContext.Current.CancellationToken);
+
+        using var factory = new JellyfinApplicationFactory();
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.AddAuthHeader(await AuthHelper.CompleteStartupAsync(client));
+        var libraryName = "Jigglefin movie artwork test " + Guid.NewGuid().ToString("N");
+        var created = false;
+
+        try
+        {
+            using var createResponse = await client.PostAsJsonAsync(
+                $"Library/VirtualFolders?name={Uri.EscapeDataString(libraryName)}&collectionType=movies&paths={Uri.EscapeDataString(testRoot)}&refreshLibrary=false",
+                new AddVirtualFolderDto { LibraryOptions = new LibraryOptions() },
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.NoContent, createResponse.StatusCode);
+            created = true;
+
+            var libraryManager = (LibraryManager)factory.Services.GetRequiredService<ILibraryManager>();
+            await libraryManager.ValidateMediaLibraryInternal(new Progress<double>(), TestContext.Current.CancellationToken);
+
+            var views = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                "UserViews", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(views);
+            var library = Assert.Single(views.Items, item => item.Name == libraryName);
+            var categories = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={library.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(categories);
+            var action = Assert.Single(categories.Items, item => item.Name == "Action");
+            var movies = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={action.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(movies);
+            var movie = Assert.Single(movies.Items);
+            Assert.Equal(BaseItemKind.Movie, movie.Type);
+
+            var details = await client.GetFromJsonAsync<BaseItemDto>(
+                $"Items/{movie.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(details);
+            Assert.True(details.ImageTags?.ContainsKey(ImageType.Primary));
+            Assert.NotEmpty(details.BackdropImageTags);
+            var storedMovie = libraryManager.GetItemById<BaseItem>(movie.Id);
+            Assert.NotNull(storedMovie);
+            Assert.Equal("poster.png", Path.GetFileName(storedMovie.GetImageInfo(ImageType.Primary, 0)?.Path));
+            Assert.Equal("fanart.png", Path.GetFileName(storedMovie.GetImageInfo(ImageType.Backdrop, 0)?.Path));
+            using var imageResponse = await client.GetAsync(
+                $"Items/{movie.Id}/Images/Primary", TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.OK, imageResponse.StatusCode);
+            Assert.NotEmpty(await imageResponse.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken));
         }
         finally
         {
