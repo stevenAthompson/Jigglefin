@@ -75,6 +75,13 @@ Android TV's details screen has no playback actions for `AudioBook` items. Jiggl
 presents playable audiobooks as `Audio` DTOs only to the Jellyfin Android TV client; stored item
 kinds and responses to other clients remain `AudioBook`. Untagged audio's minimum-date sentinel
 is omitted from DTOs, allowing the local XML year to display instead of `Jan 1, 1`.
+An integration test also reports a partial audiobook playback session and verifies that the server
+returns the saved bookmark in `UserData.PlaybackPositionTicks`. Automatic audiobook resume is still
+a client-side limitation in Android TV 0.19.10: its [audio playback route](https://github.com/jellyfin/jellyfin-androidtv/blob/v0.19.10/app/src/main/java/org/jellyfin/androidtv/ui/playback/PlaybackLauncher.kt)
+does not pass the requested start position to the audio player, and its
+[audio queue implementation](https://github.com/jellyfin/jellyfin-androidtv/blob/v0.19.10/app/src/main/java/org/jellyfin/androidtv/ui/playback/rewrite/RewriteMediaManager.kt)
+starts playback without seeking to the saved position. The standard API retains the bookmark for
+clients that support resume; Android TV users can seek manually in its audio player.
 The unmodified [Jellyfin Android mobile app](https://github.com/jellyfin/jellyfin-android/releases/tag/v2.7.3)
 2.7.3 (libre release) was also tested in the headless emulator. It browsed
 `Books/Fantasy/Native Test Audio` and `Movies/Action/Native Test Movie`, showed the local XML/NFO

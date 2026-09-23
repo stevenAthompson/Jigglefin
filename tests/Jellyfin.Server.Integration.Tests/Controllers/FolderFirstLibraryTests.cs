@@ -11,10 +11,12 @@ using Emby.Server.Implementations.Library;
 using Jellyfin.Api.Models.LibraryStructureDto;
 using Jellyfin.Data.Enums;
 using Jellyfin.Extensions.Json;
+using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.Querying;
+using MediaBrowser.Model.Session;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
@@ -251,6 +253,43 @@ public sealed class FolderFirstLibraryTests
                 $"Audio/{secondChapter.Id}/stream?static=true", TestContext.Current.CancellationToken);
             Assert.Equal(HttpStatusCode.OK, streamResponse.StatusCode);
             Assert.Equal(audioBytes, await streamResponse.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken));
+
+            // Playback reports must bookmark the underlying AudioBook, regardless
+            // of the client-facing Audio DTO used by Android TV.
+            var configuration = factory.Services.GetRequiredService<IServerConfigurationManager>().Configuration;
+            configuration.MinAudiobookResume = 0;
+            configuration.MaxAudiobookResume = 0;
+            var chapterItem = Assert.IsType<MediaBrowser.Controller.Entities.AudioBook>(libraryManager.GetItemById(secondChapter.Id));
+            chapterItem.RunTimeTicks = TimeSpan.FromSeconds(1).Ticks;
+            await libraryManager.UpdateItemAsync(
+                chapterItem,
+                chapterItem.GetParent(),
+                ItemUpdateType.MetadataEdit,
+                TestContext.Current.CancellationToken);
+            using var startResponse = await client.PostAsJsonAsync(
+                "Sessions/Playing",
+                new PlaybackStartInfo { ItemId = secondChapter.Id, PositionTicks = 0 },
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.NoContent, startResponse.StatusCode);
+
+            // The synthetic sample is one second long; stop before its end.
+            var bookmarkTicks = TimeSpan.FromMilliseconds(250).Ticks;
+            using var stopResponse = await client.PostAsJsonAsync(
+                "Sessions/Playing/Stopped",
+                new PlaybackStopInfo { ItemId = secondChapter.Id, PositionTicks = bookmarkTicks },
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.NoContent, stopResponse.StatusCode);
+
+            var userId = (await AuthHelper.GetUserDtoAsync(client)).Id;
+            var bookmarkedChapter = await client.GetFromJsonAsync<BaseItemDto>(
+                $"Users/{userId}/Items/{secondChapter.Id}",
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.NotNull(bookmarkedChapter);
+            Assert.Equal(BaseItemKind.AudioBook, bookmarkedChapter.Type);
+            Assert.Equal(bookmarkTicks, bookmarkedChapter.UserData?.PlaybackPositionTicks);
         }
         finally
         {
