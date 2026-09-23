@@ -365,6 +365,95 @@ public sealed class LocalSidecarLibraryTests
         }
     }
 
+    [Theory]
+    [InlineData("homevideos", BaseItemKind.Video)]
+    [InlineData("musicvideos", BaseItemKind.MusicVideo)]
+    public async Task VideoXml_UsesBasenameSidecarsAndLeavesNfoInControl(string collectionType, BaseItemKind expectedKind)
+    {
+        var testRoot = Path.Combine(Path.GetTempPath(), "jigglefin-video-xml-" + Guid.NewGuid().ToString("N"));
+        var category = Path.Combine(testRoot, "Category");
+        Directory.CreateDirectory(category);
+        var sample = Path.Combine(AppContext.BaseDirectory, "Test Data", "JigglefinSample.mp4");
+        foreach (var name in new[] { "XML Clip", "NFO Clip", "Plain Clip" })
+        {
+            File.Copy(sample, Path.Combine(category, name + ".mp4"));
+        }
+
+        await File.WriteAllTextAsync(
+            Path.Combine(category, "XML Clip.xml"),
+            "<Item><LocalTitle>Local XML Clip</LocalTitle><ProductionYear>2024</ProductionYear><Overview>Local XML overview.</Overview></Item>",
+            TestContext.Current.CancellationToken);
+        await File.WriteAllTextAsync(
+            Path.Combine(category, "NFO Clip.xml"),
+            "<Item><LocalTitle>Wrong XML Title</LocalTitle><ProductionYear>2001</ProductionYear><Overview>Wrong XML overview.</Overview></Item>",
+            TestContext.Current.CancellationToken);
+        var nfoRoot = expectedKind == BaseItemKind.MusicVideo ? "musicvideo" : "movie";
+        await File.WriteAllTextAsync(
+            Path.Combine(category, "NFO Clip.nfo"),
+            $"<{nfoRoot}><title>Local NFO Clip</title><year>2025</year><plot>Local NFO overview.</plot></{nfoRoot}>",
+            TestContext.Current.CancellationToken);
+
+        using var factory = new JellyfinApplicationFactory();
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.AddAuthHeader(await AuthHelper.CompleteStartupAsync(client));
+        var libraryName = "Jigglefin video XML test " + Guid.NewGuid().ToString("N");
+        var created = false;
+
+        try
+        {
+            using var createResponse = await client.PostAsJsonAsync(
+                $"Library/VirtualFolders?name={Uri.EscapeDataString(libraryName)}&collectionType={collectionType}&paths={Uri.EscapeDataString(testRoot)}&refreshLibrary=false",
+                new AddVirtualFolderDto { LibraryOptions = new LibraryOptions() },
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.NoContent, createResponse.StatusCode);
+            created = true;
+
+            var libraryManager = (LibraryManager)factory.Services.GetRequiredService<ILibraryManager>();
+            await libraryManager.ValidateMediaLibraryInternal(new Progress<double>(), TestContext.Current.CancellationToken);
+
+            var views = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                "UserViews", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(views);
+            var library = Assert.Single(views.Items, item => item.Name == libraryName);
+            var groups = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={library.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(groups);
+            var categoryDto = Assert.Single(groups.Items, item => item.Name == "Category");
+            Assert.True(categoryDto.IsFolder);
+
+            var videos = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={categoryDto.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(videos);
+            Assert.Equal(3, videos.Items.Count);
+            var xml = Assert.Single(videos.Items, item => item.Name == "Local XML Clip");
+            Assert.Equal(expectedKind, xml.Type);
+            Assert.Equal(2024, xml.ProductionYear);
+            var xmlDetails = await client.GetFromJsonAsync<BaseItemDto>(
+                $"Items/{xml.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.Equal("Local XML overview.", xmlDetails?.Overview);
+            var nfo = Assert.Single(videos.Items, item => item.Name == "Local NFO Clip");
+            Assert.Equal(expectedKind, nfo.Type);
+            Assert.Equal(2025, nfo.ProductionYear);
+            var nfoDetails = await client.GetFromJsonAsync<BaseItemDto>(
+                $"Items/{nfo.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.Equal("Local NFO overview.", nfoDetails?.Overview);
+            Assert.Single(videos.Items, item => item.Name == "Plain Clip" && item.Type == expectedKind);
+        }
+        finally
+        {
+            if (created)
+            {
+                using var deleteResponse = await client.DeleteAsync(
+                    $"Library/VirtualFolders?name={Uri.EscapeDataString(libraryName)}&refreshLibrary=false",
+                    TestContext.Current.CancellationToken);
+                Assert.Equal(HttpStatusCode.NoContent, deleteResponse.StatusCode);
+            }
+
+            Directory.Delete(testRoot, true);
+        }
+    }
+
     [Fact]
     public async Task EmbyMusicXml_ProvidesArtistAndAlbumMetadataThroughPhysicalFolders()
     {
