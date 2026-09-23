@@ -139,7 +139,7 @@ public sealed class FolderFirstLibraryTests
     }
 
     [Fact]
-    public async Task MovieDiscRips_WithOtherPhysicalSubfolders_RemainBrowseable()
+    public async Task MovieDiscRips_PreservePhysicalCategoryAndSiblingFolders()
     {
         var testRoot = Path.Combine(Path.GetTempPath(), "jigglefin-movie-disc-subfolders-" + Guid.NewGuid().ToString("N"));
         var categoryFolder = Path.Combine(testRoot, "Action");
@@ -148,12 +148,16 @@ public sealed class FolderFirstLibraryTests
         var stackedRipFolder = Path.Combine(categoryFolder, "Disc Collection");
         var stackedRipVideoTs = Path.Combine(stackedRipFolder, "Disc 1", "VIDEO_TS");
         var standaloneRipVideoTs = Path.Combine(categoryFolder, "Standalone DVD", "VIDEO_TS");
+        var soloRipVideoTs = Path.Combine(testRoot, "Solo Category", "Only DVD", "VIDEO_TS");
+        var singleDiscVideoTs = Path.Combine(testRoot, "Single Disc Category", "Disc 1", "VIDEO_TS");
         Directory.CreateDirectory(directRipVideoTs);
         Directory.CreateDirectory(stackedRipVideoTs);
         Directory.CreateDirectory(standaloneRipVideoTs);
+        Directory.CreateDirectory(soloRipVideoTs);
+        Directory.CreateDirectory(singleDiscVideoTs);
         Directory.CreateDirectory(Path.Combine(directRipFolder, "Bonus Film"));
         Directory.CreateDirectory(Path.Combine(stackedRipFolder, "Other Film"));
-        foreach (var videoTsFolder in new[] { directRipVideoTs, stackedRipVideoTs, standaloneRipVideoTs })
+        foreach (var videoTsFolder in new[] { directRipVideoTs, stackedRipVideoTs, standaloneRipVideoTs, soloRipVideoTs, singleDiscVideoTs })
         {
             await File.WriteAllBytesAsync(Path.Combine(videoTsFolder, "VIDEO_TS.IFO"), [], TestContext.Current.CancellationToken);
             await File.WriteAllBytesAsync(Path.Combine(videoTsFolder, "VTS_01_1.VOB"), [], TestContext.Current.CancellationToken);
@@ -190,6 +194,18 @@ public sealed class FolderFirstLibraryTests
                 $"Items?parentId={library.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
             Assert.NotNull(rootItems);
             var action = Assert.Single(rootItems.Items, item => item.Name == "Action");
+            var soloCategory = Assert.Single(rootItems.Items, item => item.Name == "Solo Category");
+            Assert.Equal(BaseItemKind.Folder, soloCategory.Type);
+            var soloChildren = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={soloCategory.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(soloChildren);
+            Assert.Equal(BaseItemKind.Movie, Assert.Single(soloChildren.Items, item => item.Name == "Only DVD").Type);
+            var singleDiscCategory = Assert.Single(rootItems.Items, item => item.Name == "Single Disc Category");
+            Assert.Equal(BaseItemKind.Folder, singleDiscCategory.Type);
+            var singleDiscChildren = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={singleDiscCategory.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(singleDiscChildren);
+            Assert.Equal(BaseItemKind.Movie, Assert.Single(singleDiscChildren.Items, item => item.Name == "Disc 1").Type);
             var collections = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
                 $"Items?parentId={action.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
             Assert.NotNull(collections);
