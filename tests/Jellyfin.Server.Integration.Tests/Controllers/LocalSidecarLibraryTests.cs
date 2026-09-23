@@ -913,25 +913,31 @@ public sealed class LocalSidecarLibraryTests
     {
         var testRoot = Path.Combine(Path.GetTempPath(), "jigglefin-series-xml-" + Guid.NewGuid().ToString("N"));
         var seriesFolder = Path.Combine(testRoot, "Drama", "Example Show");
-        Directory.CreateDirectory(seriesFolder);
+        var seasonFolder = Path.Combine(seriesFolder, "Season 1");
+        Directory.CreateDirectory(seasonFolder);
         await File.WriteAllBytesAsync(
-            Path.Combine(seriesFolder, "Example Show - S01E01.mp4"),
+            Path.Combine(seasonFolder, "Example Show - S01E01.mp4"),
             await File.ReadAllBytesAsync(
                 Path.Combine(AppContext.BaseDirectory, "Test Data", "JigglefinSample.mp4"),
                 TestContext.Current.CancellationToken),
             TestContext.Current.CancellationToken);
         await File.WriteAllTextAsync(
-            Path.Combine(seriesFolder, "Example Show - S01E01.xml"),
+            Path.Combine(seasonFolder, "Example Show - S01E01.xml"),
             "<Item><LocalTitle>Local XML Episode</LocalTitle><Overview>From the episode XML.</Overview></Item>",
+            TestContext.Current.CancellationToken);
+        await File.WriteAllTextAsync(
+            Path.Combine(seasonFolder, "season.xml"),
+            "<Item><LocalTitle>Local XML Season</LocalTitle><Overview>From the season XML.</Overview></Item>",
             TestContext.Current.CancellationToken);
         await File.WriteAllTextAsync(
             Path.Combine(seriesFolder, "series.xml"),
             "<Series><LocalTitle>Local XML Series</LocalTitle><ProductionYear>2020</ProductionYear><Overview>From the series XML.</Overview></Series>",
             TestContext.Current.CancellationToken);
         var precedenceFolder = Path.Combine(testRoot, "Drama", "Both Sources");
-        Directory.CreateDirectory(precedenceFolder);
+        var precedenceSeasonFolder = Path.Combine(precedenceFolder, "Season 1");
+        Directory.CreateDirectory(precedenceSeasonFolder);
         await File.WriteAllBytesAsync(
-            Path.Combine(precedenceFolder, "Both Sources - S01E01.mp4"),
+            Path.Combine(precedenceSeasonFolder, "Both Sources - S01E01.mp4"),
             await File.ReadAllBytesAsync(
                 Path.Combine(AppContext.BaseDirectory, "Test Data", "JigglefinSample.mp4"),
                 TestContext.Current.CancellationToken),
@@ -942,15 +948,23 @@ public sealed class LocalSidecarLibraryTests
             TestContext.Current.CancellationToken);
         await File.WriteAllTextAsync(
             Path.Combine(precedenceFolder, "tvshow.nfo"),
-            "<tvshow><title>Preferred Series NFO</title></tvshow>",
+            "<tvshow><title>Preferred Series NFO</title><namedseason number='1'>Parent Season Fallback</namedseason></tvshow>",
             TestContext.Current.CancellationToken);
         await File.WriteAllTextAsync(
-            Path.Combine(precedenceFolder, "Both Sources - S01E01.xml"),
+            Path.Combine(precedenceSeasonFolder, "Both Sources - S01E01.xml"),
             "<Item><LocalTitle>Secondary Episode XML</LocalTitle></Item>",
             TestContext.Current.CancellationToken);
         await File.WriteAllTextAsync(
-            Path.Combine(precedenceFolder, "Both Sources - S01E01.nfo"),
+            Path.Combine(precedenceSeasonFolder, "Both Sources - S01E01.nfo"),
             "<episodedetails><title>Preferred Episode NFO</title></episodedetails>",
+            TestContext.Current.CancellationToken);
+        await File.WriteAllTextAsync(
+            Path.Combine(precedenceSeasonFolder, "season.xml"),
+            "<Item><LocalTitle>Secondary Season XML</LocalTitle><Overview>From secondary XML.</Overview></Item>",
+            TestContext.Current.CancellationToken);
+        await File.WriteAllTextAsync(
+            Path.Combine(precedenceSeasonFolder, "season.nfo"),
+            "<season><title>Preferred Season NFO</title><plot>From preferred NFO.</plot></season>",
             TestContext.Current.CancellationToken);
         var markerFolder = Path.Combine(testRoot, "Drama", "XML Marker Show");
         var bonusFolder = Path.Combine(markerFolder, "Bonus Collection");
@@ -1009,6 +1023,28 @@ public sealed class LocalSidecarLibraryTests
             Assert.Equal(BaseItemKind.Series, marker.Type);
             Assert.Equal(2020, series.ProductionYear);
 
+            var seasons = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={series.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(seasons);
+            var xmlSeason = Assert.Single(seasons.Items, item => item.Name == "Local XML Season");
+            Assert.Equal(BaseItemKind.Season, xmlSeason.Type);
+            var seasonDetails = await client.GetFromJsonAsync<BaseItemDto>(
+                $"Items/{xmlSeason.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.Equal("From the season XML.", seasonDetails?.Overview);
+
+            var precedenceSeasons = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={preferredNfo.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(precedenceSeasons);
+            var nfoSeason = Assert.Single(precedenceSeasons.Items, item => item.Name == "Preferred Season NFO");
+            Assert.Equal(BaseItemKind.Season, nfoSeason.Type);
+            var nfoSeasonDetails = await client.GetFromJsonAsync<BaseItemDto>(
+                $"Items/{nfoSeason.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.Equal("From preferred NFO.", nfoSeasonDetails?.Overview);
+            var storedNfoSeason = libraryManager.GetItemById(nfoSeason.Id);
+            Assert.NotNull(storedNfoSeason);
+            Assert.Contains(ItemInfo.LocalNfoPathProviderId, storedNfoSeason.ProviderIds.Keys);
+            Assert.Equal(Path.Combine(precedenceSeasonFolder, "season.nfo"), new ItemInfo(storedNfoSeason).PreviousLocalNfoPath);
+
             var details = await client.GetFromJsonAsync<BaseItemDto>(
                 $"Items/{series.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
             Assert.Equal("From the series XML.", details?.Overview);
@@ -1036,6 +1072,36 @@ public sealed class LocalSidecarLibraryTests
                 $"Items?parentId={bonus.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
             Assert.NotNull(bonusChildren);
             Assert.Single(bonusChildren.Items, item => item.Type == BaseItemKind.Episode);
+
+            var seasonXmlPath = Path.Combine(seasonFolder, "season.xml");
+            await File.WriteAllTextAsync(
+                seasonXmlPath,
+                "<Item><LocalTitle>Updated XML Season</LocalTitle><Overview>Updated season XML.</Overview></Item>",
+                TestContext.Current.CancellationToken);
+            File.SetLastWriteTimeUtc(seasonXmlPath, DateTime.UtcNow.AddMinutes(1));
+            await libraryManager.ValidateMediaLibraryInternal(new Progress<double>(), TestContext.Current.CancellationToken);
+            var updatedSeason = await client.GetFromJsonAsync<BaseItemDto>(
+                $"Items/{xmlSeason.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.Equal("Updated XML Season", updatedSeason?.Name);
+            Assert.Equal("Updated season XML.", updatedSeason?.Overview);
+            var storedNfoSeasonAfterScan = libraryManager.GetItemById(nfoSeason.Id);
+            Assert.NotNull(storedNfoSeasonAfterScan);
+            Assert.Equal(Path.Combine(precedenceSeasonFolder, "season.nfo"), new ItemInfo(storedNfoSeasonAfterScan).PreviousLocalNfoPath);
+
+            var seasonNfoPath = Path.Combine(precedenceSeasonFolder, "season.nfo");
+            File.Delete(seasonNfoPath);
+            Assert.False(File.Exists(seasonNfoPath));
+            await libraryManager.ValidateMediaLibraryInternal(new Progress<double>(), TestContext.Current.CancellationToken);
+            var fallbackSeason = await client.GetFromJsonAsync<BaseItemDto>(
+                $"Items/{nfoSeason.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.Equal("Secondary Season XML", fallbackSeason?.Name);
+            Assert.Equal("From secondary XML.", fallbackSeason?.Overview);
+
+            File.Delete(Path.Combine(precedenceSeasonFolder, "season.xml"));
+            await libraryManager.ValidateMediaLibraryInternal(new Progress<double>(), TestContext.Current.CancellationToken);
+            var withoutSeasonSidecars = await client.GetFromJsonAsync<BaseItemDto>(
+                $"Items/{nfoSeason.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.Equal("Parent Season Fallback", withoutSeasonSidecars?.Name);
         }
         finally
         {

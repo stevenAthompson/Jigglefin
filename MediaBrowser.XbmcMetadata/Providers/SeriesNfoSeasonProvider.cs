@@ -13,7 +13,7 @@ namespace MediaBrowser.XbmcMetadata.Providers
     /// <summary>
     /// NFO provider for seasons based on series NFO.
     /// </summary>
-    public class SeriesNfoSeasonProvider : BaseNfoProvider<Season>
+    public class SeriesNfoSeasonProvider : BaseNfoProvider<Season>, IHasOrder
     {
         private readonly ILogger<SeriesNfoSeasonProvider> _logger;
         private readonly IConfigurationManager _config;
@@ -53,6 +53,10 @@ namespace MediaBrowser.XbmcMetadata.Providers
             _directoryService = directoryService;
             _libraryManager = libraryManager;
         }
+
+        /// <inheritdoc />
+        /// <remarks>A season's own NFO or XML must take priority over fallback data in the series NFO.</remarks>
+        public int Order => 52;
 
         /// <inheritdoc />
         protected override void Fetch(MetadataResult<Season> result, string path, CancellationToken cancellationToken)

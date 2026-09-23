@@ -49,7 +49,7 @@ open and potentially migrate that database. Jellyfin and Jigglefin cannot both b
   physical folders; photo-only albums open through the Web folder browser. Music-specific track
   lists remain compatible with Jellyfin Web. Same-named movie, book, and audiobook files beside
   directories keep both paths browseable; loose audiobook names come from filenames.
-- Kodi-style NFO and legacy-style `movie.xml`, `<movie-file>.xml`, `series.xml`,
+- Kodi-style NFO and legacy-style `movie.xml`, `<movie-file>.xml`, `series.xml`, `season.xml`,
   `<episode-file>.xml`, `artist.xml`, `album.xml`, `<book-file>.xml`, and `<audiobook-file>.xml`
   sidecars, local artwork, embedded tags, and
   filenames are used ahead of remote metadata. Network metadata providers are disabled by

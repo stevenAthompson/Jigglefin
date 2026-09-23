@@ -153,6 +153,10 @@ visible as a folder. The XML also marks a show with only an unnumbered bonus sub
 `Series`; that subfolder and its playable episode remain browseable. A coexisting `tvshow.nfo`
 takes priority over the series XML. `<episode-file>.xml` supplies local episode title and overview
 through the standard show and item endpoints; an adjacent episode NFO takes priority.
+Physical TV seasons also read `season.xml` for local title and overview. A season's own
+`season.nfo` takes priority, while a named season in the parent `tvshow.nfo` remains a fallback
+when neither season sidecar is present. Rescans pick up XML edits and fall through from removed
+NFO to XML, then to the parent show's named-season entry when both season sidecars are removed.
 Jigglefin also reads legacy-style `artist.xml` and `album.xml` in physical music directories.
 The upstream OPF reader supplies local book metadata. A basename-matched `.opf` can describe one
 book in a mixed directory; generic `content.opf` and Calibre `metadata.opf` apply when the
