@@ -87,7 +87,11 @@ visible as a folder. The XML also marks a show with only an unnumbered bonus sub
 takes priority over the series XML. `<episode-file>.xml` supplies local episode title and overview
 through the standard show and item endpoints; an adjacent episode NFO takes priority.
 Jigglefin also reads legacy-style `artist.xml` and `album.xml` in physical music directories.
-XML readers for books and other media kinds remain work in progress.
+The upstream OPF reader supplies local book metadata. A basename-matched `.opf` can describe one
+book in a mixed directory; generic `content.opf` and Calibre `metadata.opf` apply when the
+directory contains exactly one supported book file, even if its folder name differs. They cannot
+overwrite the names of unrelated sibling books. Legacy Emby-style XML readers for books and other
+media kinds remain work in progress.
 
 A movie category with a single loose file, such as `Action/Loose Movie.mp4`, remains a physical
 `Folder` with a `Movie` child. A dedicated movie directory still resolves to a `Movie` when its

@@ -14,11 +14,10 @@ namespace Emby.Server.Implementations.Library.Resolvers.Books
 {
     public class BookResolver : ItemResolver<Book>
     {
-        private static readonly string[] _validExtensions = { ".azw", ".azw3", ".cb7", ".cbr", ".cbt", ".cbz", ".epub", ".mobi", ".pdf" };
         private static readonly string[] _companionExtensions = { ".nfo", ".xml", ".opf", ".jpg", ".jpeg", ".png", ".webp", ".gif", ".bmp", ".avif", ".txt", ".json" };
 
         internal static bool IsBookFile(string path)
-            => _validExtensions.Contains(Path.GetExtension(path.AsSpan()), StringComparison.OrdinalIgnoreCase);
+            => BookFileExtensions.IsBookFile(path);
 
         protected override Book? Resolve(ItemResolveArgs args)
         {

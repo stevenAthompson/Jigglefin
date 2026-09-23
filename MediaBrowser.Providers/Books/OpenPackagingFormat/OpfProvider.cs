@@ -1,4 +1,5 @@
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using System.Xml;
@@ -40,7 +41,7 @@ namespace MediaBrowser.Providers.Books.OpenPackagingFormat
         /// <inheritdoc />
         public bool HasChanged(BaseItem item, IDirectoryService directoryService)
         {
-            var file = GetXmlFile(item.Path);
+            var file = GetXmlFile(item.Path, item.IsInMixedFolder, directoryService);
 
             return file.Exists && _fileSystem.GetLastWriteTimeUtc(file) > item.DateLastSaved;
         }
@@ -48,7 +49,7 @@ namespace MediaBrowser.Providers.Books.OpenPackagingFormat
         /// <inheritdoc />
         public Task<MetadataResult<Book>> GetMetadata(ItemInfo info, IDirectoryService directoryService, CancellationToken cancellationToken)
         {
-            var path = GetXmlFile(info.Path).FullName;
+            var path = GetXmlFile(info.Path, info.IsInMixedFolder, directoryService).FullName;
 
             try
             {
@@ -60,7 +61,7 @@ namespace MediaBrowser.Providers.Books.OpenPackagingFormat
             }
         }
 
-        private FileSystemMetadata GetXmlFile(string path)
+        private FileSystemMetadata GetXmlFile(string path, bool isInMixedFolder, IDirectoryService directoryService)
         {
             var fileInfo = _fileSystem.GetFileSystemInfo(path);
             var directoryInfo = fileInfo.IsDirectory ? fileInfo : _fileSystem.GetDirectoryInfo(Path.GetDirectoryName(path)!);
@@ -70,6 +71,16 @@ namespace MediaBrowser.Providers.Books.OpenPackagingFormat
             var file = _fileSystem.GetFileInfo(specificFile);
 
             if (file.Exists)
+            {
+                return file;
+            }
+
+            // A generic OPF is unambiguous with one book file, even when the
+            // folder name differs from that file. Never share it across books.
+            if (isInMixedFolder
+                && (!directoryInfo.Exists
+                    || directoryService.GetFileSystemEntries(directoryInfo.FullName)
+                        .Count(entry => !entry.IsDirectory && BookFileExtensions.IsBookFile(entry.FullName)) != 1))
             {
                 return file;
             }
