@@ -54,16 +54,22 @@ namespace Emby.Server.Implementations.Library.Resolvers.TV
                 var path = args.Path;
 
                 var seasonParserResult = SeasonPathParser.Parse(path, series.ContainingFolderPath, true, true);
+                if (!seasonParserResult.IsSeasonFolder)
+                {
+                    // A video-containing directory beneath a show is not necessarily
+                    // a season. Keep unnumbered physical folders browseable.
+                    return null;
+                }
 
                 var season = new Season
                 {
                     IndexNumber = seasonParserResult.SeasonNumber,
                     SeriesId = series.Id,
                     SeriesName = series.Name,
-                    Path = seasonParserResult.IsSeasonFolder ? path : null
+                    Path = path
                 };
 
-                if (!season.IndexNumber.HasValue || !seasonParserResult.IsSeasonFolder)
+                if (!season.IndexNumber.HasValue)
                 {
                     var resolver = new Naming.TV.EpisodeResolver(namingOptions);
 

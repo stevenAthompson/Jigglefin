@@ -133,21 +133,7 @@ namespace MediaBrowser.Controller.Entities.TV
 
         public override int GetChildCount(User user)
         {
-            var seriesKey = GetUniqueSeriesKey(this);
-
-            var result = LibraryManager.GetItemIds(new InternalItemsQuery(user)
-            {
-                AncestorWithPresentationUniqueKey = null,
-                SeriesPresentationUniqueKey = seriesKey,
-                IncludeItemTypes = new[] { BaseItemKind.Season },
-                IsVirtualItem = false,
-                DtoOptions = new DtoOptions(false)
-                {
-                    EnableImages = false
-                }
-            });
-
-            return result.Count;
+            return base.GetChildCount(user);
         }
 
         public override int GetRecursiveChildCount(User user)
@@ -223,7 +209,7 @@ namespace MediaBrowser.Controller.Entities.TV
 
         public override IReadOnlyList<BaseItem> GetChildren(User user, bool includeLinkedChildren, InternalItemsQuery query)
         {
-            return GetSeasons(user, new DtoOptions(true));
+            return base.GetChildren(user, includeLinkedChildren, query);
         }
 
         public IReadOnlyList<BaseItem> GetSeasons(User user, DtoOptions options)
@@ -292,9 +278,15 @@ namespace MediaBrowser.Controller.Entities.TV
                 return LibraryManager.GetItemsResult(query);
             }
 
-            SetSeasonQueryOptions(query, user);
+            if (query.IncludeItemTypes is [BaseItemKind.Season])
+            {
+                SetSeasonQueryOptions(query, user);
+                return LibraryManager.GetItemsResult(query);
+            }
 
-            return LibraryManager.GetItemsResult(query);
+            // The ordinary Items endpoint is Jigglefin's folder-browsing route.
+            // Keep direct physical children there, including non-season folders.
+            return base.GetItemsInternal(query);
         }
 
         public IEnumerable<BaseItem> GetEpisodes(User user, DtoOptions options, bool shouldIncludeMissingEpisodes)

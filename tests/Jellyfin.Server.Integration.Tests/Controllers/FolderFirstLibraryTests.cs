@@ -23,6 +23,94 @@ namespace Jellyfin.Server.Integration.Tests.Controllers;
 public sealed class FolderFirstLibraryTests
 {
     [Fact]
+    public async Task Series_WithUnnumberedVideoSubfolder_KeepsPhysicalFolderBrowseable()
+    {
+        var testRoot = Path.Combine(Path.GetTempPath(), "jigglefin-series-subfolder-" + Guid.NewGuid().ToString("N"));
+        var seriesFolder = Path.Combine(testRoot, "Drama", "Example Show");
+        var seasonFolder = Path.Combine(seriesFolder, "Season 1");
+        var bonusFolder = Path.Combine(seriesFolder, "Bonus Collection");
+        Directory.CreateDirectory(seasonFolder);
+        Directory.CreateDirectory(bonusFolder);
+        var videoBytes = await File.ReadAllBytesAsync(
+            Path.Combine(AppContext.BaseDirectory, "Test Data", "JigglefinSample.mp4"),
+            TestContext.Current.CancellationToken);
+        await File.WriteAllBytesAsync(
+            Path.Combine(seasonFolder, "Example Show - S01E01.mp4"),
+            videoBytes,
+            TestContext.Current.CancellationToken);
+        await File.WriteAllBytesAsync(
+            Path.Combine(bonusFolder, "Bonus Clip.mp4"),
+            videoBytes,
+            TestContext.Current.CancellationToken);
+
+        using var factory = new JellyfinApplicationFactory();
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.AddAuthHeader(await AuthHelper.CompleteStartupAsync(client));
+        var libraryName = "Jigglefin series subfolder " + Guid.NewGuid().ToString("N");
+        var created = false;
+
+        try
+        {
+            using var createResponse = await client.PostAsJsonAsync(
+                $"Library/VirtualFolders?name={Uri.EscapeDataString(libraryName)}&collectionType=tvshows&paths={Uri.EscapeDataString(testRoot)}&refreshLibrary=false",
+                new AddVirtualFolderDto { LibraryOptions = new LibraryOptions() },
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.NoContent, createResponse.StatusCode);
+            created = true;
+
+            var libraryManager = (LibraryManager)factory.Services.GetRequiredService<ILibraryManager>();
+            await libraryManager.ValidateMediaLibraryInternal(new Progress<double>(), TestContext.Current.CancellationToken);
+
+            var views = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                "UserViews?presetViews=tvshows", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(views);
+            var library = Assert.Single(views.Items, item => item.Name == libraryName);
+            var groups = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={library.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(groups);
+            var drama = Assert.Single(groups.Items, item => item.Name == "Drama");
+            var seriesItems = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={drama.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(seriesItems);
+            var series = Assert.Single(seriesItems.Items, item => item.Name == "Example Show");
+            Assert.Equal(BaseItemKind.Series, series.Type);
+            var children = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={series.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(children);
+            Assert.Equal(BaseItemKind.Season, Assert.Single(children.Items, item => item.Name == "Season 1").Type);
+            var bonus = Assert.Single(children.Items, item => item.Name == "Bonus Collection");
+            Assert.Equal(BaseItemKind.Folder, bonus.Type);
+            var bonusChildren = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={bonus.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(bonusChildren);
+            var bonusEpisode = Assert.Single(bonusChildren.Items, item => item.Type == BaseItemKind.Episode);
+            using var streamResponse = await client.GetAsync(
+                $"Videos/{bonusEpisode.Id}/stream?static=true", TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.OK, streamResponse.StatusCode);
+            Assert.Equal(videoBytes, await streamResponse.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken));
+
+            var seasons = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Shows/{series.Id}/Seasons", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(seasons);
+            Assert.Contains(seasons.Items, item => item.Name == "Season 1");
+            Assert.All(seasons.Items, item => Assert.Equal(BaseItemKind.Season, item.Type));
+        }
+        finally
+        {
+            if (created)
+            {
+                using var deleteResponse = await client.DeleteAsync(
+                    $"Library/VirtualFolders?name={Uri.EscapeDataString(libraryName)}&refreshLibrary=false",
+                    TestContext.Current.CancellationToken);
+                Assert.Equal(HttpStatusCode.NoContent, deleteResponse.StatusCode);
+            }
+
+            Directory.Delete(testRoot, true);
+        }
+    }
+
+    [Fact]
     public async Task MovieDiscRips_WithOtherPhysicalSubfolders_RemainBrowseable()
     {
         var testRoot = Path.Combine(Path.GetTempPath(), "jigglefin-movie-disc-subfolders-" + Guid.NewGuid().ToString("N"));

@@ -56,6 +56,9 @@ audiobooks, music, home videos/photos, and music videos.
 When a TV directory contains a loose named episode from a different show, it remains a physical
 folder and the file appears beneath it as an `Episode`; a directory matching the episode's show
 name still resolves as a `Series`.
+Inside a show, unnumbered video subdirectories remain physical `Folder` items instead of becoming
+unnamed virtual seasons. The ordinary `Items?parentId=<series>` route exposes those folders and
+their playable episodes; `Shows/<series>/Seasons` remains seasons-only for existing client flows.
 
 A separate integration test writes a valid local WAV file, browses it as a standard Jellyfin `Audio`
 item, and verifies full and byte-range streaming through the unmodified audio endpoint.

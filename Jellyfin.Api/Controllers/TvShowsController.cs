@@ -356,6 +356,7 @@ public class TvShowsController : BaseJellyfinApiController
 
         var seasons = item.GetItemList(new InternalItemsQuery(user)
         {
+            IncludeItemTypes = [BaseItemKind.Season],
             IsMissing = isMissing,
             IsSpecialSeason = isSpecialSeason,
             AdjacentTo = adjacentTo
