@@ -4,8 +4,9 @@ const { chromium } = require('playwright');
 const baseUrl = process.env.JIGGLEFIN_TEST_BASE_URL;
 const user = process.env.JIGGLEFIN_TEST_USER;
 const password = process.env.JIGGLEFIN_TEST_PASSWORD;
+const photoId = process.env.JIGGLEFIN_TEST_PHOTO_ID;
 assert.equal(baseUrl, 'http://127.0.0.1:8096', 'The Web smoke test must use the isolated local server.');
-assert.ok(user && password, 'The Web smoke test requires temporary local credentials.');
+assert.ok(user && password && photoId, 'The Web smoke test requires temporary local credentials and a photo ID.');
 
 async function main() {
     const browser = await chromium.launch({ headless: true });
@@ -128,7 +129,60 @@ async function main() {
         assert.ok(episode.duration >= 18 && episode.duration <= 22, 'The TV episode duration did not match the synthetic sample.');
         assert.ok(mediaResponses.filter((response) => /\/Videos\/.*\/stream\.mp4/.test(response.path) && response.status === 206).length > priorVideoResponses);
 
-        console.log(`Jellyfin Web headless smoke passed: movie ${movie.currentTime.toFixed(1)}s, audiobook ${audiobook.currentTime.toFixed(1)}s, music ${music.currentTime.toFixed(1)}s, and TV ${episode.currentTime.toFixed(1)}s played through physical folders.`);
+        const priorHomeVideoResponses = mediaResponses.filter((response) => /\/Videos\/.*\/stream\.mp4/.test(response.path) && response.status === 206).length;
+        await page.goto(`${baseUrl}/web/#/home`, { waitUntil: 'domcontentloaded' });
+        await page.getByText('Jigglefin Package Smoke Home Videos', { exact: true }).filter({ visible: true }).first().click();
+        await page.getByText('Family', { exact: true }).filter({ visible: true }).first().click();
+        await page.getByText('Smoke Home Clip', { exact: true }).filter({ visible: true }).first().click();
+        await page.locator('button.btnPlay[title="Play"]').click();
+        await page.locator('video').waitFor({ state: 'attached' });
+        await page.waitForFunction(() => {
+            const video = document.querySelector('video');
+            return video && video.currentTime >= 2 && !video.paused && video.readyState >= 3 && !video.error;
+        }, null, { timeout: 12000 });
+        const homeVideo = await page.locator('video').evaluate((video) => ({
+            currentTime: video.currentTime,
+            duration: video.duration,
+            paused: video.paused,
+            error: video.error?.message
+        }));
+        assert.ok(homeVideo.duration >= 18 && homeVideo.duration <= 22, 'The home-video duration did not match the synthetic sample.');
+        assert.ok(mediaResponses.filter((response) => /\/Videos\/.*\/stream\.mp4/.test(response.path) && response.status === 206).length > priorHomeVideoResponses);
+
+        await page.goto(`${baseUrl}/web/#/home`, { waitUntil: 'domcontentloaded' });
+        await page.getByText('Jigglefin Package Smoke Home Videos', { exact: true }).filter({ visible: true }).first().click();
+        await page.getByText('Family', { exact: true }).filter({ visible: true }).first().click();
+        await page.getByText('Photos Only', { exact: true }).filter({ visible: true }).first().click();
+        try {
+            await page.locator(`[data-id="${photoId}"]`).filter({ visible: true }).first().waitFor();
+        } catch (error) {
+            console.error(`Photo browse URL: ${page.url()}`);
+            console.error(`Photo browse body: ${(await page.locator('body').innerText()).slice(0, 1500)}`);
+            console.error(`Photo browse card: ${await page.locator('.card').first().evaluate((card) => card.outerHTML.slice(0, 1500)).catch(() => 'No card')}`);
+            throw error;
+        }
+
+        const priorMusicVideoResponses = mediaResponses.filter((response) => /\/Videos\/.*\/stream\.mp4/.test(response.path) && response.status === 206).length;
+        await page.goto(`${baseUrl}/web/#/home`, { waitUntil: 'domcontentloaded' });
+        await page.getByText('Jigglefin Package Smoke Music Videos', { exact: true }).filter({ visible: true }).first().click();
+        await page.getByText('Performances', { exact: true }).filter({ visible: true }).first().click();
+        await page.getByText('Smoke Music Clip', { exact: true }).filter({ visible: true }).first().click();
+        await page.locator('button.btnPlay[title="Play"]').click();
+        await page.locator('video').waitFor({ state: 'attached' });
+        await page.waitForFunction(() => {
+            const video = document.querySelector('video');
+            return video && video.currentTime >= 2 && !video.paused && video.readyState >= 3 && !video.error;
+        }, null, { timeout: 12000 });
+        const musicVideo = await page.locator('video').evaluate((video) => ({
+            currentTime: video.currentTime,
+            duration: video.duration,
+            paused: video.paused,
+            error: video.error?.message
+        }));
+        assert.ok(musicVideo.duration >= 18 && musicVideo.duration <= 22, 'The music-video duration did not match the synthetic sample.');
+        assert.ok(mediaResponses.filter((response) => /\/Videos\/.*\/stream\.mp4/.test(response.path) && response.status === 206).length > priorMusicVideoResponses);
+
+        console.log(`Jellyfin Web headless smoke passed: movie ${movie.currentTime.toFixed(1)}s, audiobook ${audiobook.currentTime.toFixed(1)}s, music ${music.currentTime.toFixed(1)}s, TV ${episode.currentTime.toFixed(1)}s, home video ${homeVideo.currentTime.toFixed(1)}s, and music video ${musicVideo.currentTime.toFixed(1)}s played through physical folders; a photo-only album was browsed.`);
     } finally {
         await browser.close();
     }

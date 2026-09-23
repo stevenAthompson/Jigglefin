@@ -424,14 +424,124 @@ try {
         throw 'The authenticated TV episode stream did not match the sample file.'
     }
 
+    $homeRoot = Join-Path $smokeProfile 'home-media'
+    $familyDirectory = Join-Path $homeRoot 'Family'
+    $photoDirectory = Join-Path $familyDirectory 'Photos Only'
+    New-Item -ItemType Directory -Path $photoDirectory | Out-Null
+    Copy-Item -LiteralPath $sampleVideo -Destination (Join-Path $familyDirectory 'Smoke Home Clip.mp4')
+    $photoPath = Join-Path $photoDirectory 'Smoke Photo.png'
+    & $ffmpeg -hide_banner -loglevel error -nostdin -f lavfi -i 'color=c=steelblue:s=320x180' `
+        -frames:v 1 -update 1 -y $photoPath
+    if ($LASTEXITCODE -ne 0) { throw 'Could not generate the home-photo smoke sample.' }
+    $homeLibraryName = 'Jigglefin Package Smoke Home Videos'
+    $homeLibraryUrl = "$baseUrl/Library/VirtualFolders?name=$([Uri]::EscapeDataString($homeLibraryName))&collectionType=homevideos&paths=$([Uri]::EscapeDataString($homeRoot))&refreshLibrary=true"
+    Invoke-WebRequest -Uri $homeLibraryUrl -Method Post -Headers $authenticatedHeaders -ContentType 'application/json' `
+        -Body '{"LibraryOptions":{}}' -TimeoutSec 30 | Out-Null
+
+    $homeDeadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    $homeClip = $null
+    $photo = $null
+    $lastHomeBrowseState = 'No home-video library view response yet.'
+    while ([DateTime]::UtcNow -lt $homeDeadline) {
+        $serverProcess.Refresh()
+        if ($serverProcess.HasExited) {
+            throw "Packaged server exited during home-video scan with code $($serverProcess.ExitCode)."
+        }
+
+        try {
+            $views = Invoke-RestMethod -Uri "$baseUrl/UserViews?presetViews=homevideos" -Headers $authenticatedHeaders -TimeoutSec 5
+            $homeLibrary = @($views.Items | Where-Object Name -EQ $homeLibraryName) | Select-Object -First 1
+            $lastHomeBrowseState = 'Home-video library view is not listed.'
+            if ($homeLibrary -and $homeLibrary.Type -eq 'Folder' -and -not $homeLibrary.CollectionType) {
+                $homeGroups = Invoke-RestMethod -Uri "$baseUrl/Items?parentId=$($homeLibrary.Id)" -Headers $authenticatedHeaders -TimeoutSec 5
+                $family = @($homeGroups.Items | Where-Object Name -EQ 'Family') | Select-Object -First 1
+                $lastHomeBrowseState = 'Home-video library exists, but its Family folder is not listed.'
+                if ($family -and $family.Type -eq 'Folder') {
+                    $familyItems = Invoke-RestMethod -Uri "$baseUrl/Items?parentId=$($family.Id)" -Headers $authenticatedHeaders -TimeoutSec 5
+                    $homeClip = @($familyItems.Items | Where-Object { $_.Name -eq 'Smoke Home Clip' -and $_.Type -eq 'Video' }) | Select-Object -First 1
+                    $photoAlbum = @($familyItems.Items | Where-Object { $_.Name -eq 'Photos Only' -and $_.Type -eq 'PhotoAlbum' }) | Select-Object -First 1
+                    $lastHomeBrowseState = 'Family exists; items: ' + [string]::Join(', ', @($familyItems.Items | ForEach-Object { "$($_.Name):$($_.Type)" }))
+                    if ($homeClip -and $photoAlbum) {
+                        $photos = Invoke-RestMethod -Uri "$baseUrl/Items?parentId=$($photoAlbum.Id)" -Headers $authenticatedHeaders -TimeoutSec 5
+                        $photo = @($photos.Items | Where-Object { $_.Name -eq 'Smoke Photo' -and $_.Type -eq 'Photo' }) | Select-Object -First 1
+                        if ($photo) { break }
+                        $lastHomeBrowseState = 'Photo album exists, but its physical photo is not listed.'
+                    }
+                }
+            }
+        } catch {
+            $lastHomeBrowseState = 'Home-video browse request failed: ' + $_.Exception.Message.Substring(0, [Math]::Min(160, $_.Exception.Message.Length))
+        }
+        Start-Sleep -Milliseconds 1000
+    }
+    if (-not $homeClip -or -not $photo) {
+        throw "The packaged server did not expose the home video and photo through physical folders within $TimeoutSeconds seconds. Last observation: $lastHomeBrowseState"
+    }
+    $homeStreamPath = Join-Path $smokeProfile 'streamed-home-video.mp4'
+    Invoke-WebRequest -Uri "$baseUrl/Videos/$($homeClip.Id)/stream?static=true" -Headers $authenticatedHeaders `
+        -OutFile $homeStreamPath -TimeoutSec 30 | Out-Null
+    if ((Get-FileHash -LiteralPath $homeStreamPath -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $sampleVideo -Algorithm SHA256).Hash) {
+        throw 'The authenticated home-video stream did not match the sample file.'
+    }
+
+    $musicVideoRoot = Join-Path $smokeProfile 'music-video-media'
+    $performanceDirectory = Join-Path $musicVideoRoot 'Performances'
+    New-Item -ItemType Directory -Path $performanceDirectory | Out-Null
+    Copy-Item -LiteralPath $sampleVideo -Destination (Join-Path $performanceDirectory 'Smoke Music Clip.mp4')
+    $musicVideoLibraryName = 'Jigglefin Package Smoke Music Videos'
+    $musicVideoLibraryUrl = "$baseUrl/Library/VirtualFolders?name=$([Uri]::EscapeDataString($musicVideoLibraryName))&collectionType=musicvideos&paths=$([Uri]::EscapeDataString($musicVideoRoot))&refreshLibrary=true"
+    Invoke-WebRequest -Uri $musicVideoLibraryUrl -Method Post -Headers $authenticatedHeaders -ContentType 'application/json' `
+        -Body '{"LibraryOptions":{}}' -TimeoutSec 30 | Out-Null
+
+    $musicVideoDeadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    $musicVideo = $null
+    $lastMusicVideoBrowseState = 'No music-video library view response yet.'
+    while ([DateTime]::UtcNow -lt $musicVideoDeadline) {
+        $serverProcess.Refresh()
+        if ($serverProcess.HasExited) {
+            throw "Packaged server exited during music-video scan with code $($serverProcess.ExitCode)."
+        }
+
+        try {
+            $views = Invoke-RestMethod -Uri "$baseUrl/UserViews?presetViews=musicvideos" -Headers $authenticatedHeaders -TimeoutSec 5
+            $musicVideoLibrary = @($views.Items | Where-Object Name -EQ $musicVideoLibraryName) | Select-Object -First 1
+            $lastMusicVideoBrowseState = 'Music-video library view is not listed.'
+            if ($musicVideoLibrary -and $musicVideoLibrary.Type -eq 'Folder' -and -not $musicVideoLibrary.CollectionType) {
+                $musicVideoGroups = Invoke-RestMethod -Uri "$baseUrl/Items?parentId=$($musicVideoLibrary.Id)" -Headers $authenticatedHeaders -TimeoutSec 5
+                $performances = @($musicVideoGroups.Items | Where-Object Name -EQ 'Performances') | Select-Object -First 1
+                $lastMusicVideoBrowseState = 'Music-video library exists, but its Performances folder is not listed.'
+                if ($performances -and $performances.Type -eq 'Folder') {
+                    $musicVideos = Invoke-RestMethod -Uri "$baseUrl/Items?parentId=$($performances.Id)" -Headers $authenticatedHeaders -TimeoutSec 5
+                    $musicVideo = @($musicVideos.Items | Where-Object { $_.Name -eq 'Smoke Music Clip' -and $_.Type -eq 'MusicVideo' }) | Select-Object -First 1
+                    $lastMusicVideoBrowseState = 'Performances exists; items: ' + [string]::Join(', ', @($musicVideos.Items | ForEach-Object { "$($_.Name):$($_.Type)" }))
+                    if ($musicVideo) { break }
+                }
+            }
+        } catch {
+            $lastMusicVideoBrowseState = 'Music-video browse request failed: ' + $_.Exception.Message.Substring(0, [Math]::Min(160, $_.Exception.Message.Length))
+        }
+        Start-Sleep -Milliseconds 1000
+    }
+    if (-not $musicVideo) {
+        throw "The packaged server did not expose the music video through physical folders within $TimeoutSeconds seconds. Last observation: $lastMusicVideoBrowseState"
+    }
+    $musicVideoStreamPath = Join-Path $smokeProfile 'streamed-music-video.mp4'
+    Invoke-WebRequest -Uri "$baseUrl/Videos/$($musicVideo.Id)/stream?static=true" -Headers $authenticatedHeaders `
+        -OutFile $musicVideoStreamPath -TimeoutSec 30 | Out-Null
+    if ((Get-FileHash -LiteralPath $musicVideoStreamPath -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $sampleVideo -Algorithm SHA256).Hash) {
+        throw 'The authenticated music-video stream did not match the sample file.'
+    }
+
     if ($HeadlessWebClient) {
         $oldBaseUrl = $env:JIGGLEFIN_TEST_BASE_URL
         $oldUser = $env:JIGGLEFIN_TEST_USER
         $oldPassword = $env:JIGGLEFIN_TEST_PASSWORD
+        $oldPhotoId = $env:JIGGLEFIN_TEST_PHOTO_ID
         try {
             $env:JIGGLEFIN_TEST_BASE_URL = $baseUrl
             $env:JIGGLEFIN_TEST_USER = $userName
             $env:JIGGLEFIN_TEST_PASSWORD = $temporaryPassword
+            $env:JIGGLEFIN_TEST_PHOTO_ID = $photo.Id
             & $node $clientScript
             if ($LASTEXITCODE -ne 0) {
                 throw "Headless Jellyfin Web smoke test failed with exit code $LASTEXITCODE"
@@ -440,11 +550,12 @@ try {
             $env:JIGGLEFIN_TEST_BASE_URL = $oldBaseUrl
             $env:JIGGLEFIN_TEST_USER = $oldUser
             $env:JIGGLEFIN_TEST_PASSWORD = $oldPassword
+            $env:JIGGLEFIN_TEST_PHOTO_ID = $oldPhotoId
         }
     }
 
     $smokeSucceeded = $true
-    Write-Host "Packaged server smoke test passed: API version $($publicInfo.Version), bundled Web HTTP $($webResponse.StatusCode), login, movie, audiobook, music, and TV folder browse, local NFO and audiobook XML metadata, client playback negotiation, external subtitle, and direct media streams."
+    Write-Host "Packaged server smoke test passed: API version $($publicInfo.Version), bundled Web HTTP $($webResponse.StatusCode), login, movie, audiobook, music, TV, home-video/photo, and music-video folder browse, local NFO and audiobook XML metadata, client playback negotiation, external subtitle, and direct media streams."
 } catch {
     Write-Warning "Package smoke test failed. Isolated profile and logs: $smokeProfile"
     foreach ($logPath in @($stdout, $stderr)) {
