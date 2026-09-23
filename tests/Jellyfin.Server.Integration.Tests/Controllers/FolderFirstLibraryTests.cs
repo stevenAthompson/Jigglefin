@@ -100,6 +100,78 @@ public sealed class FolderFirstLibraryTests
     }
 
     [Fact]
+    public async Task TwoDistinctMoviesInOneDirectory_KeepBothFilesBrowseableAndStreamable()
+    {
+        var testRoot = Path.Combine(Path.GetTempPath(), "jigglefin-two-movies-one-folder-" + Guid.NewGuid().ToString("N"));
+        var mixedFolder = Path.Combine(testRoot, "Action", "Double Feature");
+        Directory.CreateDirectory(mixedFolder);
+        var videoBytes = await File.ReadAllBytesAsync(
+            Path.Combine(AppContext.BaseDirectory, "Test Data", "JigglefinSample.mp4"),
+            TestContext.Current.CancellationToken);
+        await File.WriteAllBytesAsync(Path.Combine(mixedFolder, "First Feature.mp4"), videoBytes, TestContext.Current.CancellationToken);
+        await File.WriteAllBytesAsync(Path.Combine(mixedFolder, "Second Feature.mp4"), videoBytes, TestContext.Current.CancellationToken);
+
+        using var factory = new JellyfinApplicationFactory();
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.AddAuthHeader(await AuthHelper.CompleteStartupAsync(client));
+        var libraryName = "Jigglefin two movie folder " + Guid.NewGuid().ToString("N");
+        var created = false;
+
+        try
+        {
+            using var createResponse = await client.PostAsJsonAsync(
+                $"Library/VirtualFolders?name={Uri.EscapeDataString(libraryName)}&collectionType=movies&paths={Uri.EscapeDataString(testRoot)}&refreshLibrary=false",
+                new AddVirtualFolderDto { LibraryOptions = new LibraryOptions() },
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.NoContent, createResponse.StatusCode);
+            created = true;
+
+            var libraryManager = (LibraryManager)factory.Services.GetRequiredService<ILibraryManager>();
+            await libraryManager.ValidateMediaLibraryInternal(new Progress<double>(), TestContext.Current.CancellationToken);
+
+            var views = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                "UserViews?presetViews=movies", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(views);
+            var library = Assert.Single(views.Items, item => item.Name == libraryName);
+            var groups = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={library.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(groups);
+            var action = Assert.Single(groups.Items, item => item.Name == "Action");
+            var categoryItems = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={action.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(categoryItems);
+            var mixed = Assert.Single(categoryItems.Items, item => item.Name == "Double Feature");
+            Assert.Equal(BaseItemKind.Folder, mixed.Type);
+            var movies = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={mixed.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(movies);
+            Assert.Equal(2, movies.Items.Count);
+            Assert.All(movies.Items, item => Assert.Equal(BaseItemKind.Movie, item.Type));
+            foreach (var name in new[] { "First Feature", "Second Feature" })
+            {
+                var movie = Assert.Single(movies.Items, item => item.Name == name);
+                using var streamResponse = await client.GetAsync(
+                    $"Videos/{movie.Id}/stream?static=true", TestContext.Current.CancellationToken);
+                Assert.Equal(HttpStatusCode.OK, streamResponse.StatusCode);
+                Assert.Equal(videoBytes, await streamResponse.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken));
+            }
+        }
+        finally
+        {
+            if (created)
+            {
+                using var deleteResponse = await client.DeleteAsync(
+                    $"Library/VirtualFolders?name={Uri.EscapeDataString(libraryName)}&refreshLibrary=false",
+                    TestContext.Current.CancellationToken);
+                Assert.Equal(HttpStatusCode.NoContent, deleteResponse.StatusCode);
+            }
+
+            Directory.Delete(testRoot, true);
+        }
+    }
+
+    [Fact]
     public async Task HomeVideoPhotos_KeepMixedFoldersAndPhotoAlbumsBrowseable()
     {
         var testRoot = Path.Combine(Path.GetTempPath(), "jigglefin-homevideo-photo-folders-" + Guid.NewGuid().ToString("N"));
