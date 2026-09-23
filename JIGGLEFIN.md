@@ -59,6 +59,8 @@ name still resolves as a `Series`.
 
 A separate integration test writes a valid local WAV file, browses it as a standard Jellyfin `Audio`
 item, and verifies full and byte-range streaming through the unmodified audio endpoint.
+The library browse test also uses an original, synthetic M4B audiobook to verify full and byte-range
+audio streaming from the standard `AudioBook` item.
 Another checks that a Kodi-style `movie.nfo` supplies the title, year, and plot in standard client
 responses while its physical parent folder remains browseable. That test uses an original,
 synthetically generated MP4 and also checks full and byte-range direct video streaming.

@@ -3,6 +3,8 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Net.Http;
+using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Threading.Tasks;
 using Emby.Server.Implementations.Library;
@@ -34,11 +36,17 @@ public sealed class FolderFirstLibraryTests
             (CollectionType: "homevideos", ItemFolder: "Home Clip", FileName: "Home Clip.mp4", ExpectedKind: BaseItemKind.Video),
             (CollectionType: "musicvideos", ItemFolder: "Music Clip", FileName: "Music Clip.mp4", ExpectedKind: BaseItemKind.MusicVideo)
         };
+        var audiobookBytes = await File.ReadAllBytesAsync(
+            Path.Combine(AppContext.BaseDirectory, "Test Data", "JigglefinSample.m4b"),
+            TestContext.Current.CancellationToken);
         foreach (var library in libraries)
         {
             var mediaFolder = Path.Combine(testRoot, library.ExpectedKind.ToString(), "Action", library.ItemFolder);
             Directory.CreateDirectory(mediaFolder);
-            await File.WriteAllBytesAsync(Path.Combine(mediaFolder, library.FileName), [], TestContext.Current.CancellationToken);
+            await File.WriteAllBytesAsync(
+                Path.Combine(mediaFolder, library.FileName),
+                library.ExpectedKind == BaseItemKind.AudioBook ? audiobookBytes : [],
+                TestContext.Current.CancellationToken);
         }
 
         var looseEpisodeFolder = Path.Combine(testRoot, nameof(BaseItemKind.Series), "Drama");
@@ -150,6 +158,21 @@ public sealed class FolderFirstLibraryTests
                 else
                 {
                     Assert.Equal(library.ExpectedKind, mediaEntry.Type);
+                }
+
+                if (library.ExpectedKind == BaseItemKind.AudioBook)
+                {
+                    using var streamResponse = await client.GetAsync(
+                        $"Audio/{mediaEntry.Id}/stream?static=true",
+                        TestContext.Current.CancellationToken);
+                    Assert.Equal(HttpStatusCode.OK, streamResponse.StatusCode);
+                    Assert.Equal(audiobookBytes, await streamResponse.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken));
+
+                    using var rangeRequest = new HttpRequestMessage(HttpMethod.Get, $"Audio/{mediaEntry.Id}/stream?static=true");
+                    rangeRequest.Headers.Range = new RangeHeaderValue(100, 199);
+                    using var rangeResponse = await client.SendAsync(rangeRequest, TestContext.Current.CancellationToken);
+                    Assert.Equal(HttpStatusCode.PartialContent, rangeResponse.StatusCode);
+                    Assert.Equal(audiobookBytes[100..200], await rangeResponse.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken));
                 }
             }
         }
