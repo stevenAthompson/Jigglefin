@@ -13,6 +13,7 @@ using Jellyfin.Extensions;
 using MediaBrowser.Common.Extensions;
 using MediaBrowser.Controller.Dto;
 using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Entities.Audio;
 using MediaBrowser.Controller.Entities.Movies;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Playlists;
@@ -584,6 +585,13 @@ public class ItemsController : BaseJellyfinApiController
             {
                 query.OrderBy = [(ItemSortBy.ProductionYear, SortOrder.Descending), (ItemSortBy.SortName, SortOrder.Ascending)];
             }
+        }
+
+        // An unfiltered album browse is a physical folder view in Jigglefin.
+        // Keep filtered and recursive requests flattened so standard track lists still work.
+        if (item is MusicAlbum && !query.Recursive && !query.HasFilters)
+        {
+            query.DisplayAlbumFolders = true;
         }
 
         query.Parent = null;

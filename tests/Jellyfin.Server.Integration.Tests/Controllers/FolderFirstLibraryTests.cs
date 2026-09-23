@@ -433,6 +433,21 @@ public sealed class FolderFirstLibraryTests
             Assert.Equal(BaseItemKind.Folder, mixed.Type);
             var multiDiscAlbum = Assert.Single(actionItems.Items, item => item.Name == "Multi Disc Album");
             Assert.Equal(BaseItemKind.MusicAlbum, multiDiscAlbum.Type);
+            var albumItem = Assert.IsType<MediaBrowser.Controller.Entities.Audio.MusicAlbum>(libraryManager.GetItemById(multiDiscAlbum.Id));
+            Assert.Contains(albumItem.Children, item => item.Name == "Disc 1");
+            var discItems = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={multiDiscAlbum.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(discItems);
+            var disc = Assert.Single(discItems.Items, item => item.Name == "Disc 1");
+            Assert.True(disc.IsFolder);
+            var discTracks = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={disc.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(discTracks);
+            Assert.Single(discTracks.Items, item => item.Type == BaseItemKind.Audio);
+            var filteredTracks = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={multiDiscAlbum.Id}&includeItemTypes=Audio", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(filteredTracks);
+            Assert.Single(filteredTracks.Items, item => item.Type == BaseItemKind.Audio);
 
             var children = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
                 $"Items?parentId={mixed.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
