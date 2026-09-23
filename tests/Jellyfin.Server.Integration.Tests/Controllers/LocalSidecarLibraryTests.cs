@@ -425,7 +425,8 @@ public sealed class LocalSidecarLibraryTests
             var details = await client.GetFromJsonAsync<BaseItemDto>(
                 $"Items/{movie.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
             Assert.NotNull(details);
-            Assert.True(details.ImageTags?.ContainsKey(ImageType.Primary));
+            Assert.NotNull(details.ImageTags);
+            Assert.True(details.ImageTags.ContainsKey(ImageType.Primary));
             Assert.NotEmpty(details.BackdropImageTags);
             var storedMovie = libraryManager.GetItemById<BaseItem>(movie.Id);
             Assert.NotNull(storedMovie);
@@ -435,6 +436,24 @@ public sealed class LocalSidecarLibraryTests
                 $"Items/{movie.Id}/Images/Primary", TestContext.Current.CancellationToken);
             Assert.Equal(HttpStatusCode.OK, imageResponse.StatusCode);
             Assert.NotEmpty(await imageResponse.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken));
+
+            var originalPrimaryTag = details.ImageTags[ImageType.Primary];
+            var posterPath = Path.Combine(movieFolder, "poster.png");
+            File.SetLastWriteTimeUtc(posterPath, storedMovie.DateLastSaved.AddSeconds(2));
+            await libraryManager.ValidateMediaLibraryInternal(new Progress<double>(), TestContext.Current.CancellationToken);
+            var updatedArtwork = await client.GetFromJsonAsync<BaseItemDto>(
+                $"Items/{movie.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(updatedArtwork);
+            Assert.NotNull(updatedArtwork.ImageTags);
+            Assert.NotEqual(originalPrimaryTag, updatedArtwork.ImageTags[ImageType.Primary]);
+
+            File.Delete(posterPath);
+            await libraryManager.ValidateMediaLibraryInternal(new Progress<double>(), TestContext.Current.CancellationToken);
+            var withoutPoster = await client.GetFromJsonAsync<BaseItemDto>(
+                $"Items/{movie.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(withoutPoster);
+            Assert.False(withoutPoster.ImageTags?.ContainsKey(ImageType.Primary));
+            Assert.NotEmpty(withoutPoster.BackdropImageTags);
         }
         finally
         {

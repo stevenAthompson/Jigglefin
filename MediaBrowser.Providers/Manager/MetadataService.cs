@@ -905,6 +905,7 @@ namespace MediaBrowser.Providers.Manager
                 {
                     metadata.Item.ProviderIds.Remove(providerId);
                 }
+
                 var path = item.Path?.TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar);
                 var pathName = item.IsFolder ? Path.GetFileName(path) : Path.GetFileNameWithoutExtension(path);
                 if (!string.IsNullOrWhiteSpace(pathName))

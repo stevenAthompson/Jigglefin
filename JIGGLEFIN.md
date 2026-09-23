@@ -127,7 +127,8 @@ responses while its physical parent folder remains browseable. That test uses an
 synthetically generated MP4 and also checks full and byte-range direct video streaming.
 An artwork integration test confirms that a new physical movie uses its local `poster.png` and
 `fanart.png`, advertises both image types in its item DTO, and serves the poster through the
-standard image endpoint.
+standard image endpoint. A subsequent scan updates the poster tag after the local file changes;
+removing the poster clears the primary image without discarding the still-present backdrop.
 An additional integration test checks legacy Emby `movie.xml` in a dedicated movie directory and
 `<movie-file>.xml` beside a loose movie. Both provide standard client title, year, and overview
 fields. If XML and NFO coexist, NFO takes priority. Subsequent scans also pick up NFO/XML edits
