@@ -446,6 +446,12 @@ public sealed class FolderFirstLibraryTests
                 TestContext.Current.CancellationToken);
             Assert.NotNull(webFolderDiscItems);
             Assert.Single(webFolderDiscItems.Items, item => item.Id.Equals(disc.Id));
+            var nameSortedDiscItems = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={multiDiscAlbum.Id}&sortBy=SortName&fields=PrimaryImageAspectRatio,SortName,Path,ChildCount,MediaSourceCount",
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.NotNull(nameSortedDiscItems);
+            Assert.Single(nameSortedDiscItems.Items, item => item.Id.Equals(disc.Id));
             var discTracks = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
                 $"Items?parentId={disc.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
             Assert.NotNull(discTracks);
@@ -455,11 +461,17 @@ public sealed class FolderFirstLibraryTests
             Assert.NotNull(filteredTracks);
             Assert.Single(filteredTracks.Items, item => item.Type == BaseItemKind.Audio);
             var albumDetailsTracks = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
-                $"Items?parentId={multiDiscAlbum.Id}&sortBy=ParentIndexNumber,IndexNumber,SortName",
+                $"Items?parentId={multiDiscAlbum.Id}&sortBy=ParentIndexNumber,IndexNumber,SortName&fields=ItemCounts,PrimaryImageAspectRatio,CanDelete,MediaSourceCount",
                 JsonDefaults.Options,
                 TestContext.Current.CancellationToken);
             Assert.NotNull(albumDetailsTracks);
             Assert.Single(albumDetailsTracks.Items, item => item.Type == BaseItemKind.Audio);
+            var trackSortWithFolderFields = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={multiDiscAlbum.Id}&sortBy=ParentIndexNumber,IndexNumber,SortName&fields=Path,ChildCount,MediaSourceCount",
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.NotNull(trackSortWithFolderFields);
+            Assert.Single(trackSortWithFolderFields.Items, item => item.Type == BaseItemKind.Audio);
 
             var children = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
                 $"Items?parentId={mixed.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);

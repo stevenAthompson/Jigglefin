@@ -587,14 +587,24 @@ public class ItemsController : BaseJellyfinApiController
             }
         }
 
-        // Jellyfin Web's folder browser sorts by IsFolder,SortName, while its
-        // artist and album detail pages use music-specific sorts. Preserve the
-        // ordinary item kinds and flattened tracks for those detail queries.
+        // Jellyfin Web's folder browser requests Path and ChildCount fields,
+        // including when the user changes its sort. Its artist and album
+        // detail pages use music-specific sorts without those folder fields.
+        var hasWebFolderFields = fields.Contains(ItemFields.Path)
+            && fields.Contains(ItemFields.ChildCount)
+            && fields.Contains(ItemFields.MediaSourceCount);
+        var isMusicDetailsSort = query.OrderBy.Count > 0
+            && (query.OrderBy[0].OrderBy is ItemSortBy.ParentIndexNumber or ItemSortBy.IndexNumber
+                || (query.OrderBy.Count > 1
+                    && query.OrderBy[0].OrderBy == ItemSortBy.PremiereDate
+                    && query.OrderBy[1].OrderBy == ItemSortBy.ProductionYear));
         var isPhysicalFolderBrowse = !query.Recursive
             && !query.HasFilters
-            && query.OrderBy.Count == 2
-            && query.OrderBy[0].OrderBy == ItemSortBy.IsFolder
-            && query.OrderBy[1].OrderBy == ItemSortBy.SortName;
+            && !isMusicDetailsSort
+            && (hasWebFolderFields
+                || (query.OrderBy.Count == 2
+                    && query.OrderBy[0].OrderBy == ItemSortBy.IsFolder
+                    && query.OrderBy[1].OrderBy == ItemSortBy.SortName));
 
         if (item is MusicAlbum
             && !query.Recursive

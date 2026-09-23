@@ -180,6 +180,12 @@ public sealed class LocalSidecarLibraryTests
             var folderArtist = Assert.Single(folderArtists.Items, item => item.Id.Equals(artist.Id));
             Assert.Equal(BaseItemKind.Folder, folderArtist.Type);
             Assert.True(folderArtist.IsFolder);
+            var nameSortedArtists = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={genres.Id}&sortBy=SortName&fields=PrimaryImageAspectRatio,SortName,Path,ChildCount,MediaSourceCount",
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.NotNull(nameSortedArtists);
+            Assert.Equal(BaseItemKind.Folder, Assert.Single(nameSortedArtists.Items).Type);
             var artistDetails = await client.GetFromJsonAsync<BaseItemDto>(
                 $"Items/{artist.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
             Assert.Equal(BaseItemKind.MusicArtist, artistDetails?.Type);
@@ -196,12 +202,24 @@ public sealed class LocalSidecarLibraryTests
             var folderAlbum = Assert.Single(folderAlbums.Items, item => item.Id.Equals(album.Id));
             Assert.Equal(BaseItemKind.Folder, folderAlbum.Type);
             Assert.True(folderAlbum.IsFolder);
+            var nameSortedAlbums = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={artist.Id}&sortBy=SortName&fields=PrimaryImageAspectRatio,SortName,Path,ChildCount,MediaSourceCount",
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.NotNull(nameSortedAlbums);
+            Assert.Equal(BaseItemKind.Folder, Assert.Single(nameSortedAlbums.Items).Type);
             var artistDetailsAlbums = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
-                $"Items?parentId={artist.Id}&sortBy=PremiereDate,ProductionYear,SortName",
+                $"Items?parentId={artist.Id}&sortBy=PremiereDate,ProductionYear,SortName&fields=ItemCounts,PrimaryImageAspectRatio,CanDelete,MediaSourceCount",
                 JsonDefaults.Options,
                 TestContext.Current.CancellationToken);
             Assert.NotNull(artistDetailsAlbums);
             Assert.Equal(BaseItemKind.MusicAlbum, Assert.Single(artistDetailsAlbums.Items).Type);
+            var artistSortWithFolderFields = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={artist.Id}&sortBy=PremiereDate,ProductionYear,SortName&fields=Path,ChildCount,MediaSourceCount",
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.NotNull(artistSortWithFolderFields);
+            Assert.Equal(BaseItemKind.MusicAlbum, Assert.Single(artistSortWithFolderFields.Items).Type);
             Assert.Equal(2022, album.ProductionYear);
             var details = await client.GetFromJsonAsync<BaseItemDto>(
                 $"Items/{album.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
