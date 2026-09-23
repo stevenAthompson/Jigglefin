@@ -97,8 +97,9 @@ audiobook still resolves to the usual `Book` or `AudioBook` item.
 Music directories with tracks alongside an unrelated child directory likewise stay `Folder`
 items, so the tracks and child directory remain visible. A normal album without such children,
 including a recognized `Disc 1`-style multi-disc layout, still resolves as `MusicAlbum`.
-For an unfiltered `Items?parentId=<album>` browse, a multi-disc album exposes its physical
-disc folders and their tracks. Filtered or recursive track queries remain flattened for playback.
+For a plain unsorted `Items?parentId=<album>` browse, a multi-disc album exposes its physical
+disc folders and their tracks. Sorted, filtered, or recursive track queries remain flattened for
+playback and for the unmodified Jellyfin Web album-details page.
 Within a physical genre/artist/album tree, Kodi-style `artist.nfo` and `album.nfo` supply the
 standard `MusicArtist` and `MusicAlbum` metadata. Local `artist.xml` and `album.xml` supply the same
 item kinds and common title, year, and overview fields when NFO is absent. NFO takes priority when

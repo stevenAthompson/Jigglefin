@@ -587,9 +587,10 @@ public class ItemsController : BaseJellyfinApiController
             }
         }
 
-        // An unfiltered album browse is a physical folder view in Jigglefin.
-        // Keep filtered and recursive requests flattened so standard track lists still work.
-        if (item is MusicAlbum && !query.Recursive && !query.HasFilters)
+        // A plain album browse is a physical folder view in Jigglefin.
+        // Jellyfin Web sorts album-detail children as tracks, so keep sorted,
+        // filtered and recursive requests flattened for standard playback lists.
+        if (item is MusicAlbum && !query.Recursive && !query.HasFilters && query.OrderBy.Count == 0)
         {
             query.DisplayAlbumFolders = true;
         }

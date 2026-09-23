@@ -448,6 +448,12 @@ public sealed class FolderFirstLibraryTests
                 $"Items?parentId={multiDiscAlbum.Id}&includeItemTypes=Audio", JsonDefaults.Options, TestContext.Current.CancellationToken);
             Assert.NotNull(filteredTracks);
             Assert.Single(filteredTracks.Items, item => item.Type == BaseItemKind.Audio);
+            var albumDetailsTracks = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={multiDiscAlbum.Id}&sortBy=ParentIndexNumber,IndexNumber,SortName",
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.NotNull(albumDetailsTracks);
+            Assert.Single(albumDetailsTracks.Items, item => item.Type == BaseItemKind.Audio);
 
             var children = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
                 $"Items?parentId={mixed.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
