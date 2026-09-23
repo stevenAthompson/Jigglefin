@@ -1,5 +1,6 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
 using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
@@ -81,7 +82,10 @@ public class AlbumMetadataService : MetadataService<MusicAlbum, AlbumInfo>
 
         if (isFullRefresh || currentUpdateType > ItemUpdateType.None)
         {
-            if (!item.LockedFields.Contains(MetadataField.Name))
+            // A local album.nfo title takes precedence over album names inferred
+            // from tracks or their containing folder.
+            if (!item.LockedFields.Contains(MetadataField.Name)
+                && (string.IsNullOrEmpty(item.Path) || !FileSystem.FileExists(Path.Combine(item.Path, "album.nfo"))))
             {
                 var name = children.Select(i => i.Album).FirstOrDefault(i => !string.IsNullOrEmpty(i));
 
@@ -238,6 +242,19 @@ public class AlbumMetadataService : MetadataService<MusicAlbum, AlbumInfo>
 
         var sourceItem = source.Item;
         var targetItem = target.Item;
+
+        // A validation refresh normally keeps an existing album name, even when
+        // album.nfo supplied a title. Keep the local sidecar authoritative when
+        // the provider result is merged back into the physical album item.
+        if (!replaceData
+            && mergeMetadataSettings
+            && !lockedFields.Contains(MetadataField.Name)
+            && !string.IsNullOrEmpty(sourceItem.Name)
+            && !string.IsNullOrEmpty(targetItem.Path)
+            && FileSystem.FileExists(Path.Combine(targetItem.Path, "album.nfo")))
+        {
+            targetItem.Name = sourceItem.Name;
+        }
 
         if (replaceData || targetItem.Artists.Count == 0)
         {

@@ -88,6 +88,9 @@ audiobook still resolves to the usual `Book` or `AudioBook` item.
 Music directories with tracks alongside an unrelated child directory likewise stay `Folder`
 items, so the tracks and child directory remain visible. A normal album without such children,
 including a recognized `Disc 1`-style multi-disc layout, still resolves as `MusicAlbum`.
+Within a physical genre/artist/album tree, Kodi-style `artist.nfo` and `album.nfo` supply the
+standard `MusicArtist` and `MusicAlbum` metadata. An album's local NFO title takes precedence over
+names inferred from its tracks, including on subsequent library scans.
 
 Further resolver work will preserve more physical directory arrangements while assigning compatible
 Jellyfin item kinds from deterministic path rules and local sidecars. In particular, ambiguous

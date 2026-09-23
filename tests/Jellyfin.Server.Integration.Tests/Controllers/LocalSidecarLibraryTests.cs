@@ -21,6 +21,94 @@ namespace Jellyfin.Server.Integration.Tests.Controllers;
 public sealed class LocalSidecarLibraryTests
 {
     [Fact]
+    public async Task MusicNfo_ProvidesLocalArtistAndAlbumMetadataThroughPhysicalFolders()
+    {
+        var testRoot = Path.Combine(Path.GetTempPath(), "jigglefin-music-nfo-" + Guid.NewGuid().ToString("N"));
+        var artistFolder = Path.Combine(testRoot, "Genres", "Physical Artist");
+        var albumFolder = Path.Combine(artistFolder, "Physical Album");
+        Directory.CreateDirectory(albumFolder);
+        await File.WriteAllBytesAsync(
+            Path.Combine(albumFolder, "Track 01.mp3"),
+            [],
+            TestContext.Current.CancellationToken);
+        await File.WriteAllTextAsync(
+            Path.Combine(artistFolder, "artist.nfo"),
+            "<artist><name>Local NFO Artist</name><genre>Jazz</genre></artist>",
+            TestContext.Current.CancellationToken);
+        await File.WriteAllTextAsync(
+            Path.Combine(albumFolder, "album.nfo"),
+            "<album><title>Local NFO Album</title><year>2022</year><plot>Local album description.</plot></album>",
+            TestContext.Current.CancellationToken);
+
+        using var factory = new JellyfinApplicationFactory();
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.AddAuthHeader(await AuthHelper.CompleteStartupAsync(client));
+        var libraryName = "Jigglefin music NFO test " + Guid.NewGuid().ToString("N");
+        var created = false;
+
+        try
+        {
+            using var createResponse = await client.PostAsJsonAsync(
+                $"Library/VirtualFolders?name={Uri.EscapeDataString(libraryName)}&collectionType=music&paths={Uri.EscapeDataString(testRoot)}&refreshLibrary=false",
+                new AddVirtualFolderDto { LibraryOptions = new LibraryOptions() },
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.NoContent, createResponse.StatusCode);
+            created = true;
+
+            var libraryManager = (LibraryManager)factory.Services.GetRequiredService<ILibraryManager>();
+            await libraryManager.ValidateMediaLibraryInternal(new Progress<double>(), TestContext.Current.CancellationToken);
+
+            var views = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                "UserViews?presetViews=music", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(views);
+            var library = Assert.Single(views.Items, item => item.Name == libraryName);
+            Assert.Equal(BaseItemKind.Folder, library.Type);
+            var rootItems = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={library.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(rootItems);
+            var genres = Assert.Single(rootItems.Items, item => item.Name == "Genres");
+            Assert.Equal(BaseItemKind.Folder, genres.Type);
+            var artists = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={genres.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(artists);
+            var artist = Assert.Single(artists.Items, item => item.Name == "Local NFO Artist");
+            Assert.Equal(BaseItemKind.MusicArtist, artist.Type);
+            var albums = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={artist.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(albums);
+            var album = Assert.Single(albums.Items, item => item.Name == "Local NFO Album");
+            Assert.Equal(BaseItemKind.MusicAlbum, album.Type);
+            Assert.Equal(2022, album.ProductionYear);
+            var details = await client.GetFromJsonAsync<BaseItemDto>(
+                $"Items/{album.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.Equal("Local album description.", details?.Overview);
+            var tracks = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={album.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(tracks);
+            Assert.Single(tracks.Items, item => item.Type == BaseItemKind.Audio);
+
+            await libraryManager.ValidateMediaLibraryInternal(new Progress<double>(), TestContext.Current.CancellationToken);
+            var refreshedAlbums = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={artist.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(refreshedAlbums);
+            Assert.Single(refreshedAlbums.Items, item => item.Name == "Local NFO Album");
+        }
+        finally
+        {
+            if (created)
+            {
+                using var deleteResponse = await client.DeleteAsync(
+                    $"Library/VirtualFolders?name={Uri.EscapeDataString(libraryName)}&refreshLibrary=false",
+                    TestContext.Current.CancellationToken);
+                Assert.Equal(HttpStatusCode.NoContent, deleteResponse.StatusCode);
+            }
+
+            Directory.Delete(testRoot, true);
+        }
+    }
+
+    [Fact]
     public async Task EmbySeriesXml_ProvidesClientMetadataWithoutHidingPhysicalGroups()
     {
         var testRoot = Path.Combine(Path.GetTempPath(), "jigglefin-series-xml-" + Guid.NewGuid().ToString("N"));
