@@ -1,14 +1,15 @@
 # Jigglefin artwork
 
-The original artwork is [`Jigglefin.svg`](../Jigglefin.svg). Keep that source unchanged; the PNGs
-and Windows icon in this directory are derived exports. The source artwork includes its light
-background, so the smaller images do too.
+The source artwork is [`Jigglefin.svg`](../Jigglefin.svg). The PNGs and Windows icon in this
+directory are derived exports. The mark uses a simple fin and waves, with no text or character
+details, so it stays legible at small icon sizes.
 
-To regenerate the PNGs on Windows with Inkscape:
+To regenerate the PNGs on Windows with Inkscape, use its console executable so each export
+finishes before the icon is assembled:
 
 ```powershell
 foreach ($size in 32, 64, 128, 256, 512) {
-    inkscape .\Jigglefin.svg --export-type=png --export-width=$size --export-filename="branding/jigglefin-$size.png"
+    & 'C:\Program Files\Inkscape\bin\inkscape.com' .\Jigglefin.svg --export-type=png --export-width=$size --export-filename="branding/jigglefin-$size.png"
 }
 ```
 
