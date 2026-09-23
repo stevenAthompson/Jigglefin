@@ -30,7 +30,9 @@ public sealed class FolderFirstLibraryTests
             (CollectionType: "tvshows", ItemFolder: "Example Show", FileName: "Example Show - S01E01.mkv", ExpectedKind: BaseItemKind.Series),
             (CollectionType: "books", ItemFolder: "Example Book", FileName: "Example Book.pdf", ExpectedKind: BaseItemKind.Book),
             (CollectionType: "books", ItemFolder: "Example Audio Book", FileName: "Example Audio Book.m4b", ExpectedKind: BaseItemKind.AudioBook),
-            (CollectionType: "music", ItemFolder: "Example Album", FileName: "Track 01.mp3", ExpectedKind: BaseItemKind.MusicAlbum)
+            (CollectionType: "music", ItemFolder: "Example Album", FileName: "Track 01.mp3", ExpectedKind: BaseItemKind.MusicAlbum),
+            (CollectionType: "homevideos", ItemFolder: "Home Clip", FileName: "Home Clip.mp4", ExpectedKind: BaseItemKind.Video),
+            (CollectionType: "musicvideos", ItemFolder: "Music Clip", FileName: "Music Clip.mp4", ExpectedKind: BaseItemKind.MusicVideo)
         };
         foreach (var library in libraries)
         {
@@ -44,6 +46,10 @@ public sealed class FolderFirstLibraryTests
         await File.WriteAllBytesAsync(
             Path.Combine(looseEpisodeFolder, "Another Show - S01E01.mkv"),
             [],
+            TestContext.Current.CancellationToken);
+        await File.WriteAllBytesAsync(
+            Path.Combine(testRoot, nameof(BaseItemKind.Video), "Action", "Home Clip", "Snapshot.png"),
+            Convert.FromBase64String("iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl5aZkAAAAASUVORK5CYII="),
             TestContext.Current.CancellationToken);
 
         using var factory = new JellyfinApplicationFactory();
@@ -126,10 +132,25 @@ public sealed class FolderFirstLibraryTests
                     JsonDefaults.Options,
                     TestContext.Current.CancellationToken);
                 Assert.NotNull(secondLevel);
-                Assert.True(
-                    secondLevel.Items.Any(item => item.Name.Contains(library.ItemFolder.Split('(')[0].Trim(), StringComparison.Ordinal)
-                        && item.Type == library.ExpectedKind),
-                    $"No {library.ExpectedKind} for {library.CollectionType}; second level: {string.Join(", ", secondLevel.Items.Select(item => item.Name + ":" + item.Type))}");
+                var mediaEntry = Assert.Single(secondLevel.Items, item => item.Name.Contains(library.ItemFolder.Split('(')[0].Trim(), StringComparison.Ordinal));
+                if ((library.CollectionType is "homevideos" or "musicvideos")
+                    && (mediaEntry.Type is BaseItemKind.Folder or BaseItemKind.PhotoAlbum))
+                {
+                    var files = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                        $"Items?parentId={mediaEntry.Id}",
+                        JsonDefaults.Options,
+                        TestContext.Current.CancellationToken);
+                    Assert.NotNull(files);
+                    Assert.Single(files.Items, item => item.Type == library.ExpectedKind);
+                    if (library.CollectionType == "homevideos")
+                    {
+                        Assert.Single(files.Items, item => item.Type == BaseItemKind.Photo);
+                    }
+                }
+                else
+                {
+                    Assert.Equal(library.ExpectedKind, mediaEntry.Type);
+                }
             }
         }
         finally

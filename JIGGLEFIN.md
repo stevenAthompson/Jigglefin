@@ -52,7 +52,7 @@ The resolver chain now leaves an arbitrary TV grouping directory as a `Folder` u
 `MusicArtist` merely because it contains an album; an explicit `artist.nfo` identifies an artist
 folder. The media beneath those groups still resolves to standard Jellyfin item kinds. These rules
 are covered by unit tests and an end-to-end API browse test for movies, TV shows, books,
-audiobooks, and music.
+audiobooks, music, home videos/photos, and music videos.
 When a TV directory contains a loose named episode from a different show, it remains a physical
 folder and the file appears beneath it as an `Episode`; a directory matching the episode's show
 name still resolves as a `Series`.
