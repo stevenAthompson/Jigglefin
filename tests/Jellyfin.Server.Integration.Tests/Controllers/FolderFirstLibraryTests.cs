@@ -440,6 +440,12 @@ public sealed class FolderFirstLibraryTests
             Assert.NotNull(discItems);
             var disc = Assert.Single(discItems.Items, item => item.Name == "Disc 1");
             Assert.True(disc.IsFolder);
+            var webFolderDiscItems = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={multiDiscAlbum.Id}&sortBy=IsFolder,SortName",
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.NotNull(webFolderDiscItems);
+            Assert.Single(webFolderDiscItems.Items, item => item.Id.Equals(disc.Id));
             var discTracks = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
                 $"Items?parentId={disc.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
             Assert.NotNull(discTracks);

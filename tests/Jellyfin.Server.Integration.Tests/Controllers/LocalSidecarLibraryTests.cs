@@ -172,14 +172,40 @@ public sealed class LocalSidecarLibraryTests
             Assert.NotNull(artists);
             var artist = Assert.Single(artists.Items, item => item.Name == "Local NFO Artist");
             Assert.Equal(BaseItemKind.MusicArtist, artist.Type);
+            var folderArtists = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={genres.Id}&sortBy=IsFolder,SortName",
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.NotNull(folderArtists);
+            var folderArtist = Assert.Single(folderArtists.Items, item => item.Id.Equals(artist.Id));
+            Assert.Equal(BaseItemKind.Folder, folderArtist.Type);
+            Assert.True(folderArtist.IsFolder);
+            var artistDetails = await client.GetFromJsonAsync<BaseItemDto>(
+                $"Items/{artist.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.Equal(BaseItemKind.MusicArtist, artistDetails?.Type);
             var albums = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
                 $"Items?parentId={artist.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
             Assert.NotNull(albums);
             var album = Assert.Single(albums.Items, item => item.Name == "Local NFO Album");
             Assert.Equal(BaseItemKind.MusicAlbum, album.Type);
+            var folderAlbums = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={artist.Id}&sortBy=IsFolder,SortName",
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.NotNull(folderAlbums);
+            var folderAlbum = Assert.Single(folderAlbums.Items, item => item.Id.Equals(album.Id));
+            Assert.Equal(BaseItemKind.Folder, folderAlbum.Type);
+            Assert.True(folderAlbum.IsFolder);
+            var artistDetailsAlbums = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={artist.Id}&sortBy=PremiereDate,ProductionYear,SortName",
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.NotNull(artistDetailsAlbums);
+            Assert.Equal(BaseItemKind.MusicAlbum, Assert.Single(artistDetailsAlbums.Items).Type);
             Assert.Equal(2022, album.ProductionYear);
             var details = await client.GetFromJsonAsync<BaseItemDto>(
                 $"Items/{album.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.Equal(BaseItemKind.MusicAlbum, details?.Type);
             Assert.Equal("Local album description.", details?.Overview);
             var tracks = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
                 $"Items?parentId={album.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);

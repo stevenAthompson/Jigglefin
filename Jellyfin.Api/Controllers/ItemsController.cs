@@ -587,10 +587,19 @@ public class ItemsController : BaseJellyfinApiController
             }
         }
 
-        // A plain album browse is a physical folder view in Jigglefin.
-        // Jellyfin Web sorts album-detail children as tracks, so keep sorted,
-        // filtered and recursive requests flattened for standard playback lists.
-        if (item is MusicAlbum && !query.Recursive && !query.HasFilters && query.OrderBy.Count == 0)
+        // Jellyfin Web's folder browser sorts by IsFolder,SortName, while its
+        // artist and album detail pages use music-specific sorts. Preserve the
+        // ordinary item kinds and flattened tracks for those detail queries.
+        var isPhysicalFolderBrowse = !query.Recursive
+            && !query.HasFilters
+            && query.OrderBy.Count == 2
+            && query.OrderBy[0].OrderBy == ItemSortBy.IsFolder
+            && query.OrderBy[1].OrderBy == ItemSortBy.SortName;
+
+        if (item is MusicAlbum
+            && !query.Recursive
+            && !query.HasFilters
+            && (query.OrderBy.Count == 0 || isPhysicalFolderBrowse))
         {
             query.DisplayAlbumFolders = true;
         }
@@ -632,10 +641,20 @@ public class ItemsController : BaseJellyfinApiController
             result = new QueryResult<BaseItem>(itemsArray);
         }
 
-        return new QueryResult<BaseItemDto>(
-            startIndex,
-            result.TotalRecordCount,
-            _dtoService.GetBaseItemDtos(result.Items, dtoOptions, user, skipVisibilityCheck: true));
+        var itemDtos = _dtoService.GetBaseItemDtos(result.Items, dtoOptions, user, skipVisibilityCheck: true);
+        if (isPhysicalFolderBrowse)
+        {
+            foreach (var itemDto in itemDtos)
+            {
+                if (itemDto.Type is BaseItemKind.MusicArtist or BaseItemKind.MusicAlbum)
+                {
+                    itemDto.Type = BaseItemKind.Folder;
+                    itemDto.IsFolder = true;
+                }
+            }
+        }
+
+        return new QueryResult<BaseItemDto>(startIndex, result.TotalRecordCount, itemDtos);
     }
 
     /// <summary>
