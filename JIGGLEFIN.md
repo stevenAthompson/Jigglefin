@@ -67,6 +67,10 @@ this shape returns a navigable physical folder with its path and child count. Th
 Android TV 0.19.10 app was also exercised in a headless Android 34 emulator against an isolated
 Windows server profile: it browsed `Movies/Action/Native Test Movie` and played the movie, then
 browsed `Books/Fantasy/Native Test Audio` and played the 20-second M4B to completion.
+The same client also browsed `Music/Rock/Native Artist/Native Album/Track 01` and
+`TV/Drama/Native Show/Season 1/Native Pilot`, showed local NFO fields, and played the MP3 track
+and episode to completion. All of these client checks used a headless emulator and an isolated
+server profile; they were not desktop UI tests or CI automation.
 Android TV's details screen has no playback actions for `AudioBook` items. Jigglefin therefore
 presents playable audiobooks as `Audio` DTOs only to the Jellyfin Android TV client; stored item
 kinds and responses to other clients remain `AudioBook`. Untagged audio's minimum-date sentinel
