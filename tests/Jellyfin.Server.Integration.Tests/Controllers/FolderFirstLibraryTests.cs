@@ -222,17 +222,69 @@ public sealed class FolderFirstLibraryTests
             Assert.NotNull(seriesItems);
             var series = Assert.Single(seriesItems.Items, item => item.Name == "Example Show");
             Assert.Equal(BaseItemKind.Series, series.Type);
+            var webFolderSeriesItems = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={drama.Id}&sortBy=IsFolder,SortName&fields=PrimaryImageAspectRatio,SortName,Path,ChildCount,MediaSourceCount",
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.NotNull(webFolderSeriesItems);
+            var webFolderSeries = Assert.Single(webFolderSeriesItems.Items, item => item.Id.Equals(series.Id));
+            Assert.Equal(BaseItemKind.Folder, webFolderSeries.Type);
+            Assert.True(webFolderSeries.IsFolder);
+            var nameSortedSeriesItems = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={drama.Id}&sortBy=SortName&fields=PrimaryImageAspectRatio,SortName,Path,ChildCount,MediaSourceCount",
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.NotNull(nameSortedSeriesItems);
+            Assert.Equal(BaseItemKind.Folder, Assert.Single(nameSortedSeriesItems.Items).Type);
+            var seriesDetails = await client.GetFromJsonAsync<BaseItemDto>(
+                $"Items/{series.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.Equal(BaseItemKind.Series, seriesDetails?.Type);
             var children = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
                 $"Items?parentId={series.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
             Assert.NotNull(children);
+            Assert.Equal(2, children.TotalRecordCount);
+            Assert.DoesNotContain(children.Items, item => item.Name == "Season Unknown");
             var season = Assert.Single(children.Items, item => item.Name == "Season 1");
             Assert.Equal(BaseItemKind.Season, season.Type);
+            var webFolderSeasonItems = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={series.Id}&sortBy=IsFolder,SortName&fields=PrimaryImageAspectRatio,SortName,Path,ChildCount,MediaSourceCount",
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.NotNull(webFolderSeasonItems);
+            var webFolderSeason = Assert.Single(webFolderSeasonItems.Items, item => item.Id.Equals(season.Id));
+            Assert.Equal(BaseItemKind.Folder, webFolderSeason.Type);
+            Assert.True(webFolderSeason.IsFolder);
+            var nameSortedSeasonItems = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={series.Id}&sortBy=SortName&fields=PrimaryImageAspectRatio,SortName,Path,ChildCount,MediaSourceCount",
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.NotNull(nameSortedSeasonItems);
+            Assert.Equal(BaseItemKind.Folder, Assert.Single(nameSortedSeasonItems.Items, item => item.Id.Equals(season.Id)).Type);
+            Assert.Single(webFolderSeasonItems.Items, item => item.Name == "Bonus Collection" && item.Type == BaseItemKind.Folder);
+            Assert.DoesNotContain(webFolderSeasonItems.Items, item => item.Name == "Season Unknown");
+            var pagedWebSeasonItems = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={series.Id}&sortBy=IsFolder,SortName&fields=PrimaryImageAspectRatio,SortName,Path,ChildCount,MediaSourceCount&limit=1",
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.NotNull(pagedWebSeasonItems);
+            Assert.Equal(2, pagedWebSeasonItems.TotalRecordCount);
+            Assert.Single(pagedWebSeasonItems.Items);
+            var seasonDetails = await client.GetFromJsonAsync<BaseItemDto>(
+                $"Items/{season.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.Equal(BaseItemKind.Season, seasonDetails?.Type);
             var seasonChildren = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
                 $"Items?parentId={season.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
             Assert.NotNull(seasonChildren);
             Assert.Single(seasonChildren.Items, item => item.Type == BaseItemKind.Episode);
             var seasonBonus = Assert.Single(seasonChildren.Items, item => item.Name == "Season Bonus");
             Assert.Equal(BaseItemKind.Folder, seasonBonus.Type);
+            var webSeasonChildren = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={season.Id}&sortBy=SortName&fields=PrimaryImageAspectRatio,SortName,Path,ChildCount,MediaSourceCount",
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.NotNull(webSeasonChildren);
+            Assert.Single(webSeasonChildren.Items, item => item.Type == BaseItemKind.Episode);
+            Assert.Single(webSeasonChildren.Items, item => item.Id.Equals(seasonBonus.Id));
             var seasonBonusChildren = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
                 $"Items?parentId={seasonBonus.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
             Assert.NotNull(seasonBonusChildren);

@@ -61,6 +61,11 @@ unnamed virtual seasons. The ordinary `Items?parentId=<series>` route exposes th
 their playable episodes; `Shows/<series>/Seasons` remains seasons-only for existing client flows.
 Physical season folders also expose their nested directories through `Items`, and an unnumbered
 episode beneath one inherits that season number rather than appearing in `Season Unknown`.
+Jellyfin Web's folder-list responses present physical `Series` and `Season` entries as `Folder`
+DTOs, so clicking through a show or season reaches those directories. Direct item details and
+`Shows/<series>/Seasons` keep the real show and season types for standard client features. A
+generated `Season Unknown` without a filesystem path stays out of ordinary `Items` browsing but
+remains available through the Shows endpoint for episode grouping.
 
 A separate integration test writes a valid local WAV file, browses it as a standard Jellyfin `Audio`
 item, and verifies full and byte-range streaming through the unmodified audio endpoint.

@@ -284,9 +284,18 @@ namespace MediaBrowser.Controller.Entities.TV
                 return LibraryManager.GetItemsResult(query);
             }
 
+            if (query.HasFilters)
+            {
+                return base.GetItemsInternal(query);
+            }
+
             // The ordinary Items endpoint is Jigglefin's folder-browsing route.
-            // Keep direct physical children there, including non-season folders.
-            return base.GetItemsInternal(query);
+            // Keep direct physical children, including non-season folders, but
+            // not generated seasons such as Season Unknown with no path.
+            IEnumerable<BaseItem> children = user is null ? Children : GetChildren(user, true, null);
+            var physicalChildren = children.Where(child => child.LocationType != LocationType.Virtual);
+            var visibleChildren = UserViewBuilder.Filter(physicalChildren, user, query, UserDataManager, LibraryManager);
+            return PostFilterAndSort(visibleChildren, query);
         }
 
         public IEnumerable<BaseItem> GetEpisodes(User user, DtoOptions options, bool shouldIncludeMissingEpisodes)

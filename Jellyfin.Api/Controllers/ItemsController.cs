@@ -654,9 +654,15 @@ public class ItemsController : BaseJellyfinApiController
         var itemDtos = _dtoService.GetBaseItemDtos(result.Items, dtoOptions, user, skipVisibilityCheck: true);
         if (isPhysicalFolderBrowse)
         {
+            // Web routes these metadata kinds to detail pages before checking
+            // IsFolder. A folder-list response keeps the physical path open;
+            // direct item and media-specific endpoints retain the real kinds.
             foreach (var itemDto in itemDtos)
             {
-                if (itemDto.Type is BaseItemKind.MusicArtist or BaseItemKind.MusicAlbum)
+                if (itemDto.Type is BaseItemKind.MusicArtist
+                    or BaseItemKind.MusicAlbum
+                    or BaseItemKind.Series
+                    or BaseItemKind.Season)
                 {
                     itemDto.Type = BaseItemKind.Folder;
                     itemDto.IsFolder = true;

@@ -52,7 +52,8 @@ open and potentially migrate that database. Jellyfin and Jigglefin cannot both b
   default for new libraries; explicit provider choices remain available. XML sidecars for books
   and other media types are not yet covered by Jigglefin's readers.
 - Media library entries are presented as folders in UserViews so standard clients use their
-  built-in folder browser. The stored library type and child media types remain unchanged.
+  built-in folder browser. Web folder-list responses also keep shows, seasons, artists, and albums
+  navigable; direct details retain their standard media types.
 - The standard web client has been checked against a packaged server for folder navigation and
   playback of a synthetic movie. Automated API tests cover browse paths and direct or byte-range
   streaming for movie, music, and audiobook samples. Windows CI also uses its bundled FFmpeg to
