@@ -86,19 +86,24 @@ try {
                 # Jellyfin's temporary setup server exposes this API before the real web app is ready.
                 $candidateWeb = Invoke-WebRequest -Uri "$baseUrl/web/index.html" -TimeoutSec 3
                 if ($candidateWeb.StatusCode -eq 200 -and $candidateWeb.Content -match '<html') {
-                    $publicInfo = $candidate
-                    $webResponse = $candidateWeb
-                    break
+                    # Public endpoints can respond while the main server still returns 503.
+                    # Wait for the startup wizard API before sending setup requests.
+                    $candidateFirstUser = Invoke-RestMethod -Uri "$baseUrl/Startup/User" -TimeoutSec 3
+                    if ($candidateFirstUser.Name) {
+                        $publicInfo = $candidate
+                        $webResponse = $candidateWeb
+                        break
+                    }
                 }
             }
         } catch {
-            # Startup temporarily returns 503 HTML from /web and may briefly rebind the port.
+            # Startup can temporarily return 503 from /web or /Startup/User and may rebind the port.
         }
         Start-Sleep -Milliseconds 1000
     }
 
     if ($null -eq $publicInfo) {
-        throw "Packaged server did not serve both its public API and bundled Web within $TimeoutSeconds seconds."
+        throw "Packaged server did not serve its public API, bundled Web, and startup user within $TimeoutSeconds seconds."
     }
 
     $listeners = @(Get-NetTCPConnection -LocalPort 8096 -State Listen -ErrorAction Stop)
@@ -112,10 +117,6 @@ try {
     # Complete the first-run wizard only in this newly generated, isolated profile.
     $temporaryPassword = 'Tmp-' + [Guid]::NewGuid().ToString('N') + '!1'
     $userName = 'JigglefinSmoke'
-    $firstUser = Invoke-RestMethod -Uri "$baseUrl/Startup/User" -TimeoutSec 15
-    if (-not $firstUser.Name) {
-        throw 'The packaged server did not initialize its first startup user.'
-    }
     $userPayload = @{ Name = $userName; Password = $temporaryPassword } | ConvertTo-Json -Compress
     Invoke-WebRequest -Uri "$baseUrl/Startup/User" -Method Post -ContentType 'application/json' `
         -Body $userPayload -TimeoutSec 15 | Out-Null
