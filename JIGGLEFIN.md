@@ -144,6 +144,8 @@ fields. If XML and NFO coexist, NFO takes priority. Subsequent scans also pick u
 and removals: deleting the preferred NFO falls through to XML, and removing the final sidecar
 returns the item to its path-derived title and year instead of retaining stale metadata. The
 internal sidecar provenance used for this is not included in client provider IDs.
+Malformed `movie.xml` or `movie.nfo` files do not hide the physical movie or prevent direct
+streaming; the movie retains its path-derived fallback title.
 Another integration test checks `series.xml` in a show directory below a physical TV category.
 The normal `Series` item receives its local title, year, and overview, while the category remains
 visible as a folder. The XML also marks a show with only an unnumbered bonus subfolder as a
