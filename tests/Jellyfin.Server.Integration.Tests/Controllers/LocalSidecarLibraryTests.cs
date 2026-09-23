@@ -21,6 +21,98 @@ namespace Jellyfin.Server.Integration.Tests.Controllers;
 public sealed class LocalSidecarLibraryTests
 {
     [Fact]
+    public async Task EmbySeriesXml_ProvidesClientMetadataWithoutHidingPhysicalGroups()
+    {
+        var testRoot = Path.Combine(Path.GetTempPath(), "jigglefin-series-xml-" + Guid.NewGuid().ToString("N"));
+        var seriesFolder = Path.Combine(testRoot, "Drama", "Example Show");
+        Directory.CreateDirectory(seriesFolder);
+        await File.WriteAllBytesAsync(
+            Path.Combine(seriesFolder, "Example Show - S01E01.mp4"),
+            await File.ReadAllBytesAsync(
+                Path.Combine(AppContext.BaseDirectory, "Test Data", "JigglefinSample.mp4"),
+                TestContext.Current.CancellationToken),
+            TestContext.Current.CancellationToken);
+        await File.WriteAllTextAsync(
+            Path.Combine(seriesFolder, "series.xml"),
+            "<Series><LocalTitle>Local XML Series</LocalTitle><ProductionYear>2020</ProductionYear><Overview>From the series XML.</Overview></Series>",
+            TestContext.Current.CancellationToken);
+        var precedenceFolder = Path.Combine(testRoot, "Drama", "Both Sources");
+        Directory.CreateDirectory(precedenceFolder);
+        await File.WriteAllBytesAsync(
+            Path.Combine(precedenceFolder, "Both Sources - S01E01.mp4"),
+            await File.ReadAllBytesAsync(
+                Path.Combine(AppContext.BaseDirectory, "Test Data", "JigglefinSample.mp4"),
+                TestContext.Current.CancellationToken),
+            TestContext.Current.CancellationToken);
+        await File.WriteAllTextAsync(
+            Path.Combine(precedenceFolder, "series.xml"),
+            "<Series><LocalTitle>Secondary Series XML</LocalTitle></Series>",
+            TestContext.Current.CancellationToken);
+        await File.WriteAllTextAsync(
+            Path.Combine(precedenceFolder, "tvshow.nfo"),
+            "<tvshow><title>Preferred Series NFO</title></tvshow>",
+            TestContext.Current.CancellationToken);
+
+        using var factory = new JellyfinApplicationFactory();
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.AddAuthHeader(await AuthHelper.CompleteStartupAsync(client));
+        var libraryName = "Jigglefin series XML test " + Guid.NewGuid().ToString("N");
+        var created = false;
+
+        try
+        {
+            using var createResponse = await client.PostAsJsonAsync(
+                $"Library/VirtualFolders?name={Uri.EscapeDataString(libraryName)}&collectionType=tvshows&paths={Uri.EscapeDataString(testRoot)}&refreshLibrary=false",
+                new AddVirtualFolderDto { LibraryOptions = new LibraryOptions() },
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.NoContent, createResponse.StatusCode);
+            created = true;
+
+            var libraryManager = (LibraryManager)factory.Services.GetRequiredService<ILibraryManager>();
+            await libraryManager.ValidateMediaLibraryInternal(new Progress<double>(), TestContext.Current.CancellationToken);
+
+            var views = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                "UserViews?presetViews=tvshows", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(views);
+            var library = Assert.Single(views.Items, item => item.Name == libraryName);
+            Assert.Equal(BaseItemKind.Folder, library.Type);
+
+            var groups = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={library.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(groups);
+            var drama = Assert.Single(groups.Items, item => item.Name == "Drama");
+            Assert.Equal(BaseItemKind.Folder, drama.Type);
+
+            var seriesItems = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={drama.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(seriesItems);
+            Assert.Equal(2, seriesItems.Items.Count);
+            var series = Assert.Single(seriesItems.Items, item => item.Name == "Local XML Series");
+            var preferredNfo = Assert.Single(seriesItems.Items, item => item.Name == "Preferred Series NFO");
+            Assert.Equal(BaseItemKind.Series, series.Type);
+            Assert.Equal(BaseItemKind.Series, preferredNfo.Type);
+            Assert.Equal(2020, series.ProductionYear);
+
+            var details = await client.GetFromJsonAsync<BaseItemDto>(
+                $"Items/{series.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.Equal("From the series XML.", details?.Overview);
+        }
+        finally
+        {
+            if (created)
+            {
+                using var deleteResponse = await client.DeleteAsync(
+                    $"Library/VirtualFolders?name={Uri.EscapeDataString(libraryName)}&refreshLibrary=false",
+                    TestContext.Current.CancellationToken);
+                Assert.Equal(HttpStatusCode.NoContent, deleteResponse.StatusCode);
+            }
+
+            Directory.Delete(testRoot, true);
+        }
+    }
+
+    [Fact]
     public async Task EmbyMovieXml_ProvidesClientMetadataForDedicatedAndLooseMovies()
     {
         var testRoot = Path.Combine(Path.GetTempPath(), "jigglefin-xml-sidecar-" + Guid.NewGuid().ToString("N"));

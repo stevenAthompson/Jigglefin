@@ -27,7 +27,7 @@ The first milestone establishes local-first policy without changing the wire pro
 
 - the existing Jellyfin physical `Folders` view is enabled on new installations;
 - remote metadata providers are disabled by default for new libraries;
-- Kodi NFO readers remain enabled, and Jigglefin reads legacy Emby movie XML sidecars;
+- Kodi NFO readers remain enabled, and Jigglefin reads legacy Emby movie and series XML sidecars;
 - local artwork, screen grabbing, and image extraction remain available;
 - direct play, transcoding, authentication, and all existing client endpoints stay upstream code.
 
@@ -66,13 +66,16 @@ responses while its physical parent folder remains browseable. That test uses an
 synthetically generated MP4 and also checks full and byte-range direct video streaming.
 An additional integration test checks legacy Emby `movie.xml` in a dedicated movie directory and
 `<movie-file>.xml` beside a loose movie. Both provide standard client title, year, and overview
-fields. If XML and NFO coexist, NFO takes priority. XML readers for other media kinds remain work
-in progress.
+fields. If XML and NFO coexist, NFO takes priority.
+Another integration test checks `series.xml` in a show directory below a physical TV category.
+The normal `Series` item receives its local title, year, and overview, while the category remains
+visible as a folder. A coexisting `tvshow.nfo` takes priority over the series XML.
+XML readers for media kinds beyond movies and series remain work in progress.
 
 A movie category with a single loose file, such as `Action/Loose Movie.mp4`, remains a physical
 `Folder` with a `Movie` child. A dedicated movie directory still resolves to a `Movie` when its
-name matches the video filename or it contains `movie.nfo`; this distinction is covered by an
-API browse test.
+name matches the video filename or it contains `movie.nfo` or `movie.xml`; this distinction is
+covered by an API browse test.
 
 Further resolver work will preserve more physical directory arrangements while assigning compatible
 Jellyfin item kinds from deterministic path rules and local sidecars. In particular, ambiguous

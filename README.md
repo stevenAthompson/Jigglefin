@@ -40,10 +40,10 @@ open and potentially migrate that database. Jellyfin and Jigglefin cannot both b
 
 - Physical category folders stay navigable. A single loose movie or named TV episode does not
   automatically replace its parent category with a Movie or Series.
-- Kodi-style movie.nfo, legacy Emby movie.xml or movie-name.xml, local artwork, embedded tags,
-  and filenames are used ahead of remote metadata. Network metadata providers are disabled by
-  default for new libraries; explicit provider choices remain available. XML sidecars for other
-  media types are not yet covered by Jigglefin's reader.
+- Kodi-style NFO and legacy Emby `movie.xml`, `<movie-file>.xml`, and `series.xml` sidecars, local
+  artwork, embedded tags, and filenames are used ahead of remote metadata. Network metadata
+  providers are disabled by default for new libraries; explicit provider choices remain
+  available. XML sidecars for other media types are not yet covered by Jigglefin's readers.
 - Media library entries are presented as folders in UserViews so standard clients use their
   built-in folder browser. The stored library type and child media types remain unchanged.
 - The standard web client has been checked against a packaged server for folder navigation and
