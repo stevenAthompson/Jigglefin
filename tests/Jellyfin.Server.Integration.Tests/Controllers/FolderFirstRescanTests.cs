@@ -24,7 +24,7 @@ public sealed class FolderFirstRescanTests
     [InlineData("tvshows", "Named Item - S01E01.mp4", BaseItemKind.Series)]
     [InlineData("books", "Named Item.pdf", BaseItemKind.Book)]
     [InlineData("music", "Track 01.mp3", BaseItemKind.MusicAlbum)]
-    public async Task RemovingLastMediaFile_RestoresEmptyPhysicalFolder(
+    public async Task RemovingAndRestoringLastMediaFile_ChangesPhysicalFolderKind(
         string collectionType,
         string mediaFileName,
         BaseItemKind initialKind)
@@ -81,6 +81,13 @@ public sealed class FolderFirstRescanTests
                 $"Items?parentId={emptyFolder.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
             Assert.NotNull(children);
             Assert.Empty(children.Items);
+
+            await File.WriteAllBytesAsync(mediaPath, [], TestContext.Current.CancellationToken);
+            await libraryManager.ValidateMediaLibraryInternal(new Progress<double>(), TestContext.Current.CancellationToken);
+            var restoredItems = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={action.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(restoredItems);
+            Assert.Equal(initialKind, Assert.Single(restoredItems.Items).Type);
         }
         finally
         {
