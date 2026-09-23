@@ -92,6 +92,26 @@ public class UserViewsController : BaseJellyfinApiController
 
         var dtos = _dtoService.GetBaseItemDtos(folders, dtoOptions, user, skipVisibilityCheck: true);
 
+        // Standard clients route a typed library (for example, movies) to its
+        // metadata-first landing page. Present media library entries as folders
+        // so their existing folder browser requests immediate physical children.
+        // The underlying library and child item types remain unchanged.
+        foreach (var dto in dtos)
+        {
+            if (dto.CollectionType is CollectionType.movies
+                or CollectionType.tvshows
+                or CollectionType.music
+                or CollectionType.musicvideos
+                or CollectionType.homevideos
+                or CollectionType.books
+                or CollectionType.photos)
+            {
+                dto.Type = BaseItemKind.Folder;
+                dto.CollectionType = null;
+                dto.IsFolder = true;
+            }
+        }
+
         return new QueryResult<BaseItemDto>(dtos);
     }
 

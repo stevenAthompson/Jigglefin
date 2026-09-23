@@ -65,6 +65,19 @@ public sealed class FolderFirstLibraryTests
                 new Progress<double>(),
                 TestContext.Current.CancellationToken);
 
+            var defaultViews = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                "UserViews",
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.NotNull(defaultViews);
+            foreach (var library in libraries)
+            {
+                var defaultView = Assert.Single(defaultViews.Items, item => item.Name == "Jigglefin" + library.ExpectedKind);
+                Assert.Equal(BaseItemKind.Folder, defaultView.Type);
+                Assert.Null(defaultView.CollectionType);
+                Assert.True(defaultView.IsFolder);
+            }
+
             foreach (var library in libraries)
             {
                 var libraryName = "Jigglefin" + library.ExpectedKind;
@@ -74,7 +87,9 @@ public sealed class FolderFirstLibraryTests
                     TestContext.Current.CancellationToken);
                 Assert.NotNull(views);
                 var libraryView = Assert.Single(views.Items, item => item.Name == libraryName);
-                Assert.Equal(Enum.Parse<CollectionType>(library.CollectionType), libraryView.CollectionType);
+                Assert.Equal(BaseItemKind.Folder, libraryView.Type);
+                Assert.Null(libraryView.CollectionType);
+                Assert.True(libraryView.IsFolder);
 
                 var firstLevel = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
                     $"Items?parentId={libraryView.Id}",

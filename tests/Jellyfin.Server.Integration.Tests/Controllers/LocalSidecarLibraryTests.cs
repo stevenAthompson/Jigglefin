@@ -71,6 +71,9 @@ public sealed class LocalSidecarLibraryTests
                 TestContext.Current.CancellationToken);
             Assert.NotNull(views);
             var library = Assert.Single(views.Items, item => item.Name == libraryName);
+            Assert.Equal(BaseItemKind.Folder, library.Type);
+            Assert.Null(library.CollectionType);
+            Assert.True(library.IsFolder);
 
             var groups = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
                 $"Items?parentId={library.Id}",
@@ -164,6 +167,9 @@ public sealed class LocalSidecarLibraryTests
                 TestContext.Current.CancellationToken);
             Assert.NotNull(views);
             var library = Assert.Single(views.Items, item => item.Name == libraryName);
+            Assert.Equal(BaseItemKind.Folder, library.Type);
+            Assert.Null(library.CollectionType);
+            Assert.True(library.IsFolder);
 
             var groups = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
                 $"Items?parentId={library.Id}",

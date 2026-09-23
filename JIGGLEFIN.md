@@ -40,6 +40,13 @@ physical media folders. This keeps an `Action/Example Movie/Example Movie.mkv` t
 other folder-oriented library views already use the physical children path. Recursive queries still
 serve searches and client features that request the full library.
 
+Standard clients choose a metadata-first landing page when a `UserViews` entry advertises a movie,
+TV, music, or book collection type. Jigglefin presents those media library *entries* as ordinary
+folders in `UserViews` so clients use their existing folder-browser route by default. The stored
+collection type, media item kinds, and deeper API contracts remain unchanged. An end-to-end check
+with unmodified Jellyfin Web verified navigation from the library tile through `Action` to a loose
+movie and through `Comedy` to a dedicated movie item.
+
 The resolver chain now leaves an arbitrary TV grouping directory as a `Folder` unless it contains
 `tvshow.nfo` or episode/season evidence. A music grouping directory is not inferred to be a
 `MusicArtist` merely because it contains an album; an explicit `artist.nfo` identifies an artist
