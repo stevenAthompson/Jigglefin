@@ -193,7 +193,8 @@ SHA256 digest. It can also be reproduced locally by building that web commit wit
 then running `scripts/package-win.ps1 -WebDistPath <web-dist-path> -FfmpegDirectory <ffmpeg-path>`.
 Before artifact upload, CI runs `scripts/smoke-package-win.ps1` against the assembled package.
 It uses a fresh temporary profile and random one-time admin password to check setup, login,
-physical movie-folder browsing, local NFO fields, and direct video bytes; successful profiles
+physical movie and audiobook folders, local NFO fields, standard client playback negotiation,
+external subtitles, and direct media bytes; successful profiles
 are cleaned up after the server stops when Windows releases their files.
 The extracted package includes `Start-Jigglefin.ps1`; see its `README-PORTABLE.md` for first-run
 instructions. Its bundled FFmpeg is used by default.

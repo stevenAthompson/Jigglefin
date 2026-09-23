@@ -15,13 +15,16 @@ $ffmpeg = Join-Path $package 'ffmpeg.exe'
 $web = Join-Path $package 'jellyfin-web'
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $sampleVideo = Join-Path $repositoryRoot 'tests/Jellyfin.Server.Integration.Tests/Test Data/JigglefinSample.mp4'
+$sampleAudioBook = Join-Path $repositoryRoot 'tests/Jellyfin.Server.Integration.Tests/Test Data/JigglefinSample.m4b'
 foreach ($requiredFile in @($server, $ffmpeg, (Join-Path $web 'index.html'), (Join-Path $web 'config.json'))) {
     if (-not (Test-Path -LiteralPath $requiredFile -PathType Leaf)) {
         throw "The Windows package is missing $requiredFile"
     }
 }
-if (-not (Test-Path -LiteralPath $sampleVideo -PathType Leaf)) {
-    throw "The package smoke sample is missing: $sampleVideo"
+foreach ($sampleFile in @($sampleVideo, $sampleAudioBook)) {
+    if (-not (Test-Path -LiteralPath $sampleFile -PathType Leaf)) {
+        throw "The package smoke sample is missing: $sampleFile"
+    }
 }
 
 # The package uses Jellyfin's default port. Never mistake an existing local server for this test instance.
@@ -165,13 +168,35 @@ try {
     if ($movieDetails.ProductionYear -ne 2026 -or $movieDetails.Overview -ne 'Smoke-test local metadata.') {
         throw 'The packaged server did not apply local Kodi-style movie metadata to standard item details.'
     }
+    $playbackPayload = @{
+        DeviceProfile = @{
+            Name = 'Jigglefin Package Smoke'
+            MaxStreamingBitrate = 1000000
+            DirectPlayProfiles = @(@{ Container = 'mp4'; VideoCodec = 'h264'; AudioCodec = 'aac'; Type = 'Video' })
+            SubtitleProfiles = @(@{ Format = 'srt'; Method = 'External' })
+        }
+        EnableDirectPlay = $true
+        EnableDirectStream = $true
+        EnableTranscoding = $false
+    } | ConvertTo-Json -Depth 8 -Compress
+    $playback = Invoke-RestMethod -Uri "$baseUrl/Items/$($movie.Id)/PlaybackInfo" -Method Post `
+        -Headers $authenticatedHeaders -ContentType 'application/json' -Body $playbackPayload -TimeoutSec 30
+    $playbackSource = @($playback.MediaSources) | Select-Object -First 1
+    if ($playback.ErrorCode -or -not $playback.PlaySessionId -or @($playback.MediaSources).Count -ne 1 `
+        -or -not $playbackSource.SupportsDirectPlay -or $playbackSource.TranscodingUrl) {
+        throw 'The standard client playback-info request did not offer direct play of the folder-browsed sample movie.'
+    }
+    $negotiatedSubtitle = @($playbackSource.MediaStreams | Where-Object { $_.Type -eq 'Subtitle' -and $_.IsExternal }) | Select-Object -First 1
+    if (-not $negotiatedSubtitle -or $negotiatedSubtitle.DeliveryMethod -ne 'External' -or -not $negotiatedSubtitle.DeliveryUrl) {
+        throw 'The client playback-info response did not offer the local subtitle for external delivery.'
+    }
     $mediaSource = @($movieDetails.MediaSources) | Select-Object -First 1
     $subtitle = @($mediaSource.MediaStreams | Where-Object { $_.Type -eq 'Subtitle' -and $_.IsExternal }) | Select-Object -First 1
     if (-not $mediaSource -or -not $subtitle -or $subtitle.Language -ne 'eng') {
         throw 'The packaged server did not expose the local external subtitle in the movie media source.'
     }
     $subtitlePath = Join-Path $smokeProfile 'streamed-subtitle.srt'
-    $subtitleUrl = "$baseUrl/Videos/$($movie.Id)/$([Uri]::EscapeDataString($mediaSource.Id))/Subtitles/$($subtitle.Index)/Stream.srt"
+    $subtitleUrl = [Uri]::new([Uri]$baseUrl, $negotiatedSubtitle.DeliveryUrl).AbsoluteUri
     Invoke-WebRequest -Uri $subtitleUrl -Headers $authenticatedHeaders -OutFile $subtitlePath -TimeoutSec 30 | Out-Null
     if (-not (Get-Content -LiteralPath $subtitlePath -Raw).Contains('A local smoke subtitle.', [StringComparison]::Ordinal)) {
         throw 'The standard subtitle endpoint did not serve the local subtitle text.'
@@ -184,8 +209,76 @@ try {
         throw 'The authenticated video stream did not match the sample file.'
     }
 
+    $bookRoot = Join-Path $smokeProfile 'books-media'
+    $audioBookDirectory = Join-Path $bookRoot 'Fantasy/Smoke Audio Book'
+    New-Item -ItemType Directory -Path $audioBookDirectory | Out-Null
+    Copy-Item -LiteralPath $sampleAudioBook -Destination (Join-Path $audioBookDirectory 'Smoke Audio Book.m4b')
+    $bookLibraryName = 'Jigglefin Package Smoke Books'
+    $bookLibraryUrl = "$baseUrl/Library/VirtualFolders?name=$([Uri]::EscapeDataString($bookLibraryName))&collectionType=books&paths=$([Uri]::EscapeDataString($bookRoot))&refreshLibrary=true"
+    Invoke-WebRequest -Uri $bookLibraryUrl -Method Post -Headers $authenticatedHeaders -ContentType 'application/json' `
+        -Body '{"LibraryOptions":{}}' -TimeoutSec 30 | Out-Null
+
+    $bookDeadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    $audioBook = $null
+    $lastBookBrowseState = 'No book library view response yet.'
+    while ([DateTime]::UtcNow -lt $bookDeadline) {
+        $serverProcess.Refresh()
+        if ($serverProcess.HasExited) {
+            throw "Packaged server exited during audiobook scan with code $($serverProcess.ExitCode)."
+        }
+
+        try {
+            $views = Invoke-RestMethod -Uri "$baseUrl/UserViews?presetViews=books" -Headers $authenticatedHeaders -TimeoutSec 5
+            $bookLibrary = @($views.Items | Where-Object Name -EQ $bookLibraryName) | Select-Object -First 1
+            $lastBookBrowseState = 'Book library view is not listed.'
+            if ($bookLibrary -and $bookLibrary.Type -eq 'Folder' -and -not $bookLibrary.CollectionType) {
+                $bookGroups = Invoke-RestMethod -Uri "$baseUrl/Items?parentId=$($bookLibrary.Id)" -Headers $authenticatedHeaders -TimeoutSec 5
+                $fantasy = @($bookGroups.Items | Where-Object Name -EQ 'Fantasy') | Select-Object -First 1
+                $lastBookBrowseState = 'Book library exists, but its Fantasy folder is not listed.'
+                if ($fantasy -and $fantasy.Type -eq 'Folder') {
+                    $books = Invoke-RestMethod -Uri "$baseUrl/Items?parentId=$($fantasy.Id)" -Headers $authenticatedHeaders -TimeoutSec 5
+                    $audioBook = @($books.Items | Where-Object { $_.Name -eq 'Smoke Audio Book' -and $_.Type -eq 'AudioBook' }) | Select-Object -First 1
+                    $lastBookBrowseState = 'Fantasy exists; book items: ' + [string]::Join(', ', @($books.Items | ForEach-Object { "$($_.Name):$($_.Type)" }))
+                    if ($audioBook) {
+                        break
+                    }
+                }
+            }
+        } catch {
+            $lastBookBrowseState = 'Book browse request failed: ' + $_.Exception.Message.Substring(0, [Math]::Min(160, $_.Exception.Message.Length))
+        }
+        Start-Sleep -Milliseconds 1000
+    }
+    if (-not $audioBook) {
+        throw "The packaged server did not expose the sample audiobook through physical folders within $TimeoutSeconds seconds. Last observation: $lastBookBrowseState"
+    }
+
+    $audioPlaybackPayload = @{
+        DeviceProfile = @{
+            Name = 'Jigglefin Package Smoke Audio'
+            MaxStreamingBitrate = 1000000
+            DirectPlayProfiles = @(@{ Container = 'm4b,m4a,mp4'; AudioCodec = 'aac'; Type = 'Audio' })
+        }
+        EnableDirectPlay = $true
+        EnableDirectStream = $true
+        EnableTranscoding = $false
+    } | ConvertTo-Json -Depth 8 -Compress
+    $audioPlayback = Invoke-RestMethod -Uri "$baseUrl/Items/$($audioBook.Id)/PlaybackInfo" -Method Post `
+        -Headers $authenticatedHeaders -ContentType 'application/json' -Body $audioPlaybackPayload -TimeoutSec 30
+    $audioSource = @($audioPlayback.MediaSources) | Select-Object -First 1
+    if ($audioPlayback.ErrorCode -or -not $audioPlayback.PlaySessionId -or @($audioPlayback.MediaSources).Count -ne 1 `
+        -or -not $audioSource.SupportsDirectPlay -or $audioSource.TranscodingUrl) {
+        throw 'The standard client playback-info request did not offer direct play of the folder-browsed audiobook.'
+    }
+    $audioStreamPath = Join-Path $smokeProfile 'streamed-audiobook.m4b'
+    Invoke-WebRequest -Uri "$baseUrl/Audio/$($audioBook.Id)/stream?static=true" -Headers $authenticatedHeaders `
+        -OutFile $audioStreamPath -TimeoutSec 30 | Out-Null
+    if ((Get-FileHash -LiteralPath $audioStreamPath -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $sampleAudioBook -Algorithm SHA256).Hash) {
+        throw 'The authenticated audiobook stream did not match the sample file.'
+    }
+
     $smokeSucceeded = $true
-    Write-Host "Packaged server smoke test passed: API version $($publicInfo.Version), bundled Web HTTP $($webResponse.StatusCode), login, folder browse, local NFO metadata, external subtitle, and direct movie stream."
+    Write-Host "Packaged server smoke test passed: API version $($publicInfo.Version), bundled Web HTTP $($webResponse.StatusCode), login, movie and audiobook folder browse, local NFO metadata, client playback negotiation, external subtitle, and direct media streams."
 } catch {
     Write-Warning "Package smoke test failed. Isolated profile and logs: $smokeProfile"
     foreach ($logPath in @($stdout, $stderr)) {

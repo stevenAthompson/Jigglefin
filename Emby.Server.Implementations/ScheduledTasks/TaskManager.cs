@@ -257,6 +257,12 @@ public class TaskManager : ITaskManager
                 {
                     Execute(scheduledTask, enqueuedType.Item2);
                 }
+                else
+                {
+                    // A different scheduled task may have completed while this one is
+                    // still running. Keep its follow-up request until it becomes idle.
+                    _taskQueue.Enqueue(enqueuedType);
+                }
             }
         }
     }

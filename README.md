@@ -64,8 +64,9 @@ open and potentially migrate that database. Jellyfin and Jigglefin cannot both b
   streaming for movie, music, and audiobook samples. Windows CI also uses its bundled FFmpeg to
   verify movie-to-HLS and audiobook-to-MP3 transcoding, plus local external subtitle delivery.
   Before uploading the ZIP, CI starts the packaged server with an isolated profile, completes
-  setup with a throwaway password, and checks authenticated folder browsing, local movie NFO
-  metadata, external subtitles, and direct streaming. Native client coverage and more ambiguous
+  setup with a throwaway password, and checks authenticated movie and audiobook folder browsing,
+  local movie NFO metadata, client playback negotiation, external subtitles, and direct streaming.
+  Native client coverage and more ambiguous
   mixed-content layouts remain work in progress.
 
 The detailed design and upstream merge strategy are in [JIGGLEFIN.md](JIGGLEFIN.md).
