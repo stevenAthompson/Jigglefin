@@ -149,6 +149,10 @@ unnamed virtual seasons. The ordinary `Items?parentId=<series>` route exposes th
 their playable episodes; `Shows/<series>/Seasons` remains seasons-only for existing client flows.
 Physical season folders also expose their nested directories through `Items`, and an unnumbered
 episode beneath one inherits that season number rather than appearing in `Season Unknown`.
+An empty numbered season and an empty bonus folder inside an NFO-described show remain visible
+to Jellyfin Web and broad native folder queries. Adding an episode to the empty season makes it
+browseable and streamable without changing the season's ID; removing that episode restores the
+empty folder instead of dropping it.
 Jellyfin Web's folder-list responses present physical `Series` and `Season` entries as `Folder`
 DTOs, so clicking through a show or season reaches those directories. Direct item details and
 `Shows/<series>/Seasons` keep the real show and season types for standard client features. A
