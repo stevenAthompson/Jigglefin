@@ -318,6 +318,7 @@ try {
     $albumDirectory = Join-Path $musicRoot 'Rock/Smoke Album'
     New-Item -ItemType Directory -Path $albumDirectory | Out-Null
     Copy-Item -LiteralPath $sampleAudioBook -Destination (Join-Path $albumDirectory 'Track 01.m4a')
+    Copy-Item -LiteralPath $sampleVideo -Destination (Join-Path $albumDirectory 'Bonus Clip.mp4')
     [System.IO.File]::WriteAllText(
         (Join-Path $albumDirectory 'album.nfo'),
         '<album><title>Smoke Album</title></album>')
@@ -328,6 +329,7 @@ try {
 
     $musicDeadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
     $musicTrack = $null
+    $bonusVideo = $null
     $lastMusicBrowseState = 'No music library view response yet.'
     while ([DateTime]::UtcNow -lt $musicDeadline) {
         $serverProcess.Refresh()
@@ -350,8 +352,9 @@ try {
                     if ($album) {
                         $tracks = Invoke-RestMethod -Uri "$baseUrl/Items?parentId=$($album.Id)" -Headers $authenticatedHeaders -TimeoutSec 5
                         $musicTrack = @($tracks.Items | Where-Object Type -EQ 'Audio') | Select-Object -First 1
-                        if ($musicTrack) { break }
-                        $lastMusicBrowseState = 'Album exists, but no Audio track is listed.'
+                        $bonusVideo = @($tracks.Items | Where-Object { $_.Name -eq 'Bonus Clip' -and $_.Type -eq 'MusicVideo' }) | Select-Object -First 1
+                        if ($musicTrack -and $bonusVideo) { break }
+                        $lastMusicBrowseState = 'Album exists; items: ' + [string]::Join(', ', @($tracks.Items | ForEach-Object { "$($_.Name):$($_.Type)" }))
                     }
                 }
             }
@@ -360,14 +363,20 @@ try {
         }
         Start-Sleep -Milliseconds 1000
     }
-    if (-not $musicTrack) {
-        throw "The packaged server did not expose the track through its physical music folders within $TimeoutSeconds seconds. Last observation: $lastMusicBrowseState"
+    if (-not $musicTrack -or -not $bonusVideo) {
+        throw "The packaged server did not expose the track and bonus video through physical music folders within $TimeoutSeconds seconds. Last observation: $lastMusicBrowseState"
     }
     $musicStreamPath = Join-Path $smokeProfile 'streamed-track.m4a'
     Invoke-WebRequest -Uri "$baseUrl/Audio/$($musicTrack.Id)/stream?static=true" -Headers $authenticatedHeaders `
         -OutFile $musicStreamPath -TimeoutSec 30 | Out-Null
     if ((Get-FileHash -LiteralPath $musicStreamPath -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $sampleAudioBook -Algorithm SHA256).Hash) {
         throw 'The authenticated music track stream did not match the sample file.'
+    }
+    $bonusStreamPath = Join-Path $smokeProfile 'streamed-bonus-video.mp4'
+    Invoke-WebRequest -Uri "$baseUrl/Videos/$($bonusVideo.Id)/stream?static=true" -Headers $authenticatedHeaders `
+        -OutFile $bonusStreamPath -TimeoutSec 30 | Out-Null
+    if ((Get-FileHash -LiteralPath $bonusStreamPath -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $sampleVideo -Algorithm SHA256).Hash) {
+        throw 'The authenticated bonus video stream did not match the sample file.'
     }
 
     $tvRoot = Join-Path $smokeProfile 'tv-media'
@@ -693,7 +702,7 @@ try {
     }
 
     $smokeSucceeded = $true
-    Write-Host "Packaged server smoke test passed: API version $($publicInfo.Version), bundled Web HTTP $($webResponse.StatusCode), login, movie, audiobook, music, TV, home-video/photo, and music-video folder browse, local NFO and audiobook XML metadata, client playback negotiation, external subtitle, direct media streams, live library additions and removals, persistence after restart, and discovery of a movie added during downtime."
+    Write-Host "Packaged server smoke test passed: API version $($publicInfo.Version), bundled Web HTTP $($webResponse.StatusCode), login, movie, audiobook, music with an album bonus video, TV, home-video/photo, and music-video folder browse, local NFO and audiobook XML metadata, client playback negotiation, external subtitle, direct media streams, live library additions and removals, persistence after restart, and discovery of a movie added during downtime."
 } catch {
     Write-Warning "Package smoke test failed. Isolated profile and logs: $smokeProfile"
     foreach ($logPath in @($stdout, $stderr, (Join-Path $smokeProfile 'restart-stdout.log'), (Join-Path $smokeProfile 'restart-stderr.log'))) {

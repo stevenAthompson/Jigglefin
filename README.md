@@ -44,7 +44,8 @@ open and potentially migrate that database. Jellyfin and Jigglefin cannot both b
   automatically replace its parent category with a Movie or Series. Book and audiobook folders
   with additional child folders or both book and audiobook files remain browseable instead of
   hiding those entries, as do movie folders with `Extras` and music folders that mix tracks with
-  non-disc subfolders. A multi-disc `MusicAlbum` exposes its physical disc folders in the folder
+  non-disc subfolders. Music albums also expose bonus video files beside tracks as standard
+  `MusicVideo` items. A multi-disc `MusicAlbum` exposes its physical disc folders in the folder
   browser. Home-video folders with both photos and videos, or photos and child folders, remain
   physical folders; photo-only albums open through the Web folder browser. Music-specific track
   lists remain compatible with Jellyfin Web. Same-named movie, book, and audiobook files beside

@@ -216,6 +216,9 @@ audiobooks take their display name and year from the filename, not from a catego
 Music directories with tracks alongside an unrelated child directory likewise stay `Folder`
 items, so the tracks and child directory remain visible. A normal album without such children,
 including a recognized `Disc 1`-style multi-disc layout, still resolves as `MusicAlbum`.
+Video files beside tracks in a music album resolve as standard `MusicVideo` items instead of
+disappearing from the Music library. The album keeps its music type; both the track and bonus
+video browse and stream through the normal client endpoints.
 For a plain unsorted `Items?parentId=<album>` browse, a multi-disc album exposes its physical
 disc folders and their tracks. Jellyfin Web's folder-list requests, including a user-selected
 sort, also receive physical disc folders and present artist and album entries as `Folder` DTOs,

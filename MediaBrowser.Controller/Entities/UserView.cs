@@ -74,7 +74,7 @@ namespace MediaBrowser.Controller.Entities
         {
             ArgumentNullException.ThrowIfNull(user);
 
-            if (UserId.HasValue && UserId.Value != user.Id)
+            if (UserId.HasValue && !UserId.Value.Equals(user.Id))
             {
                 return false;
             }
@@ -85,7 +85,7 @@ namespace MediaBrowser.Controller.Entities
             if (!DisplayParentId.IsEmpty())
             {
                 var displayParent = LibraryManager.GetItemById(DisplayParentId);
-                if (displayParent is null || displayParent.Id == Id || !displayParent.IsVisible(user, skipAllowedTagsCheck))
+                if (displayParent is null || displayParent.Id.Equals(Id) || !displayParent.IsVisible(user, skipAllowedTagsCheck))
                 {
                     return false;
                 }

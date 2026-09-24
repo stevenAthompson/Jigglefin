@@ -33,6 +33,7 @@ namespace Emby.Server.Implementations.Library.Resolvers.Movies
         private static readonly CollectionType[] _validCollectionTypes =
         [
             CollectionType.movies,
+            CollectionType.music,
             CollectionType.homevideos,
             CollectionType.musicvideos,
             CollectionType.tvshows,
@@ -151,6 +152,13 @@ namespace Emby.Server.Implementations.Library.Resolvers.Movies
             Video item = null;
 
             if (collectionType == CollectionType.musicvideos)
+            {
+                item = ResolveVideo<MusicVideo>(args, false);
+            }
+
+            // A music album can contain a bonus clip beside its tracks. Resolve
+            // the file without treating the surrounding album as a video item.
+            else if (collectionType == CollectionType.music)
             {
                 item = ResolveVideo<MusicVideo>(args, false);
             }

@@ -318,6 +318,87 @@ public sealed class FolderFirstLibraryTests
     }
 
     [Fact]
+    public async Task MusicAlbumWithBonusVideo_KeepsBothPhysicalFilesBrowseableAndStreamable()
+    {
+        var testRoot = Path.Combine(Path.GetTempPath(), "jigglefin-music-bonus-video-" + Guid.NewGuid().ToString("N"));
+        var albumFolder = Path.Combine(testRoot, "Rock", "Artist", "Album");
+        Directory.CreateDirectory(albumFolder);
+        var audioBytes = await File.ReadAllBytesAsync(
+            Path.Combine(AppContext.BaseDirectory, "Test Data", "JigglefinSample.m4b"),
+            TestContext.Current.CancellationToken);
+        var videoBytes = await File.ReadAllBytesAsync(
+            Path.Combine(AppContext.BaseDirectory, "Test Data", "JigglefinSample.mp4"),
+            TestContext.Current.CancellationToken);
+        var trackPath = Path.Combine(albumFolder, "Track 01.m4a");
+        var videoPath = Path.Combine(albumFolder, "Bonus Clip.mp4");
+        await File.WriteAllBytesAsync(trackPath, audioBytes, TestContext.Current.CancellationToken);
+        await File.WriteAllBytesAsync(videoPath, videoBytes, TestContext.Current.CancellationToken);
+
+        using var factory = new JellyfinApplicationFactory();
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.AddAuthHeader(await AuthHelper.CompleteStartupAsync(client));
+        var libraryName = "Jigglefin music bonus video " + Guid.NewGuid().ToString("N");
+        var created = false;
+
+        try
+        {
+            using var createResponse = await client.PostAsJsonAsync(
+                $"Library/VirtualFolders?name={Uri.EscapeDataString(libraryName)}&collectionType=music&paths={Uri.EscapeDataString(testRoot)}&refreshLibrary=false",
+                new AddVirtualFolderDto { LibraryOptions = new LibraryOptions() },
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.NoContent, createResponse.StatusCode);
+            created = true;
+
+            var libraryManager = (LibraryManager)factory.Services.GetRequiredService<ILibraryManager>();
+            await libraryManager.ValidateMediaLibraryInternal(new Progress<double>(), TestContext.Current.CancellationToken);
+
+            var views = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                "UserViews?presetViews=music", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(views);
+            var library = Assert.Single(views.Items, item => item.Name == libraryName);
+            var categories = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={library.Id}&fields=Path", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(categories);
+            var category = Assert.Single(categories.Items, item => item.Path == Path.Combine(testRoot, "Rock"));
+            var artists = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={category.Id}&fields=Path", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(artists);
+            var artist = Assert.Single(artists.Items, item => item.Path == Path.Combine(testRoot, "Rock", "Artist"));
+            var albums = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={artist.Id}&fields=Path", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(albums);
+            var album = Assert.Single(albums.Items, item => item.Path == albumFolder);
+            var items = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={album.Id}&fields=Path", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(items);
+            var track = Assert.Single(items.Items, item => item.Path == trackPath && item.Type == BaseItemKind.Audio);
+            var video = Assert.Single(items.Items, item => item.Path == videoPath && item.Type == BaseItemKind.MusicVideo);
+
+            using var audioResponse = await client.GetAsync(
+                $"Audio/{track.Id}/stream?static=true", TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.OK, audioResponse.StatusCode);
+            Assert.Equal(audioBytes, await audioResponse.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken));
+            using var videoResponse = await client.GetAsync(
+                $"Videos/{video.Id}/stream?static=true", TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.OK, videoResponse.StatusCode);
+            Assert.Equal(videoBytes, await videoResponse.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken));
+        }
+        finally
+        {
+            if (created)
+            {
+                using var deleteResponse = await client.DeleteAsync(
+                    $"Library/VirtualFolders?name={Uri.EscapeDataString(libraryName)}&refreshLibrary=false",
+                    TestContext.Current.CancellationToken);
+                Assert.Equal(HttpStatusCode.NoContent, deleteResponse.StatusCode);
+            }
+
+            Directory.Delete(testRoot, true);
+        }
+    }
+
+    [Fact]
     public async Task FolderFirstViews_DoNotExposeBlockedLibraryToAnotherUser()
     {
         var testRoot = Path.Combine(Path.GetTempPath(), "jigglefin-folder-permissions-" + Guid.NewGuid().ToString("N"));
