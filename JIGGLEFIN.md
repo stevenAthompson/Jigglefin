@@ -278,6 +278,9 @@ creation of a movie library through Jellyfin Web's `PathInfos` payload with a co
 physical movie, audiobook, music, TV, home-video/photo, and music-video folders, local NFO fields,
 standard client playback negotiation, external subtitles, direct media bytes, and headless playback
 of all six playable media types plus a photo-only album browse in unmodified Jellyfin Web.
+It then shuts down and restarts the same isolated profile, reauthenticates, and verifies that all
+six folder-first library entries, the movie's stable ID and local metadata, and direct streaming
+survive the restart.
 Successful profiles are cleaned up after the server stops when Windows releases their files.
 To repeat the full client test locally after packaging, run `npm ci --prefix tests/WebClientSmoke`,
 `tests/WebClientSmoke/node_modules/.bin/playwright.cmd install chromium`, then

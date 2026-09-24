@@ -71,7 +71,8 @@ open and potentially migrate that database. Jellyfin and Jigglefin cannot both b
   setup with a throwaway password, and checks authenticated movie, audiobook, music, TV,
   home-video/photo, and music-video folder browsing,
   local movie NFO metadata, client playback negotiation, external subtitles, direct streaming,
-  and headless Web playback. A Swiftfin-style API test checks folder browsing with broad item-type
+  headless Web playback, and library, metadata, and streaming persistence after a clean restart.
+  A Swiftfin-style API test checks folder browsing with broad item-type
   filters, including physical series and music albums; an Android TV-style items query checks
   folder paths and child counts. Unmodified Android TV and Android mobile apps were also tested
   in a CLI-only emulator for native browsing and playback. Swiftfin UI coverage and more

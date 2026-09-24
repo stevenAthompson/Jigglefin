@@ -559,11 +559,86 @@ try {
         }
     }
 
+    # Verify that the same portable profile survives a clean stop and restart.
+    try {
+        Invoke-WebRequest -Uri "$baseUrl/System/Shutdown" -Method Post -Headers $authenticatedHeaders -TimeoutSec 15 | Out-Null
+    } catch {
+        $serverProcess.Refresh()
+        if (-not $serverProcess.HasExited) {
+            throw
+        }
+    }
+    if (-not $serverProcess.WaitForExit(30000)) {
+        throw 'The packaged server did not shut down gracefully within 30 seconds.'
+    }
+    $restartStdout = Join-Path $smokeProfile 'restart-stdout.log'
+    $restartStderr = Join-Path $smokeProfile 'restart-stderr.log'
+    $serverProcess = Start-Process -FilePath $server -ArgumentList $arguments -WorkingDirectory $package `
+        -RedirectStandardOutput $restartStdout -RedirectStandardError $restartStderr -WindowStyle Hidden -PassThru
+
+    $restartDeadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    $restartInfo = $null
+    $restartAuthentication = $null
+    while ([DateTime]::UtcNow -lt $restartDeadline) {
+        $serverProcess.Refresh()
+        if ($serverProcess.HasExited) {
+            throw "Packaged server exited during restart with code $($serverProcess.ExitCode)."
+        }
+
+        try {
+            $candidateInfo = Invoke-RestMethod -Uri "$baseUrl/System/Info/Public" -TimeoutSec 3
+            if ($candidateInfo.StartupWizardCompleted -eq $true) {
+                $candidateAuthentication = Invoke-RestMethod -Uri "$baseUrl/Users/AuthenticateByName" -Method Post `
+                    -Headers @{ Authorization = $clientHeader } -ContentType 'application/json' -Body $authPayload -TimeoutSec 3
+                if ($candidateAuthentication.AccessToken) {
+                    $restartInfo = $candidateInfo
+                    $restartAuthentication = $candidateAuthentication
+                    break
+                }
+            }
+        } catch {
+            # The server may expose its public endpoint before authenticated requests are ready.
+        }
+        Start-Sleep -Milliseconds 1000
+    }
+    if (-not $restartAuthentication -or $restartInfo.Id -ne $publicInfo.Id) {
+        throw 'The packaged server did not restart with the same configured profile and accept its existing user.'
+    }
+    $restartHeaders = @{ Authorization = "$clientHeader, Token=$($restartAuthentication.AccessToken)" }
+    $restartViews = Invoke-RestMethod -Uri "$baseUrl/UserViews" -Headers $restartHeaders -TimeoutSec 15
+    foreach ($expectedName in @($libraryName, $bookLibraryName, $musicLibraryName, $tvLibraryName, $homeLibraryName, $musicVideoLibraryName)) {
+        $view = @($restartViews.Items | Where-Object Name -EQ $expectedName) | Select-Object -First 1
+        if (-not $view -or $view.Type -ne 'Folder' -or $view.CollectionType) {
+            throw "The restarted server did not preserve folder-first library $expectedName."
+        }
+    }
+    $restartedMovieLibrary = @($restartViews.Items | Where-Object Name -EQ $libraryName) | Select-Object -First 1
+    $restartedGroups = Invoke-RestMethod -Uri "$baseUrl/Items?parentId=$($restartedMovieLibrary.Id)" -Headers $restartHeaders -TimeoutSec 15
+    $restartedAction = @($restartedGroups.Items | Where-Object Name -EQ 'Action') | Select-Object -First 1
+    if (-not $restartedAction -or $restartedAction.Type -ne 'Folder') {
+        throw 'The restarted server did not preserve the physical Action folder.'
+    }
+    $restartedFilms = Invoke-RestMethod -Uri "$baseUrl/Items?parentId=$($restartedAction.Id)" -Headers $restartHeaders -TimeoutSec 15
+    $restartedMovie = @($restartedFilms.Items | Where-Object { $_.Name -eq 'Jigglefin Local Smoke Film' -and $_.Type -eq 'Movie' }) | Select-Object -First 1
+    if (-not $restartedMovie -or $restartedMovie.Id -ne $movie.Id) {
+        throw 'The restarted server did not preserve the NFO-titled movie and its stable item ID.'
+    }
+    $restartedMovieDetails = Invoke-RestMethod -Uri "$baseUrl/Items/$($restartedMovie.Id)" -Headers $restartHeaders -TimeoutSec 15
+    if ($restartedMovieDetails.Overview -ne 'Smoke-test local metadata.') {
+        throw 'The restarted server did not preserve local movie metadata.'
+    }
+    $restartStreamPath = Join-Path $smokeProfile 'streamed-movie-after-restart.mp4'
+    Invoke-WebRequest -Uri "$baseUrl/Videos/$($restartedMovie.Id)/stream?static=true" -Headers $restartHeaders `
+        -OutFile $restartStreamPath -TimeoutSec 30 | Out-Null
+    if ((Get-FileHash -LiteralPath $restartStreamPath -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $sampleVideo -Algorithm SHA256).Hash) {
+        throw 'The authenticated movie stream after restart did not match the sample file.'
+    }
+
     $smokeSucceeded = $true
-    Write-Host "Packaged server smoke test passed: API version $($publicInfo.Version), bundled Web HTTP $($webResponse.StatusCode), login, movie, audiobook, music, TV, home-video/photo, and music-video folder browse, local NFO and audiobook XML metadata, client playback negotiation, external subtitle, and direct media streams."
+    Write-Host "Packaged server smoke test passed: API version $($publicInfo.Version), bundled Web HTTP $($webResponse.StatusCode), login, movie, audiobook, music, TV, home-video/photo, and music-video folder browse, local NFO and audiobook XML metadata, client playback negotiation, external subtitle, direct media streams, and persistence after restart."
 } catch {
     Write-Warning "Package smoke test failed. Isolated profile and logs: $smokeProfile"
-    foreach ($logPath in @($stdout, $stderr)) {
+    foreach ($logPath in @($stdout, $stderr, (Join-Path $smokeProfile 'restart-stdout.log'), (Join-Path $smokeProfile 'restart-stderr.log'))) {
         if (Test-Path -LiteralPath $logPath) {
             Write-Warning "Last lines of $logPath"
             Get-Content -LiteralPath $logPath -Tail 20 | ForEach-Object {
