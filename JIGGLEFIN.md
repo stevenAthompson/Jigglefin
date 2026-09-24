@@ -94,7 +94,13 @@ The unmodified [Jellyfin Android mobile app](https://github.com/jellyfin/jellyfi
 2.7.3 (libre release) was also tested in the headless emulator. It browsed
 `Books/Fantasy/Native Test Audio` and `Movies/Action/Native Test Movie`, showed the local XML/NFO
 metadata, and played each 20-second sample to completion. This was a CLI-only native-client
-check, not an automated CI test.
+check, not an automated CI test. A second isolated mobile profile exercised the remaining
+library types: `Home Videos/Holidays` showed both a playable MP4 and a viewable PNG, while
+`Music Videos/Performances` opened and played a music video. The app also navigated
+`Music/Rock/Native Artist/Native Album/Track 01` and
+`TV/Drama/Native Show/Season 01/Native Pilot`, showed the episode's local NFO plot, and
+played the MP3 and episode. These checks used headless emulator commands and screenshots;
+they are not yet automated CI coverage.
 
 Folder-first views retain library permissions. An integration test gives a second user access
 to one movie library while blocking another, then checks home views, known-ID folder browsing,
