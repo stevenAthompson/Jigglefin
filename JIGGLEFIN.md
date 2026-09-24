@@ -102,6 +102,9 @@ folder-list request used by Jellyfin Web.
 An additional browse test verifies that two arbitrary grouping levels retain their physical paths
 before a typed movie, series, book, or music album, including the broad sorted item query used by
 native folder browsers.
+A movie library with two physical roots also keeps both paths browseable when each root contains
+an `Action/Same Movie` tree. The client receives two distinct Movie items, and both stream from
+their own paths rather than losing one to a same-name category or movie collision.
 
 The resolver chain now leaves an arbitrary TV grouping directory as a `Folder` unless it contains
 `tvshow.nfo`, `series.xml`, or episode/season evidence. A music grouping directory is not inferred to be a

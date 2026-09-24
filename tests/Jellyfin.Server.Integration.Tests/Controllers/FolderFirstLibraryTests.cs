@@ -24,6 +24,108 @@ namespace Jellyfin.Server.Integration.Tests.Controllers;
 
 public sealed class FolderFirstLibraryTests
 {
+    [Fact]
+    public async Task MovieLibraryWithTwoPhysicalRoots_KeepsBothPathsBrowseableAndStreamable()
+    {
+        var testRoot = Path.Combine(Path.GetTempPath(), "jigglefin-multiple-roots-" + Guid.NewGuid().ToString("N"));
+        var firstRoot = Path.Combine(testRoot, "First Root");
+        var secondRoot = Path.Combine(testRoot, "Second Root");
+        var firstMovieFolder = Path.Combine(firstRoot, "Action", "Same Movie");
+        var secondMovieFolder = Path.Combine(secondRoot, "Action", "Same Movie");
+        Directory.CreateDirectory(firstMovieFolder);
+        Directory.CreateDirectory(secondMovieFolder);
+        var videoBytes = await File.ReadAllBytesAsync(
+            Path.Combine(AppContext.BaseDirectory, "Test Data", "JigglefinSample.mp4"),
+            TestContext.Current.CancellationToken);
+        await File.WriteAllBytesAsync(
+            Path.Combine(firstMovieFolder, "Same Movie.mp4"), videoBytes, TestContext.Current.CancellationToken);
+        await File.WriteAllBytesAsync(
+            Path.Combine(secondMovieFolder, "Same Movie.mp4"), videoBytes, TestContext.Current.CancellationToken);
+
+        using var factory = new JellyfinApplicationFactory();
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.AddAuthHeader(await AuthHelper.CompleteStartupAsync(client));
+        var libraryName = "Jigglefin multiple roots " + Guid.NewGuid().ToString("N");
+        var created = false;
+
+        try
+        {
+            using var createResponse = await client.PostAsJsonAsync(
+                $"Library/VirtualFolders?name={Uri.EscapeDataString(libraryName)}&collectionType=movies&paths={Uri.EscapeDataString(firstRoot)}&paths={Uri.EscapeDataString(secondRoot)}&refreshLibrary=false",
+                new AddVirtualFolderDto { LibraryOptions = new LibraryOptions() },
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.NoContent, createResponse.StatusCode);
+            created = true;
+
+            var libraryManager = (LibraryManager)factory.Services.GetRequiredService<ILibraryManager>();
+            await libraryManager.ValidateMediaLibraryInternal(new Progress<double>(), TestContext.Current.CancellationToken);
+
+            var views = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                "UserViews?presetViews=movies", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(views);
+            var library = Assert.Single(views.Items, item => item.Name == libraryName);
+            Assert.Equal(BaseItemKind.Folder, library.Type);
+
+            var toBrowse = new Queue<Guid>();
+            var visited = new HashSet<Guid>();
+            var physicalPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var movies = new List<BaseItemDto>();
+            toBrowse.Enqueue(library.Id);
+            while (toBrowse.Count > 0)
+            {
+                var parentId = toBrowse.Dequeue();
+                if (!visited.Add(parentId))
+                {
+                    continue;
+                }
+
+                var children = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                    $"Items?parentId={parentId}&fields=Path", JsonDefaults.Options, TestContext.Current.CancellationToken);
+                Assert.NotNull(children);
+                foreach (var item in children.Items)
+                {
+                    if (item.Type == BaseItemKind.Movie)
+                    {
+                        movies.Add(item);
+                    }
+                    else if (item.IsFolder is true)
+                    {
+                        Assert.False(string.IsNullOrEmpty(item.Path), $"Browseable folder {item.Name} has no physical path.");
+                        physicalPaths.Add(item.Path);
+                        toBrowse.Enqueue(item.Id);
+                    }
+                }
+            }
+
+            Assert.Contains(Path.Combine(firstRoot, "Action"), physicalPaths);
+            Assert.Contains(Path.Combine(secondRoot, "Action"), physicalPaths);
+            Assert.Equal(2, movies.Count);
+            Assert.Equal(2, movies.Select(item => item.Id).Distinct().Count());
+            Assert.Contains(movies, item => item.Name == "Same Movie" && item.Path?.StartsWith(firstRoot, StringComparison.OrdinalIgnoreCase) is true);
+            Assert.Contains(movies, item => item.Name == "Same Movie" && item.Path?.StartsWith(secondRoot, StringComparison.OrdinalIgnoreCase) is true);
+            foreach (var movie in movies)
+            {
+                using var streamResponse = await client.GetAsync(
+                    $"Videos/{movie.Id}/stream?static=true", TestContext.Current.CancellationToken);
+                Assert.Equal(HttpStatusCode.OK, streamResponse.StatusCode);
+                Assert.Equal(videoBytes, await streamResponse.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken));
+            }
+        }
+        finally
+        {
+            if (created)
+            {
+                using var deleteResponse = await client.DeleteAsync(
+                    $"Library/VirtualFolders?name={Uri.EscapeDataString(libraryName)}&refreshLibrary=false",
+                    TestContext.Current.CancellationToken);
+                Assert.Equal(HttpStatusCode.NoContent, deleteResponse.StatusCode);
+            }
+
+            Directory.Delete(testRoot, true);
+        }
+    }
+
     [Theory]
     [InlineData("movies", "Named Item.mp4", BaseItemKind.Movie)]
     [InlineData("tvshows", "Named Item - S01E01.mp4", BaseItemKind.Series)]
