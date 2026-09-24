@@ -64,6 +64,9 @@ details keep their standard media kinds. An integration test exercises this nati
 request shape, including pagination, through the current endpoint and the legacy user-scoped API.
 This is API contract coverage, not yet a full Swiftfin UI test; Swiftfin's own item-kind list
 does not include books, audiobooks, or audio tracks in this folder view.
+Swiftfin's [library support matrix](https://github.com/jellyfin/Swiftfin/blob/1.6.1/Documentation/libraries.md)
+also marks Music, Photos, and Books unsupported, so those client features cannot be supplied
+by a server-side folder projection; compatible Jellyfin apps that support those media are required.
 The same broad type filter inside a series keeps physical season and bonus folders browseable
 without inserting the pathless generated `Season Unknown` into the folder list.
 [Jellyfin Android TV's folder grid](https://github.com/jellyfin/jellyfin-androidtv/blob/master/app/src/main/java/org/jellyfin/androidtv/ui/browsing/BrowsingUtils.kt)
@@ -115,6 +118,9 @@ folder-list request used by Jellyfin Web.
 An additional browse test verifies that two arbitrary grouping levels retain their physical paths
 before a typed movie, series, book, or music album, including the broad sorted item query used by
 native folder browsers.
+Another test keeps loose media at the library root beside a nested physical group in Movies,
+TV Shows, Music, Books, Home Videos, and Music Videos. It checks Jellyfin Web's folder-list
+request and direct streaming of the root-level video and audio files, plus a root-level photo.
 A movie library with two physical roots also keeps both paths browseable when each root contains
 an `Action/Same Movie` tree. The client receives two distinct Movie items, and both stream from
 their own paths rather than losing one to a same-name category or movie collision.
@@ -197,7 +203,8 @@ A movie category with a single loose file, such as `Action/Loose Movie.mp4`, rem
 name matches the video filename or it contains `movie.nfo` or `movie.xml`; this distinction is
 covered by an API browse test.
 A directory containing two distinct movie files remains a physical `Folder`, with both `Movie`
-children browseable and directly streamable rather than collapsing the directory into one movie.
+children browseable and directly streamable rather than collapsing the directory into one movie,
+even when the directory's name matches one of those files.
 If a named movie directory also contains an `Extras` or `Trailers` directory, it remains a
 physical `Folder`: the main movie and bonus directory are both reachable through ordinary
 `Items` browsing instead of hiding the bonus path behind movie-detail extras handling.
