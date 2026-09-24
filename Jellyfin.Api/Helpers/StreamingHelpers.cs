@@ -87,6 +87,11 @@ public static class StreamingHelpers
             state.User = userManager.GetUserById(userId);
         }
 
+        if (state.User is null && !httpContext.User.GetIsApiKey())
+        {
+            throw new ResourceNotFoundException();
+        }
+
         if (state.IsVideoRequest && !string.IsNullOrWhiteSpace(state.Request.VideoCodec))
         {
             state.SupportedVideoCodecs = state.Request.VideoCodec.Split(',', StringSplitOptions.RemoveEmptyEntries);
@@ -107,7 +112,7 @@ public static class StreamingHelpers
                                           ?? state.SupportedSubtitleCodecs.FirstOrDefault();
         }
 
-        var item = libraryManager.GetItemById<BaseItem>(streamingRequest.Id)
+        var item = libraryManager.GetItemById<BaseItem>(streamingRequest.Id, state.User)
             ?? throw new ResourceNotFoundException();
 
         state.IsInputVideo = item.MediaType == MediaType.Video;
@@ -126,7 +131,7 @@ public static class StreamingHelpers
 
             if (mediaSource is null)
             {
-                var mediaSources = await mediaSourceManager.GetPlaybackMediaSources(libraryManager.GetItemById<BaseItem>(streamingRequest.Id), null, false, false, cancellationToken).ConfigureAwait(false);
+                var mediaSources = await mediaSourceManager.GetPlaybackMediaSources(item, null, false, false, cancellationToken).ConfigureAwait(false);
 
                 mediaSource = string.IsNullOrEmpty(streamingRequest.MediaSourceId)
                     ? mediaSources[0]

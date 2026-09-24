@@ -70,6 +70,31 @@ namespace MediaBrowser.Controller.Entities
         public override bool SupportsPeople => false;
 
         /// <inheritdoc />
+        public override bool IsVisible(User user, bool skipAllowedTagsCheck = false)
+        {
+            ArgumentNullException.ThrowIfNull(user);
+
+            if (UserId.HasValue && UserId.Value != user.Id)
+            {
+                return false;
+            }
+
+            // A per-library view has its own ID, but inherits the physical
+            // collection folder's access policy. Do not let a known view ID
+            // bypass a user's blocked-library setting.
+            if (!DisplayParentId.IsEmpty())
+            {
+                var displayParent = LibraryManager.GetItemById(DisplayParentId);
+                if (displayParent is null || displayParent.Id == Id || !displayParent.IsVisible(user, skipAllowedTagsCheck))
+                {
+                    return false;
+                }
+            }
+
+            return base.IsVisible(user, skipAllowedTagsCheck);
+        }
+
+        /// <inheritdoc />
         public override IEnumerable<Guid> GetIdsForAncestorQuery()
         {
             if (!DisplayParentId.IsEmpty())

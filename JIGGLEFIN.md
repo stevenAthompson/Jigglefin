@@ -91,6 +91,14 @@ The unmodified [Jellyfin Android mobile app](https://github.com/jellyfin/jellyfi
 metadata, and played each 20-second sample to completion. This was a CLI-only native-client
 check, not an automated CI test.
 
+Folder-first views retain library permissions. An integration test gives a second user access
+to one movie library while blocking another, then checks home views, known-ID folder browsing,
+explicit-ID and search queries, item details, playback info, downloads, and direct streams.
+The allowed library still browses, searches, and streams. User views inherit their backing
+collection folder's visibility, item browsing checks ancestor/library access, and explicit-ID
+queries filter inaccessible items before pagination. The shared streaming path rejects blocked
+or unauthenticated requests; the test also confirms API-key playback remains supported.
+
 An integration test renames and removes physical movie, audiobook, TV-series, and music-album directories,
 rescanning after each change. The old entries disappear; renamed entries keep their standard
 media kinds and stream from the new paths; the renamed series retains a physical season and

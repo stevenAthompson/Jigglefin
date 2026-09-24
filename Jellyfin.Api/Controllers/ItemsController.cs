@@ -344,7 +344,7 @@ public class ItemsController : BaseJellyfinApiController
             // api keys can always access all folders
             && !isApiKey
             // check the item is visible for the user
-            && !item.IsVisible(user))
+            && !item.IsVisibleStandalone(user))
         {
             _logger.LogWarning("{UserName} is not permitted to access Library {ItemName}", user!.Username, item.Name);
             return Unauthorized($"{user.Username} is not permitted to access Library {item.Name}.");

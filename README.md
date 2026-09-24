@@ -77,9 +77,11 @@ open and potentially migrate that database. Jellyfin and Jigglefin cannot both b
   while the server was stopped.
   A Swiftfin-style API test checks folder browsing with broad item-type
   filters, including physical series and music albums; an Android TV-style items query checks
-  folder paths and child counts. Unmodified Android TV and Android mobile apps were also tested
-  in a CLI-only emulator for native browsing and playback. Swiftfin UI coverage and more
-  ambiguous mixed-content layouts remain work in progress. Android TV 0.19.10 plays audiobooks
+  folder paths and child counts. A restricted-user API test verifies that known folder and media
+  IDs cannot bypass a blocked library's browse or stream permissions. Unmodified Android TV and
+  Android mobile apps were also tested in a CLI-only emulator for native browsing and playback.
+  Swiftfin UI coverage and more ambiguous mixed-content layouts remain work in progress.
+  Android TV 0.19.10 plays audiobooks
   but does not automatically resume saved audio bookmarks; the server retains those positions.
 
 The detailed design and upstream merge strategy are in [JIGGLEFIN.md](JIGGLEFIN.md).

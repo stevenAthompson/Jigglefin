@@ -6,13 +6,18 @@ using System.Net;
 using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
+using System.Text.Json;
 using System.Threading.Tasks;
 using Emby.Server.Implementations.Library;
 using Jellyfin.Api.Models.LibraryStructureDto;
+using Jellyfin.Api.Models.UserDtos;
+using Jellyfin.Data;
 using Jellyfin.Data.Enums;
+using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Extensions.Json;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Security;
 using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.Querying;
@@ -304,6 +309,181 @@ public sealed class FolderFirstLibraryTests
             {
                 using var deleteResponse = await client.DeleteAsync(
                     $"Library/VirtualFolders?name={Uri.EscapeDataString(libraryName)}&refreshLibrary=false",
+                    TestContext.Current.CancellationToken);
+                Assert.Equal(HttpStatusCode.NoContent, deleteResponse.StatusCode);
+            }
+
+            Directory.Delete(testRoot, true);
+        }
+    }
+
+    [Fact]
+    public async Task FolderFirstViews_DoNotExposeBlockedLibraryToAnotherUser()
+    {
+        var testRoot = Path.Combine(Path.GetTempPath(), "jigglefin-folder-permissions-" + Guid.NewGuid().ToString("N"));
+        var allowedRoot = Path.Combine(testRoot, "Allowed");
+        var blockedRoot = Path.Combine(testRoot, "Blocked");
+        Directory.CreateDirectory(Path.Combine(allowedRoot, "Action"));
+        Directory.CreateDirectory(Path.Combine(blockedRoot, "Action"));
+        var videoBytes = await File.ReadAllBytesAsync(
+            Path.Combine(AppContext.BaseDirectory, "Test Data", "JigglefinSample.mp4"),
+            TestContext.Current.CancellationToken);
+        await File.WriteAllBytesAsync(
+            Path.Combine(allowedRoot, "Action", "Allowed Film.mp4"), videoBytes, TestContext.Current.CancellationToken);
+        await File.WriteAllBytesAsync(
+            Path.Combine(blockedRoot, "Action", "Blocked Film.mp4"), videoBytes, TestContext.Current.CancellationToken);
+
+        using var factory = new JellyfinApplicationFactory();
+        using var adminClient = factory.CreateClient();
+        adminClient.DefaultRequestHeaders.AddAuthHeader(await AuthHelper.CompleteStartupAsync(adminClient));
+        var allowedName = "Jigglefin allowed " + Guid.NewGuid().ToString("N");
+        var blockedName = "Jigglefin blocked " + Guid.NewGuid().ToString("N");
+        var createdNames = new List<string>();
+
+        try
+        {
+            foreach (var (name, path) in new[] { (allowedName, allowedRoot), (blockedName, blockedRoot) })
+            {
+                using var createResponse = await adminClient.PostAsJsonAsync(
+                    $"Library/VirtualFolders?name={Uri.EscapeDataString(name)}&collectionType=movies&paths={Uri.EscapeDataString(path)}&refreshLibrary=false",
+                    new AddVirtualFolderDto { LibraryOptions = new LibraryOptions() },
+                    JsonDefaults.Options,
+                    TestContext.Current.CancellationToken);
+                Assert.Equal(HttpStatusCode.NoContent, createResponse.StatusCode);
+                createdNames.Add(name);
+            }
+
+            var libraryManager = (LibraryManager)factory.Services.GetRequiredService<ILibraryManager>();
+            await libraryManager.ValidateMediaLibraryInternal(new Progress<double>(), TestContext.Current.CancellationToken);
+            var adminViews = await adminClient.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                "UserViews?presetViews=movies", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(adminViews);
+            var allowedLibrary = Assert.Single(adminViews.Items, item => item.Name == allowedName);
+            var blockedLibrary = Assert.Single(adminViews.Items, item => item.Name == blockedName);
+            var blockedGroups = await adminClient.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={blockedLibrary.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(blockedGroups);
+            var blockedGroup = Assert.Single(blockedGroups.Items, item => item.Name == "Action");
+            var blockedFilms = await adminClient.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={blockedGroup.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(blockedFilms);
+            var blockedFilm = Assert.Single(blockedFilms.Items, item => item.Name == "Blocked Film");
+
+            var userManager = factory.Services.GetRequiredService<IUserManager>();
+            var userName = "limited" + Guid.NewGuid().ToString("N");
+            var password = Guid.NewGuid().ToString("N");
+            var limitedUser = await userManager.CreateUserAsync(userName);
+            var physicalBlockedLibrary = Assert.Single(
+                libraryManager.GetUserRootFolder().Children, item => item.Name == blockedName);
+            limitedUser.SetPreference(PreferenceKind.BlockedMediaFolders, [physicalBlockedLibrary.Id]);
+            await userManager.UpdateUserAsync(limitedUser);
+            await userManager.ChangePassword(limitedUser.Id, password);
+
+            using var limitedClient = factory.CreateClient();
+            using var loginRequest = new HttpRequestMessage(HttpMethod.Post, "Users/AuthenticateByName");
+            loginRequest.Headers.TryAddWithoutValidation(AuthHelper.AuthHeaderName, AuthHelper.DummyAuthHeader);
+            loginRequest.Content = JsonContent.Create(
+                new AuthenticateUserByName { Username = userName, Pw = password },
+                options: JsonDefaults.Options);
+            using var loginResponse = await limitedClient.SendAsync(loginRequest, TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.OK, loginResponse.StatusCode);
+            using var loginJson = JsonDocument.Parse(
+                await loginResponse.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+            limitedClient.DefaultRequestHeaders.AddAuthHeader(loginJson.RootElement.GetProperty("AccessToken").GetString()!);
+
+            var limitedViews = await limitedClient.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                "UserViews?presetViews=movies", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(limitedViews);
+            Assert.Single(limitedViews.Items, item => item.Name == allowedName);
+            Assert.DoesNotContain(limitedViews.Items, item => item.Name == blockedName);
+
+            var allowedGroups = await limitedClient.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={allowedLibrary.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(allowedGroups);
+            var allowedGroup = Assert.Single(allowedGroups.Items, item => item.Name == "Action");
+            var allowedFilms = await limitedClient.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={allowedGroup.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(allowedFilms);
+            var allowedFilm = Assert.Single(allowedFilms.Items, item => item.Name == "Allowed Film");
+            using var allowedStream = await limitedClient.GetAsync(
+                $"Videos/{allowedFilm.Id}/stream?static=true", TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.OK, allowedStream.StatusCode);
+            Assert.Equal(videoBytes, await allowedStream.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken));
+            foreach (var url in new[]
+            {
+                $"Items?ids={allowedFilm.Id}",
+                "Items?searchTerm=Allowed%20Film&recursive=true"
+            })
+            {
+                var results = await limitedClient.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                    url, JsonDefaults.Options, TestContext.Current.CancellationToken);
+                Assert.NotNull(results);
+                Assert.Contains(results.Items, item => item.Id.Equals(allowedFilm.Id));
+            }
+
+            foreach (var url in new[]
+            {
+                $"Items?parentId={blockedLibrary.Id}",
+                $"Items?parentId={blockedGroup.Id}"
+            })
+            {
+                using var response = await limitedClient.GetAsync(url, TestContext.Current.CancellationToken);
+                Assert.Equal(HttpStatusCode.Unauthorized, response.StatusCode);
+            }
+
+            foreach (var url in new[]
+            {
+                $"Items?ids={blockedFilm.Id}",
+                "Items?searchTerm=Blocked%20Film&recursive=true"
+            })
+            {
+                var results = await limitedClient.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                    url, JsonDefaults.Options, TestContext.Current.CancellationToken);
+                Assert.NotNull(results);
+                Assert.False(
+                    results.Items.Any(item => item.Id.Equals(blockedFilm.Id)),
+                    $"Blocked item was exposed by {url}.");
+            }
+
+            foreach (var url in new[]
+            {
+                $"Items/{blockedFilm.Id}",
+                $"Items/{blockedFilm.Id}/Download",
+                $"Videos/{blockedFilm.Id}/stream?static=true"
+            })
+            {
+                using var response = await limitedClient.GetAsync(url, TestContext.Current.CancellationToken);
+                Assert.False(response.IsSuccessStatusCode, $"Blocked content was accessible at {url}.");
+            }
+
+            using var blockedPlaybackInfo = await limitedClient.PostAsJsonAsync(
+                $"Items/{blockedFilm.Id}/PlaybackInfo",
+                new { },
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.False(blockedPlaybackInfo.IsSuccessStatusCode);
+
+            using var anonymousClient = factory.CreateClient();
+            using var anonymousStream = await anonymousClient.GetAsync(
+                $"Videos/{blockedFilm.Id}/stream?static=true", TestContext.Current.CancellationToken);
+            Assert.False(anonymousStream.IsSuccessStatusCode);
+
+            var authenticationManager = factory.Services.GetRequiredService<IAuthenticationManager>();
+            await authenticationManager.CreateApiKey("Jigglefin access-control test");
+            var apiKey = Assert.Single(await authenticationManager.GetApiKeys());
+            using var apiClient = factory.CreateClient();
+            apiClient.DefaultRequestHeaders.AddAuthHeader(apiKey.AccessToken);
+            using var apiStream = await apiClient.GetAsync(
+                $"Videos/{blockedFilm.Id}/stream?static=true", TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.OK, apiStream.StatusCode);
+            Assert.Equal(videoBytes, await apiStream.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken));
+        }
+        finally
+        {
+            foreach (var name in createdNames)
+            {
+                using var deleteResponse = await adminClient.DeleteAsync(
+                    $"Library/VirtualFolders?name={Uri.EscapeDataString(name)}&refreshLibrary=false",
                     TestContext.Current.CancellationToken);
                 Assert.Equal(HttpStatusCode.NoContent, deleteResponse.StatusCode);
             }

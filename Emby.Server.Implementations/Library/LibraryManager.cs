@@ -2095,6 +2095,15 @@ namespace Emby.Server.Implementations.Library
                 query.SetUser(user);
             }
 
+            if (query.ItemIds.Length > 0)
+            {
+                // Explicit IDs skip the usual top-parent restriction. Filter them
+                // before querying so a known ID cannot expose a blocked library,
+                // including through count and paged item endpoints.
+                var visibleIds = query.ItemIds.Where(id => ItemIsVisible(GetItemById(id), user)).ToArray();
+                query.ItemIds = visibleIds.Length > 0 ? visibleIds : [Guid.NewGuid()];
+            }
+
             if (query.AncestorIds.Length == 0 &&
                 query.ParentId.IsEmpty() &&
                 query.ChannelIds.Count == 0 &&
