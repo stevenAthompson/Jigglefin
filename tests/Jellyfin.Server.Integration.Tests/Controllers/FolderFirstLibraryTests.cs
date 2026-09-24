@@ -1193,6 +1193,15 @@ public sealed class FolderFirstLibraryTests
             Assert.Equal(BaseItemKind.Folder, Assert.Single(nativeSeasonItems.Items, item => item.Id.Equals(season.Id)).Type);
             Assert.Single(nativeSeasonItems.Items, item => item.Name == "Bonus Collection" && item.Type == BaseItemKind.Folder);
             Assert.DoesNotContain(nativeSeasonItems.Items, item => item.Name == "Season Unknown");
+            var swiftfinSeasonItems = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={series.Id}&includeItemTypes=BoxSet,Movie,MusicVideo,Series,Video,Folder,CollectionFolder&sortBy=SortName&sortOrder=Ascending&fields=MediaSources,ParentId,ChannelInfo&enableUserData=true&startIndex=0&limit=2",
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.NotNull(swiftfinSeasonItems);
+            Assert.Equal(2, swiftfinSeasonItems.TotalRecordCount);
+            Assert.Equal(BaseItemKind.Folder, Assert.Single(swiftfinSeasonItems.Items, item => item.Id.Equals(season.Id)).Type);
+            Assert.Single(swiftfinSeasonItems.Items, item => item.Name == "Bonus Collection" && item.Type == BaseItemKind.Folder);
+            Assert.DoesNotContain(swiftfinSeasonItems.Items, item => item.Name == "Season Unknown");
             Assert.Single(webFolderSeasonItems.Items, item => item.Name == "Bonus Collection" && item.Type == BaseItemKind.Folder);
             Assert.DoesNotContain(webFolderSeasonItems.Items, item => item.Name == "Season Unknown");
             var pagedWebSeasonItems = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
@@ -1996,17 +2005,15 @@ public sealed class FolderFirstLibraryTests
                 Assert.True(defaultView.IsFolder);
             }
 
-            // Swiftfin requests all supported item kinds, including Folder, while browsing
-            // a folder-style library. That filter must not turn the library into a recursive
-            // metadata listing or route physical series and albums to their detail pages.
+            // Swiftfin 1.6.1 asks for its video-oriented supported kinds plus Folder and
+            // CollectionFolder, even when browsing a folder-style music or book library.
+            // Its paged Items request must keep physical children in the folder route.
             var userId = (await AuthHelper.GetUserDtoAsync(client)).Id;
             var folderBrowseTypes = string.Join(',', new[]
             {
-                BaseItemKind.Folder, BaseItemKind.CollectionFolder, BaseItemKind.Movie,
-                BaseItemKind.Series, BaseItemKind.Season, BaseItemKind.MusicArtist,
-                BaseItemKind.MusicAlbum, BaseItemKind.Audio, BaseItemKind.Book,
-                BaseItemKind.AudioBook, BaseItemKind.Video, BaseItemKind.MusicVideo,
-                BaseItemKind.Photo, BaseItemKind.PhotoAlbum, BaseItemKind.Episode
+                BaseItemKind.BoxSet, BaseItemKind.Movie, BaseItemKind.MusicVideo,
+                BaseItemKind.Series, BaseItemKind.Video, BaseItemKind.Folder,
+                BaseItemKind.CollectionFolder
             });
             var legacyViews = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
                 $"Users/{userId}/Views", JsonDefaults.Options, TestContext.Current.CancellationToken);
@@ -2057,6 +2064,21 @@ public sealed class FolderFirstLibraryTests
                 Assert.All(nativeFirstLevel.Items, item => Assert.Contains(firstLevel.Items, child => child.Id.Equals(item.Id)));
                 Assert.Equal(BaseItemKind.Folder, Assert.Single(nativeFirstLevel.Items, item => item.Id.Equals(actionFolder.Id)).Type);
 
+                var swiftfinPageItems = new List<Guid>();
+                for (var pageIndex = 0; pageIndex < firstLevel.Items.Count; pageIndex++)
+                {
+                    var swiftfinPage = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                        $"Items?userId={userId}&parentId={libraryView.Id}&includeItemTypes={folderBrowseTypes}&sortBy=SortName&sortOrder=Ascending&fields=MediaSources,ParentId,ChannelInfo&enableUserData=true&startIndex={pageIndex}&limit=1",
+                        JsonDefaults.Options,
+                        TestContext.Current.CancellationToken);
+                    Assert.NotNull(swiftfinPage);
+                    Assert.Equal(firstLevel.Items.Count, swiftfinPage.TotalRecordCount);
+                    swiftfinPageItems.Add(Assert.Single(swiftfinPage.Items).Id);
+                }
+
+                Assert.Equal(firstLevel.Items.Count, swiftfinPageItems.Distinct().Count());
+                Assert.All(swiftfinPageItems, id => Assert.Contains(firstLevel.Items, child => child.Id.Equals(id)));
+
                 if (library.ExpectedKind == BaseItemKind.Series)
                 {
                     var dramaFolder = Assert.Single(firstLevel.Items, item => item.Name == "Drama");
@@ -2100,6 +2122,12 @@ public sealed class FolderFirstLibraryTests
                         TestContext.Current.CancellationToken);
                     Assert.NotNull(nativeSecondLevel);
                     Assert.Equal(BaseItemKind.Folder, Assert.Single(nativeSecondLevel.Items, item => item.Id.Equals(mediaEntry.Id)).Type);
+                    var swiftfinSecondLevel = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                        $"Items?userId={userId}&parentId={actionFolder.Id}&includeItemTypes={folderBrowseTypes}&sortBy=SortName&sortOrder=Ascending&fields=MediaSources,ParentId,ChannelInfo&enableUserData=true&startIndex=0&limit=1",
+                        JsonDefaults.Options,
+                        TestContext.Current.CancellationToken);
+                    Assert.NotNull(swiftfinSecondLevel);
+                    Assert.Equal(BaseItemKind.Folder, Assert.Single(swiftfinSecondLevel.Items, item => item.Id.Equals(mediaEntry.Id)).Type);
                     var itemDetails = await client.GetFromJsonAsync<BaseItemDto>(
                         $"Items/{mediaEntry.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
                     Assert.Equal(library.ExpectedKind, itemDetails?.Type);

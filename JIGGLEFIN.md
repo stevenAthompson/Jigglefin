@@ -54,14 +54,16 @@ with unmodified Jellyfin Web verified navigation from the library tile through `
 movie and through `Comedy` to a dedicated movie item.
 
 Native folder browsers such as
-[Swiftfin](https://github.com/jellyfin/Swiftfin/blob/main/Shared/Objects/Libraries/ItemLibrary.swift)
-can send a broad `includeItemTypes` list containing
-`Folder` and `sortBy=SortName` instead of Jellyfin Web's folder-field signature. Such requests
-list the immediate physical children and present navigable series and music albums as folders.
+[Swiftfin 1.6.1](https://github.com/jellyfin/Swiftfin/blob/1.6.1/Shared/Objects/Libraries/ItemLibrary.swift)
+send paged `Items` requests with `sortBy=SortName`, `enableUserData=true`, and a
+video-oriented item-kind list that also contains `Folder` and `CollectionFolder`.
+The server includes physical artist, album, photo-album, and season directories
+before filtering and pagination, then presents navigable series and albums as folders.
 Explicit recursive queries continue to list media throughout the library, and direct item
 details keep their standard media kinds. An integration test exercises this native
-request shape through the legacy user-scoped API as well as the current endpoints. This is API
-contract coverage, not yet a full Swiftfin UI test.
+request shape, including pagination, through the current endpoint and the legacy user-scoped API.
+This is API contract coverage, not yet a full Swiftfin UI test; Swiftfin's own item-kind list
+does not include books, audiobooks, or audio tracks in this folder view.
 The same broad type filter inside a series keeps physical season and bonus folders browseable
 without inserting the pathless generated `Season Unknown` into the folder list.
 [Jellyfin Android TV's folder grid](https://github.com/jellyfin/jellyfin-androidtv/blob/master/app/src/main/java/org/jellyfin/androidtv/ui/browsing/BrowsingUtils.kt)

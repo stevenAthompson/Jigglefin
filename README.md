@@ -76,8 +76,8 @@ open and potentially migrate that database. Jellyfin and Jigglefin cannot both b
   headless Web playback, discovery and removal of a movie in a running monitored library, and library,
   metadata, and streaming persistence after a clean restart. It also discovers a movie added
   while the server was stopped.
-  A Swiftfin-style API test checks folder browsing with broad item-type
-  filters, including physical series and music albums; an Android TV-style items query checks
+  A Swiftfin 1.6.1 API-contract test checks paged folder browsing with its broad item-type
+  filter, including physical series, seasons, and music albums; an Android TV-style items query checks
   folder paths and child counts. A restricted-user API test verifies that known folder and media
   IDs cannot bypass a blocked library's browse or stream permissions. Unmodified Android TV and
   Android mobile apps were also tested in a CLI-only emulator for native browsing and playback.

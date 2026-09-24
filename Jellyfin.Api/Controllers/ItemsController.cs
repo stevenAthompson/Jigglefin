@@ -609,6 +609,21 @@ public class ItemsController : BaseJellyfinApiController
                     && query.OrderBy[0].OrderBy == ItemSortBy.IsFolder
                     && query.OrderBy[1].OrderBy == ItemSortBy.SortName));
 
+        if (isPhysicalFolderBrowse
+            && hasBroadFolderTypeFilter
+            && query.IncludeItemTypes.Contains(BaseItemKind.CollectionFolder)
+            && query.IncludeItemTypes.Length > 2)
+        {
+            // Native folder browsers enumerate only the item kinds they normally render.
+            // Physical album, artist, photo-album and season directories can still be
+            // reached as folders, so include them before filtering and pagination.
+            query.IncludeItemTypes = [.. query.IncludeItemTypes,
+                BaseItemKind.MusicArtist,
+                BaseItemKind.MusicAlbum,
+                BaseItemKind.PhotoAlbum,
+                BaseItemKind.Season];
+        }
+
         if (item is MusicAlbum
             && !query.Recursive
             && (!query.HasFilters || hasBroadFolderTypeFilter)
