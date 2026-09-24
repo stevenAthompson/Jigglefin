@@ -126,6 +126,192 @@ public sealed class FolderFirstLibraryTests
         }
     }
 
+    [Fact]
+    public async Task TvLibraryWithTwoPhysicalRoots_KeepsSameNamedShowsSeparateAndStreamable()
+    {
+        var testRoot = Path.Combine(Path.GetTempPath(), "jigglefin-tv-multiple-roots-" + Guid.NewGuid().ToString("N"));
+        var roots = new[] { Path.Combine(testRoot, "First Root"), Path.Combine(testRoot, "Second Root") };
+        var videoBytes = await File.ReadAllBytesAsync(
+            Path.Combine(AppContext.BaseDirectory, "Test Data", "JigglefinSample.mp4"),
+            TestContext.Current.CancellationToken);
+        foreach (var root in roots)
+        {
+            var seasonFolder = Path.Combine(root, "Drama", "Same Show", "Season 1");
+            Directory.CreateDirectory(seasonFolder);
+            await File.WriteAllBytesAsync(
+                Path.Combine(seasonFolder, "Same Show - S01E01.mp4"), videoBytes, TestContext.Current.CancellationToken);
+        }
+
+        using var factory = new JellyfinApplicationFactory();
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.AddAuthHeader(await AuthHelper.CompleteStartupAsync(client));
+        var libraryName = "Jigglefin TV multiple roots " + Guid.NewGuid().ToString("N");
+        var created = false;
+
+        try
+        {
+            using var createResponse = await client.PostAsJsonAsync(
+                $"Library/VirtualFolders?name={Uri.EscapeDataString(libraryName)}&collectionType=tvshows&paths={Uri.EscapeDataString(roots[0])}&paths={Uri.EscapeDataString(roots[1])}&refreshLibrary=false",
+                new AddVirtualFolderDto { LibraryOptions = new LibraryOptions() },
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.NoContent, createResponse.StatusCode);
+            created = true;
+
+            var libraryManager = (LibraryManager)factory.Services.GetRequiredService<ILibraryManager>();
+            await libraryManager.ValidateMediaLibraryInternal(new Progress<double>(), TestContext.Current.CancellationToken);
+
+            var views = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                "UserViews?presetViews=tvshows", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(views);
+            var library = Assert.Single(views.Items, item => item.Name == libraryName);
+            Assert.Equal(BaseItemKind.Folder, library.Type);
+            var categories = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={library.Id}&fields=Path", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(categories);
+
+            var showIds = new HashSet<Guid>();
+            var episodeIds = new HashSet<Guid>();
+            foreach (var root in roots)
+            {
+                var category = Assert.Single(categories.Items, item => item.Name == "Drama" && item.Path == Path.Combine(root, "Drama"));
+                Assert.Equal(BaseItemKind.Folder, category.Type);
+                var shows = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                    $"Items?parentId={category.Id}&fields=Path", JsonDefaults.Options, TestContext.Current.CancellationToken);
+                Assert.NotNull(shows);
+                var show = Assert.Single(shows.Items, item => item.Name == "Same Show");
+                Assert.Equal(BaseItemKind.Series, show.Type);
+                Assert.Equal(Path.Combine(root, "Drama", "Same Show"), show.Path);
+                Assert.True(showIds.Add(show.Id));
+
+                var seasons = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                    $"Items?parentId={show.Id}&fields=Path", JsonDefaults.Options, TestContext.Current.CancellationToken);
+                Assert.NotNull(seasons);
+                var season = Assert.Single(seasons.Items, item => item.Name == "Season 1");
+                Assert.Equal(BaseItemKind.Season, season.Type);
+                Assert.Equal(Path.Combine(root, "Drama", "Same Show", "Season 1"), season.Path);
+                var episodes = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                    $"Items?parentId={season.Id}&fields=Path", JsonDefaults.Options, TestContext.Current.CancellationToken);
+                Assert.NotNull(episodes);
+                var episode = Assert.Single(episodes.Items, item => item.Type == BaseItemKind.Episode);
+                Assert.Equal(Path.Combine(root, "Drama", "Same Show", "Season 1", "Same Show - S01E01.mp4"), episode.Path);
+                Assert.True(episodeIds.Add(episode.Id));
+                using var streamResponse = await client.GetAsync(
+                    $"Videos/{episode.Id}/stream?static=true", TestContext.Current.CancellationToken);
+                Assert.Equal(HttpStatusCode.OK, streamResponse.StatusCode);
+                Assert.Equal(videoBytes, await streamResponse.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken));
+            }
+        }
+        finally
+        {
+            if (created)
+            {
+                using var deleteResponse = await client.DeleteAsync(
+                    $"Library/VirtualFolders?name={Uri.EscapeDataString(libraryName)}&refreshLibrary=false",
+                    TestContext.Current.CancellationToken);
+                Assert.Equal(HttpStatusCode.NoContent, deleteResponse.StatusCode);
+            }
+
+            Directory.Delete(testRoot, true);
+        }
+    }
+
+    [Fact]
+    public async Task MusicLibraryWithTwoPhysicalRoots_KeepsSameNamedAlbumsSeparateAndStreamable()
+    {
+        var testRoot = Path.Combine(Path.GetTempPath(), "jigglefin-music-multiple-roots-" + Guid.NewGuid().ToString("N"));
+        var roots = new[] { Path.Combine(testRoot, "First Root"), Path.Combine(testRoot, "Second Root") };
+        var audioBytes = await File.ReadAllBytesAsync(
+            Path.Combine(AppContext.BaseDirectory, "Test Data", "JigglefinSample.m4b"),
+            TestContext.Current.CancellationToken);
+        foreach (var root in roots)
+        {
+            var albumFolder = Path.Combine(root, "Rock", "Same Artist", "Same Album");
+            Directory.CreateDirectory(albumFolder);
+            await File.WriteAllBytesAsync(
+                Path.Combine(albumFolder, "Track 01.m4a"), audioBytes, TestContext.Current.CancellationToken);
+            await File.WriteAllTextAsync(
+                Path.Combine(root, "Rock", "Same Artist", "artist.nfo"),
+                "<artist><name>Same Artist</name></artist>",
+                TestContext.Current.CancellationToken);
+        }
+
+        using var factory = new JellyfinApplicationFactory();
+        using var client = factory.CreateClient();
+        client.DefaultRequestHeaders.AddAuthHeader(await AuthHelper.CompleteStartupAsync(client));
+        var libraryName = "Jigglefin music multiple roots " + Guid.NewGuid().ToString("N");
+        var created = false;
+
+        try
+        {
+            using var createResponse = await client.PostAsJsonAsync(
+                $"Library/VirtualFolders?name={Uri.EscapeDataString(libraryName)}&collectionType=music&paths={Uri.EscapeDataString(roots[0])}&paths={Uri.EscapeDataString(roots[1])}&refreshLibrary=false",
+                new AddVirtualFolderDto { LibraryOptions = new LibraryOptions() },
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.NoContent, createResponse.StatusCode);
+            created = true;
+
+            var libraryManager = (LibraryManager)factory.Services.GetRequiredService<ILibraryManager>();
+            await libraryManager.ValidateMediaLibraryInternal(new Progress<double>(), TestContext.Current.CancellationToken);
+
+            var views = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                "UserViews?presetViews=music", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(views);
+            var library = Assert.Single(views.Items, item => item.Name == libraryName);
+            Assert.Equal(BaseItemKind.Folder, library.Type);
+            var categories = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={library.Id}&fields=Path", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(categories);
+
+            var artistIds = new HashSet<Guid>();
+            var albumIds = new HashSet<Guid>();
+            var trackIds = new HashSet<Guid>();
+            foreach (var root in roots)
+            {
+                var category = Assert.Single(categories.Items, item => item.Name == "Rock" && item.Path == Path.Combine(root, "Rock"));
+                Assert.Equal(BaseItemKind.Folder, category.Type);
+                var artists = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                    $"Items?parentId={category.Id}&fields=Path", JsonDefaults.Options, TestContext.Current.CancellationToken);
+                Assert.NotNull(artists);
+                var artist = Assert.Single(artists.Items, item => item.Name == "Same Artist");
+                Assert.Equal(BaseItemKind.MusicArtist, artist.Type);
+                Assert.Equal(Path.Combine(root, "Rock", "Same Artist"), artist.Path);
+                Assert.True(artistIds.Add(artist.Id));
+
+                var albums = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                    $"Items?parentId={artist.Id}&fields=Path", JsonDefaults.Options, TestContext.Current.CancellationToken);
+                Assert.NotNull(albums);
+                var album = Assert.Single(albums.Items, item => item.Name == "Same Album");
+                Assert.Equal(BaseItemKind.MusicAlbum, album.Type);
+                Assert.Equal(Path.Combine(root, "Rock", "Same Artist", "Same Album"), album.Path);
+                Assert.True(albumIds.Add(album.Id));
+                var tracks = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                    $"Items?parentId={album.Id}&fields=Path", JsonDefaults.Options, TestContext.Current.CancellationToken);
+                Assert.NotNull(tracks);
+                var track = Assert.Single(tracks.Items, item => item.Type == BaseItemKind.Audio);
+                Assert.Equal(Path.Combine(root, "Rock", "Same Artist", "Same Album", "Track 01.m4a"), track.Path);
+                Assert.True(trackIds.Add(track.Id));
+                using var streamResponse = await client.GetAsync(
+                    $"Audio/{track.Id}/stream?static=true", TestContext.Current.CancellationToken);
+                Assert.Equal(HttpStatusCode.OK, streamResponse.StatusCode);
+                Assert.Equal(audioBytes, await streamResponse.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken));
+            }
+        }
+        finally
+        {
+            if (created)
+            {
+                using var deleteResponse = await client.DeleteAsync(
+                    $"Library/VirtualFolders?name={Uri.EscapeDataString(libraryName)}&refreshLibrary=false",
+                    TestContext.Current.CancellationToken);
+                Assert.Equal(HttpStatusCode.NoContent, deleteResponse.StatusCode);
+            }
+
+            Directory.Delete(testRoot, true);
+        }
+    }
+
     [Theory]
     [InlineData("movies", "Named Item.mp4", BaseItemKind.Movie)]
     [InlineData("tvshows", "Named Item - S01E01.mp4", BaseItemKind.Series)]

@@ -151,6 +151,7 @@ try {
     $libraryPayload = @{
         LibraryOptions = @{
             PathInfos = @(@{ Path = $mediaRoot })
+            EnableRealtimeMonitor = $true
         }
     } | ConvertTo-Json -Depth 5 -Compress
     Invoke-WebRequest -Uri $libraryUrl -Method Post -Headers $authenticatedHeaders -ContentType 'application/json' `
@@ -559,6 +560,44 @@ try {
         }
     }
 
+    # New libraries created through Jellyfin Web enable real-time monitoring by default.
+    # A file copied into an already-running library should appear without a manual scan.
+    $liveMoviePath = Join-Path $mediaRoot 'Action/Live Addition.mp4'
+    Copy-Item -LiteralPath $sampleVideo -Destination $liveMoviePath
+    $liveDeadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    $liveMovie = $null
+    while ([DateTime]::UtcNow -lt $liveDeadline) {
+        $serverProcess.Refresh()
+        if ($serverProcess.HasExited) {
+            throw "Packaged server exited while waiting for a live library update with code $($serverProcess.ExitCode)."
+        }
+        $liveFilms = Invoke-RestMethod -Uri "$baseUrl/Items?parentId=$($action.Id)" -Headers $authenticatedHeaders -TimeoutSec 15
+        $liveMovie = @($liveFilms.Items | Where-Object { $_.Name -eq 'Live Addition' -and $_.Type -eq 'Movie' }) | Select-Object -First 1
+        if ($liveMovie) { break }
+        Start-Sleep -Milliseconds 1000
+    }
+    if (-not $liveMovie) {
+        throw "The running server did not discover a movie added to a monitored library within $TimeoutSeconds seconds."
+    }
+    $liveStreamPath = Join-Path $smokeProfile 'streamed-live-addition.mp4'
+    Invoke-WebRequest -Uri "$baseUrl/Videos/$($liveMovie.Id)/stream?static=true" -Headers $authenticatedHeaders `
+        -OutFile $liveStreamPath -TimeoutSec 30 | Out-Null
+    if ((Get-FileHash -LiteralPath $liveStreamPath -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $sampleVideo -Algorithm SHA256).Hash) {
+        throw 'The movie added to the running server did not stream its original bytes.'
+    }
+    Remove-Item -LiteralPath $liveMoviePath
+    $removalDeadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    $removedFromBrowse = $false
+    while ([DateTime]::UtcNow -lt $removalDeadline) {
+        $liveFilms = Invoke-RestMethod -Uri "$baseUrl/Items?parentId=$($action.Id)" -Headers $authenticatedHeaders -TimeoutSec 15
+        $removedFromBrowse = -not @($liveFilms.Items | Where-Object Id -EQ $liveMovie.Id).Count
+        if ($removedFromBrowse) { break }
+        Start-Sleep -Milliseconds 1000
+    }
+    if (-not $removedFromBrowse) {
+        throw "The running server kept a movie after its physical file was removed for $TimeoutSeconds seconds."
+    }
+
     # Verify that the same portable profile survives a clean stop and restart.
     try {
         Invoke-WebRequest -Uri "$baseUrl/System/Shutdown" -Method Post -Headers $authenticatedHeaders -TimeoutSec 15 | Out-Null
@@ -654,7 +693,7 @@ try {
     }
 
     $smokeSucceeded = $true
-    Write-Host "Packaged server smoke test passed: API version $($publicInfo.Version), bundled Web HTTP $($webResponse.StatusCode), login, movie, audiobook, music, TV, home-video/photo, and music-video folder browse, local NFO and audiobook XML metadata, client playback negotiation, external subtitle, direct media streams, persistence after restart, and discovery of a movie added during downtime."
+    Write-Host "Packaged server smoke test passed: API version $($publicInfo.Version), bundled Web HTTP $($webResponse.StatusCode), login, movie, audiobook, music, TV, home-video/photo, and music-video folder browse, local NFO and audiobook XML metadata, client playback negotiation, external subtitle, direct media streams, live library additions and removals, persistence after restart, and discovery of a movie added during downtime."
 } catch {
     Write-Warning "Package smoke test failed. Isolated profile and logs: $smokeProfile"
     foreach ($logPath in @($stdout, $stderr, (Join-Path $smokeProfile 'restart-stdout.log'), (Join-Path $smokeProfile 'restart-stderr.log'))) {

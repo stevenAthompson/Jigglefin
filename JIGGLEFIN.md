@@ -108,6 +108,9 @@ native folder browsers.
 A movie library with two physical roots also keeps both paths browseable when each root contains
 an `Action/Same Movie` tree. The client receives two distinct Movie items, and both stream from
 their own paths rather than losing one to a same-name category or movie collision.
+The same two-root browse and stream checks cover duplicate `Drama/Same Show/Season 1` TV trees
+and duplicate `Rock/Same Artist/Same Album` music trees. Their category, show or artist, season
+or album, and playable file IDs remain distinct for each physical root.
 
 The resolver chain now leaves an arbitrary TV grouping directory as a `Folder` unless it contains
 `tvshow.nfo`, `series.xml`, or episode/season evidence. A music grouping directory is not inferred to be a
@@ -281,6 +284,9 @@ creation of a movie library through Jellyfin Web's `PathInfos` payload with a co
 physical movie, audiobook, music, TV, home-video/photo, and music-video folders, local NFO fields,
 standard client playback negotiation, external subtitles, direct media bytes, and headless playback
 of all six playable media types plus a photo-only album browse in unmodified Jellyfin Web.
+For the Web-style movie library with real-time monitoring enabled, it also adds and removes a
+movie while the server is running and verifies that the file watcher discovers, streams, and
+removes the physical item without a manual scan.
 It then shuts down and restarts the same isolated profile, reauthenticates, and verifies that all
 six folder-first library entries, the movie's stable ID and local metadata, and direct streaming
 survive the restart. It adds a new movie while the server is stopped and verifies that the startup

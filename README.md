@@ -65,13 +65,16 @@ open and potentially migrate that database. Jellyfin and Jigglefin cannot both b
   movie, audiobook, music, TV, home-video, and music-video folder navigation and sustained playback
   of synthetic media, plus browsing a photo-only album. Automated API
   tests cover browse paths, rename/removal rescans, and direct or byte-range
-  streaming for movie, music, and audiobook samples. Windows CI also uses its bundled FFmpeg to
+  streaming for movie, music, and audiobook samples, including same-named movie, TV, and music
+  trees in separate library roots. Windows CI also uses its bundled FFmpeg to
   verify movie-to-HLS and audiobook-to-MP3 transcoding, plus local external subtitle delivery.
   Before uploading the ZIP, CI starts the packaged server with an isolated profile, completes
   setup with a throwaway password, and checks authenticated movie, audiobook, music, TV,
   home-video/photo, and music-video folder browsing,
   local movie NFO metadata, client playback negotiation, external subtitles, direct streaming,
-  headless Web playback, and library, metadata, and streaming persistence after a clean restart.
+  headless Web playback, discovery and removal of a movie in a running monitored library, and library,
+  metadata, and streaming persistence after a clean restart. It also discovers a movie added
+  while the server was stopped.
   A Swiftfin-style API test checks folder browsing with broad item-type
   filters, including physical series and music albums; an Android TV-style items query checks
   folder paths and child counts. Unmodified Android TV and Android mobile apps were also tested
