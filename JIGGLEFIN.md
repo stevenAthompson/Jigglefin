@@ -123,7 +123,8 @@ TV Shows, Music, Books, Home Videos, and Music Videos. It checks Jellyfin Web's 
 request and direct streaming of the root-level video and audio files, plus a root-level photo.
 A movie library with two physical roots also keeps both paths browseable when each root contains
 an `Action/Same Movie` tree. The client receives two distinct Movie items, and both stream from
-their own paths rather than losing one to a same-name category or movie collision.
+their own paths rather than losing one to a same-name category or movie collision. A paged,
+name-sorted folder request also returns both same-named `Action` directories exactly once.
 The same two-root browse and stream checks cover duplicate `Drama/Same Show/Season 1` TV trees
 and duplicate `Rock/Same Artist/Same Album` music trees. Their category, show or artist, season
 or album, and playable file IDs remain distinct for each physical root.
@@ -315,7 +316,9 @@ removes the physical item without a manual scan.
 It then shuts down and restarts the same isolated profile, reauthenticates, and verifies that all
 six folder-first library entries, the movie's stable ID and local metadata, and direct streaming
 survive the restart. It adds a new movie while the server is stopped and verifies that the startup
-scan discovers and streams it after restart.
+scan discovers and streams it after restart. The same test removes a loose trailer during downtime
+and verifies that its old item ID and owner-linked metadata disappear while the remaining movie
+becomes a normal browseable `Movie` again.
 Successful profiles are cleaned up after the server stops when Windows releases their files.
 To repeat the full client test locally after packaging, run `npm ci --prefix tests/WebClientSmoke`,
 `tests/WebClientSmoke/node_modules/.bin/playwright.cmd install chromium`, then

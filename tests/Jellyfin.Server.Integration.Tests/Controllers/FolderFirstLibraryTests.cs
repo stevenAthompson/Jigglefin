@@ -72,6 +72,22 @@ public sealed class FolderFirstLibraryTests
             var library = Assert.Single(views.Items, item => item.Name == libraryName);
             Assert.Equal(BaseItemKind.Folder, library.Type);
 
+            var userId = (await AuthHelper.GetUserDtoAsync(client)).Id;
+            var pagedFolderIds = new HashSet<Guid>();
+            for (var pageIndex = 0; pageIndex < 2; pageIndex++)
+            {
+                var page = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                    $"Items?userId={userId}&parentId={library.Id}&includeItemTypes=BoxSet,Movie,MusicVideo,Series,Video,Folder,CollectionFolder&sortBy=SortName&sortOrder=Ascending&fields=MediaSources,ParentId,ChannelInfo&enableUserData=true&startIndex={pageIndex}&limit=1",
+                    JsonDefaults.Options,
+                    TestContext.Current.CancellationToken);
+                Assert.NotNull(page);
+                Assert.Equal(2, page.TotalRecordCount);
+                var action = Assert.Single(page.Items);
+                Assert.Equal("Action", action.Name);
+                Assert.Equal(BaseItemKind.Folder, action.Type);
+                Assert.True(pagedFolderIds.Add(action.Id));
+            }
+
             var toBrowse = new Queue<Guid>();
             var visited = new HashSet<Guid>();
             var physicalPaths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);

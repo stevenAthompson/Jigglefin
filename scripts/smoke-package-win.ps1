@@ -626,7 +626,23 @@ try {
     if ((Get-FileHash -LiteralPath $liveStreamPath -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $sampleVideo -Algorithm SHA256).Hash) {
         throw 'The movie added to the running server did not stream its original bytes.'
     }
-    Remove-Item -LiteralPath $liveMoviePath
+    # The library monitor can still hold the file open briefly after it first
+    # appears in the API. Wait for that read handle before testing removal.
+    $deleteDeadline = [DateTime]::UtcNow.AddSeconds(30)
+    while ($true) {
+        try {
+            Remove-Item -LiteralPath $liveMoviePath -ErrorAction Stop
+            break
+        } catch {
+            if (-not (Test-Path -LiteralPath $liveMoviePath)) {
+                break
+            }
+            if ([DateTime]::UtcNow -ge $deleteDeadline) {
+                throw
+            }
+            Start-Sleep -Milliseconds 250
+        }
+    }
     $removalDeadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
     $removedFromBrowse = $false
     while ([DateTime]::UtcNow -lt $removalDeadline) {
@@ -653,6 +669,8 @@ try {
     }
     $offlineMoviePath = Join-Path $mediaRoot 'Action/Offline Addition.mp4'
     Copy-Item -LiteralPath $sampleVideo -Destination $offlineMoviePath
+    $offlineRemovedTrailerPath = Join-Path $trailerMovieDirectory 'Folder Trailer Film-trailer.mp4'
+    Remove-Item -LiteralPath $offlineRemovedTrailerPath
     $restartStdout = Join-Path $smokeProfile 'restart-stdout.log'
     $restartStderr = Join-Path $smokeProfile 'restart-stderr.log'
     $serverProcess = Start-Process -FilePath $server -ArgumentList $arguments -WorkingDirectory $package `
@@ -733,8 +751,32 @@ try {
         throw 'The movie added during downtime did not stream its original bytes after startup scanning.'
     }
 
+    $offlineRemovalDeadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    $promotedTrailerMovie = $null
+    while ([DateTime]::UtcNow -lt $offlineRemovalDeadline) {
+        $restartedFilms = Invoke-RestMethod -Uri "$baseUrl/Items?parentId=$($restartedAction.Id)" -Headers $restartHeaders -TimeoutSec 15
+        $promotedTrailerMovie = @($restartedFilms.Items | Where-Object { $_.Name -eq 'Folder Trailer Film' -and $_.Type -eq 'Movie' }) | Select-Object -First 1
+        $staleTrailerFolder = @($restartedFilms.Items | Where-Object Id -EQ $trailerMovieFolder.Id)
+        if ($promotedTrailerMovie -and -not $staleTrailerFolder.Count) { break }
+        Start-Sleep -Milliseconds 1000
+    }
+    if (-not $promotedTrailerMovie -or $staleTrailerFolder.Count) {
+        throw "The restarted server did not remove the trailer deleted during downtime and restore its remaining movie within $TimeoutSeconds seconds."
+    }
+    $staleTrailerItems = Invoke-RestMethod -Uri "$baseUrl/Items?ids=$($looseTrailer.Id)" -Headers $restartHeaders -TimeoutSec 15
+    if (@($staleTrailerItems.Items).Count -ne 0) {
+        throw 'The trailer deleted during downtime remains queryable by its old item ID.'
+    }
+    # Read the raw JSON: Invoke-RestMethod can surface an empty array as $null,
+    # which @($null) would incorrectly count as one trailer.
+    $trailerMetadataResponse = Invoke-WebRequest -Uri "$baseUrl/Items/$($promotedTrailerMovie.Id)/LocalTrailers" -Headers $restartHeaders -TimeoutSec 15
+    $staleTrailerMetadata = @($trailerMetadataResponse.Content | ConvertFrom-Json)
+    if ($staleTrailerMetadata.Count -ne 0) {
+        throw "The remaining movie kept owned trailer metadata after its physical trailer was removed during downtime: $($trailerMetadataResponse.Content)"
+    }
+
     $smokeSucceeded = $true
-    Write-Host "Packaged server smoke test passed: API version $($publicInfo.Version), bundled Web HTTP $($webResponse.StatusCode), login, movie with a loose trailer, audiobook, music with an album bonus video, TV, home-video/photo, and music-video folder browse, local NFO and audiobook XML metadata, client playback negotiation, external subtitle, direct media streams, live library additions and removals, persistence after restart, and discovery of a movie added during downtime."
+    Write-Host "Packaged server smoke test passed: API version $($publicInfo.Version), bundled Web HTTP $($webResponse.StatusCode), login, movie with a loose trailer, audiobook, music with an album bonus video, TV, home-video/photo, and music-video folder browse, local NFO and audiobook XML metadata, client playback negotiation, external subtitle, direct media streams, live library additions and removals, persistence after restart, and discovery of a movie added and a trailer removed during downtime."
 } catch {
     Write-Warning "Package smoke test failed. Isolated profile and logs: $smokeProfile"
     foreach ($logPath in @($stdout, $stderr, (Join-Path $smokeProfile 'restart-stdout.log'), (Join-Path $smokeProfile 'restart-stderr.log'))) {

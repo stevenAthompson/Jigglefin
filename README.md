@@ -75,7 +75,7 @@ open and potentially migrate that database. Jellyfin and Jigglefin cannot both b
   local movie NFO metadata, client playback negotiation, external subtitles, direct streaming,
   headless Web playback, discovery and removal of a movie in a running monitored library, and library,
   metadata, and streaming persistence after a clean restart. It also discovers a movie added
-  while the server was stopped.
+  while the server was stopped and removes stale trailer data for a file deleted during downtime.
   A Swiftfin 1.6.1 API-contract test checks paged folder browsing with its broad item-type
   filter, including physical series, seasons, and music albums; an Android TV-style items query checks
   folder paths and child counts. A restricted-user API test verifies that known folder and media
