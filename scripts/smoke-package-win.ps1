@@ -138,8 +138,12 @@ try {
 
     $mediaRoot = Join-Path $smokeProfile 'media, with comma'
     $movieDirectory = Join-Path $mediaRoot 'Action/Smoke Film (2026)'
+    $trailerMovieDirectory = Join-Path $mediaRoot 'Action/Folder Trailer Film'
     New-Item -ItemType Directory -Path $movieDirectory | Out-Null
+    New-Item -ItemType Directory -Path $trailerMovieDirectory | Out-Null
     Copy-Item -LiteralPath $sampleVideo -Destination (Join-Path $movieDirectory 'Smoke Film (2026).mp4')
+    Copy-Item -LiteralPath $sampleVideo -Destination (Join-Path $trailerMovieDirectory 'Folder Trailer Film.mp4')
+    Copy-Item -LiteralPath $sampleVideo -Destination (Join-Path $trailerMovieDirectory 'Folder Trailer Film-trailer.mp4')
     [System.IO.File]::WriteAllText(
         (Join-Path $movieDirectory 'movie.nfo'),
         '<movie><title>Jigglefin Local Smoke Film</title><year>2026</year><plot>Smoke-test local metadata.</plot></movie>')
@@ -159,6 +163,7 @@ try {
 
     $mediaDeadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
     $movie = $null
+    $trailerMovieFolder = $null
     $lastBrowseState = 'No library view response yet.'
     while ([DateTime]::UtcNow -lt $mediaDeadline) {
         $serverProcess.Refresh()
@@ -177,8 +182,9 @@ try {
                 if ($action -and $action.Type -eq 'Folder') {
                     $films = Invoke-RestMethod -Uri "$baseUrl/Items?parentId=$($action.Id)" -Headers $authenticatedHeaders -TimeoutSec 5
                     $movie = @($films.Items | Where-Object { $_.Name -eq 'Jigglefin Local Smoke Film' -and $_.Type -eq 'Movie' }) | Select-Object -First 1
+                    $trailerMovieFolder = @($films.Items | Where-Object { $_.Name -eq 'Folder Trailer Film' -and $_.Type -eq 'Folder' }) | Select-Object -First 1
                     $lastBrowseState = 'Action exists; movie items: ' + [string]::Join(', ', @($films.Items | ForEach-Object { "$($_.Name):$($_.Type)" }))
-                    if ($movie) {
+                    if ($movie -and $trailerMovieFolder) {
                         break
                     }
                 }
@@ -189,8 +195,8 @@ try {
         }
         Start-Sleep -Milliseconds 1000
     }
-    if (-not $movie) {
-        throw "The packaged server did not expose the NFO-titled sample movie through its physical folders within $TimeoutSeconds seconds. Last observation: $lastBrowseState"
+    if (-not $movie -or -not $trailerMovieFolder) {
+        throw "The packaged server did not expose the NFO-titled movie and loose-trailer folder within $TimeoutSeconds seconds. Last observation: $lastBrowseState"
     }
     $movieDetails = Invoke-RestMethod -Uri "$baseUrl/Items/$($movie.Id)?fields=MediaSources,MediaStreams" -Headers $authenticatedHeaders -TimeoutSec 15
     if ($movieDetails.ProductionYear -ne 2026 -or $movieDetails.Overview -ne 'Smoke-test local metadata.') {
@@ -235,6 +241,32 @@ try {
         -OutFile $streamPath -TimeoutSec 30 | Out-Null
     if ((Get-FileHash -LiteralPath $streamPath -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $sampleVideo -Algorithm SHA256).Hash) {
         throw 'The authenticated video stream did not match the sample file.'
+    }
+
+    $trailerDeadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    $looseTrailer = $null
+    $lastTrailerBrowseState = 'No loose-trailer folder response yet.'
+    while ([DateTime]::UtcNow -lt $trailerDeadline) {
+        $trailerItems = Invoke-RestMethod -Uri "$baseUrl/Items?parentId=$($trailerMovieFolder.Id)&fields=Path" -Headers $authenticatedHeaders -TimeoutSec 5
+        $trailerMain = @($trailerItems.Items | Where-Object Path -EQ (Join-Path $trailerMovieDirectory 'Folder Trailer Film.mp4')) | Select-Object -First 1
+        $looseTrailer = @($trailerItems.Items | Where-Object Path -EQ (Join-Path $trailerMovieDirectory 'Folder Trailer Film-trailer.mp4')) | Select-Object -First 1
+        $lastTrailerBrowseState = 'Folder items: ' + [string]::Join(', ', @($trailerItems.Items | ForEach-Object { "$($_.Name):$($_.Type)" }))
+        if ($trailerMain -and $looseTrailer) { break }
+        Start-Sleep -Milliseconds 1000
+    }
+    if (-not $trailerMain -or -not $looseTrailer) {
+        throw "The packaged server did not expose both physical movie files within $TimeoutSeconds seconds. Last observation: $lastTrailerBrowseState"
+    }
+    $localTrailers = Invoke-RestMethod -Uri "$baseUrl/Items/$($trailerMain.Id)/LocalTrailers" -Headers $authenticatedHeaders -TimeoutSec 15
+    $localTrailerItems = @($localTrailers)
+    if ($localTrailerItems.Count -ne 1 -or $localTrailerItems[0].Type -ne 'Trailer') {
+        throw 'The main movie did not retain its normal local-trailer metadata.'
+    }
+    $looseTrailerStreamPath = Join-Path $smokeProfile 'streamed-loose-trailer.mp4'
+    Invoke-WebRequest -Uri "$baseUrl/Videos/$($looseTrailer.Id)/stream?static=true" -Headers $authenticatedHeaders `
+        -OutFile $looseTrailerStreamPath -TimeoutSec 30 | Out-Null
+    if ((Get-FileHash -LiteralPath $looseTrailerStreamPath -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $sampleVideo -Algorithm SHA256).Hash) {
+        throw 'The authenticated loose-trailer stream did not match the sample file.'
     }
 
     $bookRoot = Join-Path $smokeProfile 'books-media'
@@ -702,7 +734,7 @@ try {
     }
 
     $smokeSucceeded = $true
-    Write-Host "Packaged server smoke test passed: API version $($publicInfo.Version), bundled Web HTTP $($webResponse.StatusCode), login, movie, audiobook, music with an album bonus video, TV, home-video/photo, and music-video folder browse, local NFO and audiobook XML metadata, client playback negotiation, external subtitle, direct media streams, live library additions and removals, persistence after restart, and discovery of a movie added during downtime."
+    Write-Host "Packaged server smoke test passed: API version $($publicInfo.Version), bundled Web HTTP $($webResponse.StatusCode), login, movie with a loose trailer, audiobook, music with an album bonus video, TV, home-video/photo, and music-video folder browse, local NFO and audiobook XML metadata, client playback negotiation, external subtitle, direct media streams, live library additions and removals, persistence after restart, and discovery of a movie added during downtime."
 } catch {
     Write-Warning "Package smoke test failed. Isolated profile and logs: $smokeProfile"
     foreach ($logPath in @($stdout, $stderr, (Join-Path $smokeProfile 'restart-stdout.log'), (Join-Path $smokeProfile 'restart-stderr.log'))) {

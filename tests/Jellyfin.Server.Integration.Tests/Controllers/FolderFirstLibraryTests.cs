@@ -1431,11 +1431,21 @@ public sealed class FolderFirstLibraryTests
     {
         var testRoot = Path.Combine(Path.GetTempPath(), "jigglefin-movie-extras-" + Guid.NewGuid().ToString("N"));
         var movieFolder = Path.Combine(testRoot, "Action", "Named Movie");
+        var trailerOnlyFolder = Path.Combine(testRoot, "Action", "Trailer Only Film");
         var extrasFolder = Path.Combine(movieFolder, "Extras");
         var trailersFolder = Path.Combine(movieFolder, "Trailers");
         Directory.CreateDirectory(extrasFolder);
         Directory.CreateDirectory(trailersFolder);
+        Directory.CreateDirectory(trailerOnlyFolder);
         await File.WriteAllBytesAsync(Path.Combine(movieFolder, "Named Movie.mp4"), [], TestContext.Current.CancellationToken);
+        var looseTrailerPath = Path.Combine(movieFolder, "Named Movie-trailer.mp4");
+        var trailerBytes = await File.ReadAllBytesAsync(
+            Path.Combine(AppContext.BaseDirectory, "Test Data", "JigglefinSample.mp4"),
+            TestContext.Current.CancellationToken);
+        await File.WriteAllBytesAsync(looseTrailerPath, trailerBytes, TestContext.Current.CancellationToken);
+        await File.WriteAllBytesAsync(Path.Combine(trailerOnlyFolder, "Trailer Only Film.mp4"), trailerBytes, TestContext.Current.CancellationToken);
+        var trailerOnlyPath = Path.Combine(trailerOnlyFolder, "Trailer Only Film-trailer.mp4");
+        await File.WriteAllBytesAsync(trailerOnlyPath, trailerBytes, TestContext.Current.CancellationToken);
         await File.WriteAllBytesAsync(Path.Combine(extrasFolder, "Featurette.mp4"), [], TestContext.Current.CancellationToken);
         await File.WriteAllBytesAsync(Path.Combine(trailersFolder, "Preview.mp4"), [], TestContext.Current.CancellationToken);
 
@@ -1471,11 +1481,44 @@ public sealed class FolderFirstLibraryTests
             Assert.NotNull(actionItems);
             var movie = Assert.Single(actionItems.Items, item => item.Name == "Named Movie");
             Assert.Equal(BaseItemKind.Folder, movie.Type);
+            var trailerOnlyMovie = Assert.Single(actionItems.Items, item => item.Name == "Trailer Only Film");
+            Assert.Equal(BaseItemKind.Folder, trailerOnlyMovie.Type);
+            var trailerOnlyItems = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={trailerOnlyMovie.Id}&fields=Path", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(trailerOnlyItems);
+            var trailerOnlyMain = Assert.Single(trailerOnlyItems.Items, item => item.Path == Path.Combine(trailerOnlyFolder, "Trailer Only Film.mp4"));
+            var trailerOnlyFile = Assert.Single(trailerOnlyItems.Items, item => item.Path == trailerOnlyPath);
+            var trailerOnlyEntity = libraryManager.GetItemById(trailerOnlyMain.Id);
+            Assert.NotNull(trailerOnlyEntity);
+            Assert.False(trailerOnlyEntity.IsInMixedFolder, $"Name: {trailerOnlyEntity.Name}; parent: {trailerOnlyEntity.GetParent()?.Path}");
+            var trailerOnlyMetadata = await client.GetFromJsonAsync<BaseItemDto[]>(
+                $"Items/{trailerOnlyMain.Id}/LocalTrailers", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(trailerOnlyMetadata);
+            var ownedTrailer = Assert.Single(trailerOnlyMetadata, item => item.Type == BaseItemKind.Trailer && !item.Id.Equals(trailerOnlyFile.Id));
+            using (var trailerOnlyResponse = await client.GetAsync(
+                $"Videos/{trailerOnlyFile.Id}/stream?static=true", TestContext.Current.CancellationToken))
+            {
+                Assert.Equal(HttpStatusCode.OK, trailerOnlyResponse.StatusCode);
+                Assert.Equal(trailerBytes, await trailerOnlyResponse.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken));
+            }
 
             var movieItems = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
-                $"Items?parentId={movie.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+                $"Items?parentId={movie.Id}&fields=Path", JsonDefaults.Options, TestContext.Current.CancellationToken);
             Assert.NotNull(movieItems);
-            Assert.Single(movieItems.Items, item => item.Name == "Named Movie" && item.Type == BaseItemKind.Movie);
+            var mainMovie = Assert.Single(movieItems.Items, item => item.Name == "Named Movie" && item.Type == BaseItemKind.Movie);
+            var looseTrailer = Assert.Single(movieItems.Items, item => item.Path == looseTrailerPath);
+            Assert.Equal("Named Movie-trailer", looseTrailer.Name);
+            var trailerMetadata = await client.GetFromJsonAsync<BaseItemDto[]>(
+                $"Items/{mainMovie.Id}/LocalTrailers", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(trailerMetadata);
+            Assert.Single(trailerMetadata, item => item.Type == BaseItemKind.Trailer && !item.Id.Equals(looseTrailer.Id));
+            using (var trailerResponse = await client.GetAsync(
+                $"Videos/{looseTrailer.Id}/stream?static=true", TestContext.Current.CancellationToken))
+            {
+                Assert.Equal(HttpStatusCode.OK, trailerResponse.StatusCode);
+                Assert.Equal(trailerBytes, await trailerResponse.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken));
+            }
+
             var extras = Assert.Single(movieItems.Items, item => item.Name == "Extras");
             Assert.Equal(BaseItemKind.Folder, extras.Type);
             var extraItems = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
@@ -1491,11 +1534,29 @@ public sealed class FolderFirstLibraryTests
 
             await libraryManager.ValidateMediaLibraryInternal(new Progress<double>(), TestContext.Current.CancellationToken);
             var refreshedMovieItems = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
-                $"Items?parentId={movie.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+                $"Items?parentId={movie.Id}&fields=Path", JsonDefaults.Options, TestContext.Current.CancellationToken);
             Assert.NotNull(refreshedMovieItems);
             Assert.Single(refreshedMovieItems.Items, item => item.Name == "Named Movie" && item.Type == BaseItemKind.Movie);
+            Assert.Single(refreshedMovieItems.Items, item => item.Path == looseTrailerPath);
             Assert.Single(refreshedMovieItems.Items, item => item.Id.Equals(extras.Id));
             Assert.Single(refreshedMovieItems.Items, item => item.Id.Equals(trailers.Id));
+            var refreshedTrailerOnlyItems = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={trailerOnlyMovie.Id}&fields=Path", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(refreshedTrailerOnlyItems);
+            Assert.Single(refreshedTrailerOnlyItems.Items, item => item.Path == trailerOnlyPath && item.Id.Equals(trailerOnlyFile.Id));
+            var refreshedLocalTrailers = await client.GetFromJsonAsync<BaseItemDto[]>(
+                $"Items/{trailerOnlyMain.Id}/LocalTrailers", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(refreshedLocalTrailers);
+            Assert.Single(refreshedLocalTrailers, item => item.Type == BaseItemKind.Trailer);
+
+            File.Delete(trailerOnlyPath);
+            await libraryManager.ValidateMediaLibraryInternal(new Progress<double>(), TestContext.Current.CancellationToken);
+            Assert.Null(libraryManager.GetItemById(trailerOnlyFile.Id));
+            Assert.Null(libraryManager.GetItemById(ownedTrailer.Id));
+            var actionAfterRemoval = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={action.Id}&fields=Path", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(actionAfterRemoval);
+            Assert.Single(actionAfterRemoval.Items, item => item.Name == "Trailer Only Film" && item.Type == BaseItemKind.Movie);
         }
         finally
         {

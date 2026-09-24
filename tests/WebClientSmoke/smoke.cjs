@@ -56,11 +56,32 @@ async function main() {
         assert.ok(mediaResponses.some((response) => /\/Videos\/.*\/stream\.mp4/.test(response.path) && response.status === 206));
         assert.ok(mediaResponses.some((response) => /\/Subtitles\/.*\/Stream\.js/.test(response.path) && response.status === 200));
 
+        const priorTrailerResponses = mediaResponses.filter((response) => /\/Videos\/.*\/stream\.mp4/.test(response.path) && response.status === 206).length;
+        await page.goto(`${baseUrl}/web/#/home`, { waitUntil: 'domcontentloaded' });
+        await page.getByText('Jigglefin Package Smoke Movies', { exact: true }).filter({ visible: true }).first().click();
+        await page.getByText('Action', { exact: true }).filter({ visible: true }).first().click();
+        await page.getByText('Folder Trailer Film', { exact: true }).filter({ visible: true }).first().click();
+        await page.getByText('Folder Trailer Film-trailer', { exact: true }).filter({ visible: true }).first().click();
+        await page.locator('button.btnPlay[title="Play"]').click();
+        await page.locator('video').waitFor({ state: 'attached' });
+        await page.waitForFunction(() => {
+            const video = document.querySelector('video');
+            return video && video.currentTime >= 2 && !video.paused && video.readyState >= 3 && !video.error;
+        }, null, { timeout: 12000 });
+        const trailer = await page.locator('video').evaluate((video) => ({
+            currentTime: video.currentTime,
+            duration: video.duration,
+            paused: video.paused,
+            error: video.error?.message
+        }));
+        assert.ok(trailer.duration >= 18 && trailer.duration <= 22, 'The loose trailer duration did not match the synthetic sample.');
+        assert.ok(mediaResponses.filter((response) => /\/Videos\/.*\/stream\.mp4/.test(response.path) && response.status === 206).length > priorTrailerResponses);
+
         await page.goto(`${baseUrl}/web/#/home`, { waitUntil: 'domcontentloaded' });
         await page.getByText('Jigglefin Package Smoke Books', { exact: true }).filter({ visible: true }).first().click();
         await page.getByText('Fantasy', { exact: true }).filter({ visible: true }).first().click();
         await page.getByText('Smoke Audio Book', { exact: true }).filter({ visible: true }).first().waitFor();
-        await page.locator('.cardOverlayContainer[data-action="link"]').first().click();
+        await page.locator('.cardOverlayContainer[data-action="link"]').filter({ visible: true }).first().click();
         await page.locator('audio').waitFor({ state: 'attached' });
         await page.waitForFunction(() => {
             const audio = document.querySelector('audio');
@@ -203,7 +224,7 @@ async function main() {
         assert.ok(musicVideo.duration >= 18 && musicVideo.duration <= 22, 'The music-video duration did not match the synthetic sample.');
         assert.ok(mediaResponses.filter((response) => /\/Videos\/.*\/stream\.mp4/.test(response.path) && response.status === 206).length > priorMusicVideoResponses);
 
-        console.log(`Jellyfin Web headless smoke passed: movie ${movie.currentTime.toFixed(1)}s, audiobook ${audiobook.currentTime.toFixed(1)}s, music ${music.currentTime.toFixed(1)}s, album bonus video ${bonusVideo.currentTime.toFixed(1)}s, TV ${episode.currentTime.toFixed(1)}s, home video ${homeVideo.currentTime.toFixed(1)}s, and music video ${musicVideo.currentTime.toFixed(1)}s played through physical folders; a photo-only album was browsed.`);
+        console.log(`Jellyfin Web headless smoke passed: movie ${movie.currentTime.toFixed(1)}s, loose trailer ${trailer.currentTime.toFixed(1)}s, audiobook ${audiobook.currentTime.toFixed(1)}s, music ${music.currentTime.toFixed(1)}s, album bonus video ${bonusVideo.currentTime.toFixed(1)}s, TV ${episode.currentTime.toFixed(1)}s, home video ${homeVideo.currentTime.toFixed(1)}s, and music video ${musicVideo.currentTime.toFixed(1)}s played through physical folders; a photo-only album was browsed.`);
     } finally {
         await browser.close();
     }

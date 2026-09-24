@@ -182,10 +182,17 @@ namespace Emby.Server.Implementations.Library.Resolvers.Movies
                 item = ResolveVideo<Video>(args, false);
             }
 
-            // Ignore extras
-            if (item?.ExtraType is not null)
+            // A movie library's physical folder browser must keep loose trailer
+            // and featurette files visible. The owner's normal extra remains
+            // available to metadata-oriented clients as a separate item.
+            if (item?.ExtraType is not null && collectionType != CollectionType.movies)
             {
                 return null;
+            }
+
+            if (item?.ExtraType is not null)
+            {
+                item.Name = Path.GetFileNameWithoutExtension(args.Path);
             }
 
             if (item is not null)
@@ -292,7 +299,12 @@ namespace Emby.Server.Implementations.Library.Resolvers.Movies
                 ExtraFiles = leftOver
             };
 
-            var isInMixedFolder = resolverResult.Count > 1 || parent?.IsTopParent == true;
+            // A trailer or featurette beside one main movie does not make that
+            // movie's directory a mixed collection for owned-extra discovery.
+            var resolvedPrimaryCount = collectionType == CollectionType.movies
+                ? resolverResult.Count(video => video.ExtraType is null)
+                : resolverResult.Count;
+            var isInMixedFolder = resolvedPrimaryCount > 1 || parent?.IsTopParent == true;
 
             foreach (var video in resolverResult)
             {
@@ -509,6 +521,8 @@ namespace Emby.Server.Implementations.Library.Resolvers.Movies
                 var videoPath = result.Items[0].Path;
                 var hasPhotos = photos.Any(i => !PhotoResolver.IsOwnedByResolvedMedia(videoPath, i.Name));
                 var hasOtherMediaStructure = multiDiscFolders.Count > 0 || folderRipCount > 0;
+                var hasLooseExtraVideo = collectionType == CollectionType.movies
+                    && result.ExtraFiles.Any(i => !i.IsDirectory && VideoResolver.IsVideoFile(i.FullName, NamingOptions));
 
                 // A single loose video does not make its containing directory a movie.
                 // Preserve category folders (for example, Action/Film.mp4) while
@@ -520,7 +534,7 @@ namespace Emby.Server.Implementations.Library.Resolvers.Movies
                 var isNamedMovieFolder = string.Equals(result.Items[0].Name, folderName, StringComparison.OrdinalIgnoreCase)
                     || string.Equals(result.Items[0].Name, parsedFolderName, StringComparison.OrdinalIgnoreCase);
 
-                if (!hasPhotos && !hasOtherMediaStructure && (hasMovieSidecar || isNamedMovieFolder))
+                if (!hasPhotos && !hasOtherMediaStructure && !hasLooseExtraVideo && (hasMovieSidecar || isNamedMovieFolder))
                 {
                     var movie = (T)result.Items[0];
                     movie.IsInMixedFolder = false;

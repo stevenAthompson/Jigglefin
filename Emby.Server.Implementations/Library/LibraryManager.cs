@@ -555,6 +555,23 @@ namespace Emby.Server.Implementations.Library
                 ? ((Folder)item).GetRecursiveChildren(false)
                 : [];
 
+            // Owned extras have no ParentId, so deleting an item (or replacing a
+            // folder with a different item type) does not remove them through
+            // the descendant list. Remove their records before their owners.
+            var ownedExtras = new List<BaseItem>();
+            foreach (var ownerIds in new[] { item.Id }.Concat(children.Select(child => child.Id)).Chunk(500))
+            {
+                ownedExtras.AddRange(GetItemList(new InternalItemsQuery
+                {
+                    OwnerIds = ownerIds
+                }).Where(extra => extra.ExtraType.HasValue));
+            }
+
+            foreach (var extra in ownedExtras)
+            {
+                DeleteItem(extra, new DeleteOptions { DeleteFileLocation = false }, false);
+            }
+
             foreach (var metadataPath in GetMetadataPaths(item, children))
             {
                 if (!Directory.Exists(metadataPath))

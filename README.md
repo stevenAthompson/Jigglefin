@@ -43,7 +43,7 @@ open and potentially migrate that database. Jellyfin and Jigglefin cannot both b
 - Physical category folders stay navigable. A single loose movie or named TV episode does not
   automatically replace its parent category with a Movie or Series. Book and audiobook folders
   with additional child folders or both book and audiobook files remain browseable instead of
-  hiding those entries, as do movie folders with `Extras` and music folders that mix tracks with
+  hiding those entries, as do movie folders with `Extras` or loose trailer files and music folders that mix tracks with
   non-disc subfolders. Music albums also expose bonus video files beside tracks as standard
   `MusicVideo` items. A multi-disc `MusicAlbum` exposes its physical disc folders in the folder
   browser. Home-video folders with both photos and videos, or photos and child folders, remain

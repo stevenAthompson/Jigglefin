@@ -199,6 +199,11 @@ children browseable and directly streamable rather than collapsing the directory
 If a named movie directory also contains an `Extras` or `Trailers` directory, it remains a
 physical `Folder`: the main movie and bonus directory are both reachable through ordinary
 `Items` browsing instead of hiding the bonus path behind movie-detail extras handling.
+The same applies when a trailer or featurette file sits beside the main movie without a bonus
+subdirectory. The physical folder lists both playable files, while the main Movie also retains
+its standard owner-linked `LocalTrailers` metadata for clients that use movie details.
+Removing that file and rescanning removes both the browse entry and owned trailer record, then
+returns the remaining dedicated movie directory to its usual `Movie` item.
 In a Home Videos and Photos library, a directory with both photos and videos, or photos and child
 directories, remains a physical `Folder`. A DVD/Blu-ray rip beside a standalone photo also
 remains a folder instead of replacing it with a single video. Photo-only directories may retain
