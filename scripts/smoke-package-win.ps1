@@ -136,7 +136,7 @@ try {
         throw 'The authenticated user endpoint did not return the temporary smoke-test user.'
     }
 
-    $mediaRoot = Join-Path $smokeProfile 'media'
+    $mediaRoot = Join-Path $smokeProfile 'media, with comma'
     $movieDirectory = Join-Path $mediaRoot 'Action/Smoke Film (2026)'
     New-Item -ItemType Directory -Path $movieDirectory | Out-Null
     Copy-Item -LiteralPath $sampleVideo -Destination (Join-Path $movieDirectory 'Smoke Film (2026).mp4')
@@ -147,9 +147,14 @@ try {
         (Join-Path $movieDirectory 'Smoke Film (2026).eng.srt'),
         "1`n00:00:00,000 --> 00:00:01,000`nA local smoke subtitle.`n")
     $libraryName = 'Jigglefin Package Smoke Movies'
-    $libraryUrl = "$baseUrl/Library/VirtualFolders?name=$([Uri]::EscapeDataString($libraryName))&collectionType=movies&paths=$([Uri]::EscapeDataString($mediaRoot))&refreshLibrary=true"
+    $libraryUrl = "$baseUrl/Library/VirtualFolders?name=$([Uri]::EscapeDataString($libraryName))&collectionType=movies&refreshLibrary=true"
+    $libraryPayload = @{
+        LibraryOptions = @{
+            PathInfos = @(@{ Path = $mediaRoot })
+        }
+    } | ConvertTo-Json -Depth 5 -Compress
     Invoke-WebRequest -Uri $libraryUrl -Method Post -Headers $authenticatedHeaders -ContentType 'application/json' `
-        -Body '{"LibraryOptions":{}}' -TimeoutSec 30 | Out-Null
+        -Body $libraryPayload -TimeoutSec 30 | Out-Null
 
     $mediaDeadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
     $movie = $null

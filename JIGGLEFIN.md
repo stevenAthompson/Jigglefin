@@ -274,6 +274,7 @@ SHA256 digest. It can also be reproduced locally by building that web commit wit
 then running `scripts/package-win.ps1 -WebDistPath <web-dist-path> -FfmpegDirectory <ffmpeg-path>`.
 Before artifact upload, CI runs `scripts/smoke-package-win.ps1` against the assembled package.
 It uses a fresh temporary profile and random one-time admin password to check setup, login,
+creation of a movie library through Jellyfin Web's `PathInfos` payload with a comma in its Windows path,
 physical movie, audiobook, music, TV, home-video/photo, and music-video folders, local NFO fields,
 standard client playback negotiation, external subtitles, direct media bytes, and headless playback
 of all six playable media types plus a photo-only album browse in unmodified Jellyfin Web.
