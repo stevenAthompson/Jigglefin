@@ -437,6 +437,11 @@ namespace Emby.Server.Implementations
             Logger.LogInformation("Core startup complete");
             CoreStartupHasCompleted = true;
 
+            // A library may have changed while the server was stopped. Queue a scan on
+            // every start, including existing profiles whose saved task triggers do
+            // not include a startup trigger.
+            Resolve<ILibraryManager>().QueueLibraryScan();
+
             return Task.CompletedTask;
         }
 

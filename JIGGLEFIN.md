@@ -35,6 +35,9 @@ The same local-first provider defaults also apply when a client creates a librar
 without `TypeOptions`. Explicit per-type provider choices are preserved.
 Adding a library while an initial scan is still running queues a follow-up scan. Otherwise a
 fresh installation can miss the new library if the active scan has already passed the root.
+Every server start also queues a library scan, including for existing profiles with persisted
+scheduled-task settings. Files added while Jigglefin was stopped therefore appear without a
+manual refresh; the regular periodic scan remains available for changes made while it runs.
 System-owned view queries also tolerate a missing user context during background artwork work.
 
 The library entry views for Movies, TV Shows, and Books now list the immediate children of their
@@ -280,7 +283,8 @@ standard client playback negotiation, external subtitles, direct media bytes, an
 of all six playable media types plus a photo-only album browse in unmodified Jellyfin Web.
 It then shuts down and restarts the same isolated profile, reauthenticates, and verifies that all
 six folder-first library entries, the movie's stable ID and local metadata, and direct streaming
-survive the restart.
+survive the restart. It adds a new movie while the server is stopped and verifies that the startup
+scan discovers and streams it after restart.
 Successful profiles are cleaned up after the server stops when Windows releases their files.
 To repeat the full client test locally after packaging, run `npm ci --prefix tests/WebClientSmoke`,
 `tests/WebClientSmoke/node_modules/.bin/playwright.cmd install chromium`, then

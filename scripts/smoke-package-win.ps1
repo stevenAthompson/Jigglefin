@@ -571,6 +571,8 @@ try {
     if (-not $serverProcess.WaitForExit(30000)) {
         throw 'The packaged server did not shut down gracefully within 30 seconds.'
     }
+    $offlineMoviePath = Join-Path $mediaRoot 'Action/Offline Addition.mp4'
+    Copy-Item -LiteralPath $sampleVideo -Destination $offlineMoviePath
     $restartStdout = Join-Path $smokeProfile 'restart-stdout.log'
     $restartStderr = Join-Path $smokeProfile 'restart-stderr.log'
     $serverProcess = Start-Process -FilePath $server -ArgumentList $arguments -WorkingDirectory $package `
@@ -633,9 +635,26 @@ try {
     if ((Get-FileHash -LiteralPath $restartStreamPath -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $sampleVideo -Algorithm SHA256).Hash) {
         throw 'The authenticated movie stream after restart did not match the sample file.'
     }
+    $offlineDeadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    $offlineMovie = $null
+    while ([DateTime]::UtcNow -lt $offlineDeadline) {
+        $restartedFilms = Invoke-RestMethod -Uri "$baseUrl/Items?parentId=$($restartedAction.Id)" -Headers $restartHeaders -TimeoutSec 15
+        $offlineMovie = @($restartedFilms.Items | Where-Object { $_.Name -eq 'Offline Addition' -and $_.Type -eq 'Movie' }) | Select-Object -First 1
+        if ($offlineMovie) { break }
+        Start-Sleep -Milliseconds 1000
+    }
+    if (-not $offlineMovie) {
+        throw "The restarted server did not discover a movie added while it was stopped within $TimeoutSeconds seconds."
+    }
+    $offlineStreamPath = Join-Path $smokeProfile 'streamed-offline-addition.mp4'
+    Invoke-WebRequest -Uri "$baseUrl/Videos/$($offlineMovie.Id)/stream?static=true" -Headers $restartHeaders `
+        -OutFile $offlineStreamPath -TimeoutSec 30 | Out-Null
+    if ((Get-FileHash -LiteralPath $offlineStreamPath -Algorithm SHA256).Hash -ne (Get-FileHash -LiteralPath $sampleVideo -Algorithm SHA256).Hash) {
+        throw 'The movie added during downtime did not stream its original bytes after startup scanning.'
+    }
 
     $smokeSucceeded = $true
-    Write-Host "Packaged server smoke test passed: API version $($publicInfo.Version), bundled Web HTTP $($webResponse.StatusCode), login, movie, audiobook, music, TV, home-video/photo, and music-video folder browse, local NFO and audiobook XML metadata, client playback negotiation, external subtitle, direct media streams, and persistence after restart."
+    Write-Host "Packaged server smoke test passed: API version $($publicInfo.Version), bundled Web HTTP $($webResponse.StatusCode), login, movie, audiobook, music, TV, home-video/photo, and music-video folder browse, local NFO and audiobook XML metadata, client playback negotiation, external subtitle, direct media streams, persistence after restart, and discovery of a movie added during downtime."
 } catch {
     Write-Warning "Package smoke test failed. Isolated profile and logs: $smokeProfile"
     foreach ($logPath in @($stdout, $stderr, (Join-Path $smokeProfile 'restart-stdout.log'), (Join-Path $smokeProfile 'restart-stderr.log'))) {
