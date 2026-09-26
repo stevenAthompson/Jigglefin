@@ -83,8 +83,17 @@ Android TV's details screen has no playback actions for `AudioBook` items. Jiggl
 presents playable audiobooks as `Audio` DTOs only to the Jellyfin Android TV client; stored item
 kinds and responses to other clients remain `AudioBook`. Untagged audio's minimum-date sentinel
 is omitted from DTOs, allowing the local XML year to display instead of `Jan 1, 1`.
-An integration test also reports a partial audiobook playback session and verifies that the server
-returns the saved bookmark in `UserData.PlaybackPositionTicks`. Automatic audiobook resume is still
+New profiles default `MinAudiobookResume` and `MaxAudiobookResume` to zero. The old five-minute
+beginning/end exclusions overlap for chapter files shorter than ten minutes, leaving no resumable
+position. Zero retains partial playback until the actual end of each file, including the first few
+seconds and final few seconds. Explicit administrator settings remain supported; existing profiles
+retain their stored values. In Dashboard > Playback > Resume, set both audiobook thresholds to
+`0` to apply this behavior to an older profile. This cannot restore bookmarks already discarded.
+The API regression uses the real defaults, rather than overriding these thresholds for its short
+sample, and verifies that the server returns the saved bookmark in `UserData.PlaybackPositionTicks`.
+Unit tests cover early/late progress, completion, and explicit threshold settings. The packaged
+Web test stops a short audiobook, restarts the server, and checks both Continue Listening and
+playback from the saved position in a fresh browser. Automatic audiobook resume is still
 a client-side limitation in Android TV 0.19.10: its [audio playback route](https://github.com/jellyfin/jellyfin-androidtv/blob/v0.19.10/app/src/main/java/org/jellyfin/androidtv/ui/playback/PlaybackLauncher.kt)
 does not pass the requested start position to the audio player, and its
 [audio queue implementation](https://github.com/jellyfin/jellyfin-androidtv/blob/v0.19.10/app/src/main/java/org/jellyfin/androidtv/ui/playback/rewrite/RewriteMediaManager.kt)
@@ -330,7 +339,9 @@ movie while the server is running and verifies that the file watcher discovers, 
 removes the physical item without a manual scan.
 It then shuts down and restarts the same isolated profile, reauthenticates, and verifies that all
 six folder-first library entries, the movie's stable ID and local metadata, and direct streaming
-survive the restart. It adds a new movie while the server is stopped and verifies that the startup
+survive the restart. An audiobook bookmark must survive unchanged, appear in Continue Listening,
+and resume at that position in a fresh Web browser with the default thresholds. It adds a new
+movie while the server is stopped and verifies that the startup
 scan discovers and streams it after restart. The same test removes a loose trailer during downtime
 and verifies that its old item ID and owner-linked metadata disappear while the remaining movie
 becomes a normal browseable `Movie` again.
@@ -340,6 +351,32 @@ To repeat the full client test locally after packaging, run `npm ci --prefix tes
 `scripts/smoke-package-win.ps1 -PackageDirectory <package-path> -HeadlessWebClient`.
 The extracted package includes `Start-Jigglefin.ps1`; see its `README-PORTABLE.md` for first-run
 instructions. Its bundled FFmpeg is used by default.
+
+### Real-library release validation
+
+On September 25, 2026, a separate CLI-only check used an owner-provided library sample. The
+sample was copied to a private local test directory before starting Jigglefin; the original
+library path was never passed to the server. No media or private filenames were committed or
+uploaded. The check covered five folder-first libraries and 97 playable files: one movie, one
+TV episode, one TV extra, one VHS rip, 12 FLAC music tracks, and 81 MP3 audiobook chapters.
+Every playable file was indexed and returned an exact 64 KiB byte-range stream. Physical folder
+navigation, real movie/episode NFO titles and plots, movie year, and local artwork also passed.
+Unmodified Jellyfin Web browsed the copied folders and played a representative file from each
+of those six media categories for at least three seconds, including HLS delivery and sources
+using E-AC-3, TrueHD/AC-3, HEVC/FLAC, FLAC, and MP3. This was a private manual/headless release
+check, not a replacement for the repeatable synthetic CI tests or a full-length playback test.
+Media-folder writes were disabled; the copied tree's file list, lengths, and modification times
+were unchanged. The 114 source files, including sidecars and artwork, also retained their original
+lengths and modification times. Swiftfin UI validation remains deferred to an Apple-device check;
+the existing Swiftfin API-contract tests must not be described as native Apple playback coverage.
+
+A separate audiobook check reproduced the old defaults discarding a one-minute bookmark in a
+333-second chapter. With the corrected defaults, Web Stop saved 60.033217 seconds, the same
+position survived a complete server restart, and a fresh browser showed the chapter in Continue
+Listening and resumed playback at 60.06 seconds. This verifies the client as well as database
+persistence; it does not establish identical resume behavior in other Jellyfin applications.
+
+### Profile isolation
 
 Jigglefin defaults to `%LOCALAPPDATA%\jigglefin` for its data, configuration, cache, and logs,
 and `%TEMP%\jigglefin` for temporary files.

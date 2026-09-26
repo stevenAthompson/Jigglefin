@@ -22,6 +22,12 @@ Run `.\Start-Jigglefin.ps1 --help` to list server options or
 `.\Start-Jigglefin.ps1 --version` to print the server version. These commands do not start the
 server, create a profile, or require FFmpeg.
 
+New profiles keep audiobook positions throughout each chapter, with no five-minute beginning or
+ending cutoff. Existing profiles keep their saved settings: in Dashboard > Playback > Resume,
+set both audiobook resume thresholds to `0` to use the new defaults. Previously discarded
+positions cannot be recovered. Automatic resume also depends on the client; Android TV 0.19.10
+does not automatically seek to saved audiobook positions.
+
 The bundled server is based on [Jellyfin Server](https://github.com/jellyfin/jellyfin). The web
 client is built without changes from [Jellyfin Web](https://github.com/jellyfin/jellyfin-web) commit
 `839563a2d633041d5854948d680bd393423b1abb`. The bundled FFmpeg binaries come from

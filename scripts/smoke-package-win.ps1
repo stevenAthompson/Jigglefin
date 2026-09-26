@@ -93,6 +93,32 @@ function Assert-ServerListener {
     }
 }
 
+function Invoke-AudiobookClientCheck {
+    param([string]$Phase, [long]$PositionTicks = 0)
+
+    $settings = @{
+        JIGGLEFIN_TEST_BASE_URL = $baseUrl
+        JIGGLEFIN_TEST_USER = $userName
+        JIGGLEFIN_TEST_PASSWORD = $temporaryPassword
+        JIGGLEFIN_TEST_AUDIO_ID = $audioBook.Id
+        JIGGLEFIN_TEST_AUDIO_NAV = (ConvertTo-Json -InputObject @($bookLibraryName, 'Fantasy') -Compress)
+        JIGGLEFIN_TEST_AUDIO_POSITION_TICKS = [string]$PositionTicks
+    }
+    $previous = @{}
+    try {
+        foreach ($key in $settings.Keys) {
+            $previous[$key] = [Environment]::GetEnvironmentVariable($key, 'Process')
+            [Environment]::SetEnvironmentVariable($key, $settings[$key], 'Process')
+        }
+        & $node (Join-Path $repositoryRoot 'tests/WebClientSmoke/audiobook-resume.cjs') $Phase
+        if ($LASTEXITCODE -ne 0) { throw "Audiobook Web $Phase check failed with exit code $LASTEXITCODE." }
+    } finally {
+        foreach ($key in $previous.Keys) {
+            [Environment]::SetEnvironmentVariable($key, $previous[$key], 'Process')
+        }
+    }
+}
+
 $launcherProcess = $null
 $serverProcess = $null
 $smokeSucceeded = $false
@@ -748,6 +774,30 @@ try {
         throw "The running server kept a movie after its physical file was removed for $TimeoutSeconds seconds."
     }
 
+    # A short audiobook must retain its position with unmodified server defaults.
+    $resumeConfiguration = Invoke-RestMethod -Uri "$baseUrl/System/Configuration" -Headers $authenticatedHeaders -TimeoutSec 15
+    if ($resumeConfiguration.MinAudiobookResume -ne 0 -or $resumeConfiguration.MaxAudiobookResume -ne 0) {
+        throw 'A fresh profile still has audiobook thresholds that discard short-chapter bookmarks.'
+    }
+    Invoke-RestMethod -Uri "$baseUrl/UserPlayedItems/$($audioBook.Id)" -Method Delete -Headers $authenticatedHeaders -TimeoutSec 15 | Out-Null
+    if ($HeadlessWebClient) {
+        Invoke-AudiobookClientCheck -Phase record
+    } else {
+        $bookmarkTicks = [long]($audioSource.RunTimeTicks / 2)
+        foreach ($report in @(
+            @{ Route = 'Sessions/Playing'; Body = @{ ItemId = $audioBook.Id; PositionTicks = 0 } },
+            @{ Route = 'Sessions/Playing/Stopped'; Body = @{ ItemId = $audioBook.Id; PositionTicks = $bookmarkTicks } }
+        )) {
+            Invoke-RestMethod -Uri "$baseUrl/$($report.Route)" -Method Post -Headers $authenticatedHeaders `
+                -ContentType 'application/json' -Body ($report.Body | ConvertTo-Json -Compress) -TimeoutSec 15 | Out-Null
+        }
+    }
+    $bookmarkedAudio = Invoke-RestMethod -Uri "$baseUrl/Items/$($audioBook.Id)" -Headers $authenticatedHeaders -TimeoutSec 15
+    $bookmarkTicks = [long]$bookmarkedAudio.UserData.PlaybackPositionTicks
+    if ($bookmarkTicks -le 0 -or $bookmarkTicks -ge $audioSource.RunTimeTicks -or $bookmarkedAudio.UserData.Played) {
+        throw 'Stopping a short audiobook did not save an unfinished playback position.'
+    }
+
     # Verify that the same portable profile survives a clean stop and restart.
     try {
         Invoke-WebRequest -Uri "$baseUrl/System/Shutdown" -Method Post -Headers $authenticatedHeaders -TimeoutSec 15 | Out-Null
@@ -804,6 +854,17 @@ try {
     }
     Assert-ServerListener -ServerProcess $serverProcess
     $restartHeaders = @{ Authorization = "$clientHeader, Token=$($restartAuthentication.AccessToken)" }
+    $restartedAudio = Invoke-RestMethod -Uri "$baseUrl/Items/$($audioBook.Id)" -Headers $restartHeaders -TimeoutSec 15
+    if ($restartedAudio.UserData.PlaybackPositionTicks -ne $bookmarkTicks -or $restartedAudio.UserData.Played) {
+        throw 'The server lost or completed the audiobook bookmark across restart.'
+    }
+    $resumeItems = Invoke-RestMethod -Uri "$baseUrl/UserItems/Resume?includeItemTypes=AudioBook&mediaTypes=Audio" -Headers $restartHeaders -TimeoutSec 15
+    if (-not @($resumeItems.Items | Where-Object Id -EQ $audioBook.Id).Count) {
+        throw 'The restarted audiobook is absent from the standard resume list.'
+    }
+    if ($HeadlessWebClient) {
+        Invoke-AudiobookClientCheck -Phase resume -PositionTicks $bookmarkTicks
+    }
     $restartViews = Invoke-RestMethod -Uri "$baseUrl/UserViews" -Headers $restartHeaders -TimeoutSec 15
     foreach ($expectedName in @($libraryName, $bookLibraryName, $musicLibraryName, $tvLibraryName, $homeLibraryName, $musicVideoLibraryName)) {
         $view = @($restartViews.Items | Where-Object Name -EQ $expectedName) | Select-Object -First 1

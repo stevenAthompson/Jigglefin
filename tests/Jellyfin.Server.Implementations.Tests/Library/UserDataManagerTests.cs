@@ -23,6 +23,7 @@ public sealed class UserDataManagerTests : IDisposable
     private readonly DbContextOptions<JellyfinDbContext> _dbOptions;
     private readonly UserDataManager _userDataManager;
     private readonly User _user;
+    private readonly ServerConfiguration _configuration = new();
 
     public UserDataManagerTests()
     {
@@ -42,7 +43,7 @@ public sealed class UserDataManagerTests : IDisposable
         factory.Setup(f => f.CreateDbContext()).Returns(CreateDbContext);
 
         var config = new Mock<IServerConfigurationManager>();
-        config.SetupGet(c => c.Configuration).Returns(new ServerConfiguration());
+        config.SetupGet(c => c.Configuration).Returns(_configuration);
 
         _userDataManager = new UserDataManager(config.Object, factory.Object);
         _user = new User("user", "auth-provider", "reset-provider")
@@ -89,6 +90,57 @@ public sealed class UserDataManagerTests : IDisposable
             CustomDataKey = key,
             PlaybackPositionTicks = positionTicks
         };
+    }
+
+    [Fact]
+    public void AudiobookResume_DefaultsPreserveBothEndsOfShortChapters()
+    {
+        Assert.Equal(0, _configuration.MinAudiobookResume);
+        Assert.Equal(0, _configuration.MaxAudiobookResume);
+    }
+
+    [Theory]
+    [InlineData(1, 0.25, 0.25, false)]
+    [InlineData(333, 1, 1, false)]
+    [InlineData(333, 60, 60, false)]
+    [InlineData(333, 300, 300, false)]
+    [InlineData(333, 332.9, 332.9, false)]
+    [InlineData(333, 333, 0, true)]
+    [InlineData(333, 334, 0, true)]
+    [InlineData(36000, 30, 30, false)]
+    [InlineData(36000, 35970, 35970, false)]
+    public void UpdatePlayState_AudiobookWithDefaultConfiguration_PreservesPositionUntilEnd(
+        double runtimeSeconds, double positionSeconds, double expectedSeconds, bool expectedPlayed)
+    {
+        var item = CreateAudioBook();
+        item.RunTimeTicks = TimeSpan.FromSeconds(runtimeSeconds).Ticks;
+        var data = new UserItemData { Key = item.GetUserDataKeys()[0] };
+
+        var completed = _userDataManager.UpdatePlayState(item, data, TimeSpan.FromSeconds(positionSeconds).Ticks);
+
+        Assert.Equal(TimeSpan.FromSeconds(expectedSeconds).Ticks, data.PlaybackPositionTicks);
+        Assert.Equal(expectedPlayed, data.Played);
+        Assert.Equal(expectedPlayed, completed);
+    }
+
+    [Theory]
+    [InlineData(30, 0, false)]
+    [InlineData(180, 180, false)]
+    [InlineData(310, 0, true)]
+    public void UpdatePlayState_AudiobookWithExplicitThresholds_HonorsAdministratorSettings(
+        int positionSeconds, int expectedSeconds, bool expectedPlayed)
+    {
+        _configuration.MinAudiobookResume = 2;
+        _configuration.MaxAudiobookResume = 1;
+        var item = CreateAudioBook();
+        item.RunTimeTicks = TimeSpan.FromSeconds(333).Ticks;
+        var data = new UserItemData { Key = item.GetUserDataKeys()[0] };
+
+        var completed = _userDataManager.UpdatePlayState(item, data, TimeSpan.FromSeconds(positionSeconds).Ticks);
+
+        Assert.Equal(TimeSpan.FromSeconds(expectedSeconds).Ticks, data.PlaybackPositionTicks);
+        Assert.Equal(expectedPlayed, data.Played);
+        Assert.Equal(expectedPlayed, completed);
     }
 
     [Fact]

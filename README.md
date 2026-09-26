@@ -4,7 +4,8 @@
 
 Jigglefin is a Windows-focused, folder-first fork of Jellyfin Server. It keeps the standard
 Jellyfin API and media item types so unmodified Jellyfin clients can connect, browse, and stream.
-It is an early testing build, not yet a finished replacement for Jellyfin.
+Windows builds are self-contained portable packages. Verified behavior and client limitations
+are listed below.
 
 The filesystem is the source of truth. A movie library such as:
 
@@ -82,7 +83,15 @@ open and potentially migrate that database. Jellyfin and Jigglefin cannot both b
   folder paths and child counts. A restricted-user API test verifies that known folder and media
   IDs cannot bypass a blocked library's browse or stream permissions. Unmodified Android TV and
   Android mobile apps were also tested in a CLI-only emulator for native browsing and playback.
-  Swiftfin UI coverage and more ambiguous mixed-content layouts remain work in progress.
+  A separate owner-library check used local copies of 97 real media files: a movie, a TV episode
+  and extra, a VHS rip, 12 FLAC tracks, and 81 MP3 audiobook chapters. All files were indexed and
+  byte-range streamed; local NFO/artwork and representative headless Web playback also passed.
+  The original library was never configured in the test server, and the copied media tree was unchanged.
+  Swiftfin's actual Apple interface remains unverified; its coverage is API-contract testing only.
+  Unusual mixed-content layouts outside the documented cases may still need compatibility fixes.
+  New profiles preserve audiobook positions from the start of each file until its actual end,
+  including short chapter files. Existing profiles keep their saved settings: set both audiobook
+  resume thresholds to `0` in Dashboard > Playback > Resume to remove the old five-minute cutoffs.
   Android TV 0.19.10 plays audiobooks
   but does not automatically resume saved audio bookmarks; the server retains those positions.
 

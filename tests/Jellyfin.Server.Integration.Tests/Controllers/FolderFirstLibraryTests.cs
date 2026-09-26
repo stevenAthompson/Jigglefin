@@ -1176,8 +1176,8 @@ public sealed class FolderFirstLibraryTests
             // Playback reports must bookmark the underlying AudioBook, regardless
             // of the client-facing Audio DTO used by Android TV.
             var configuration = factory.Services.GetRequiredService<IServerConfigurationManager>().Configuration;
-            configuration.MinAudiobookResume = 0;
-            configuration.MaxAudiobookResume = 0;
+            Assert.Equal(0, configuration.MinAudiobookResume);
+            Assert.Equal(0, configuration.MaxAudiobookResume);
             var chapterItem = Assert.IsType<MediaBrowser.Controller.Entities.AudioBook>(libraryManager.GetItemById(secondChapter.Id));
             chapterItem.RunTimeTicks = TimeSpan.FromSeconds(1).Ticks;
             await libraryManager.UpdateItemAsync(
@@ -1209,6 +1209,14 @@ public sealed class FolderFirstLibraryTests
             Assert.NotNull(bookmarkedChapter);
             Assert.Equal(BaseItemKind.AudioBook, bookmarkedChapter.Type);
             Assert.Equal(bookmarkTicks, bookmarkedChapter.UserData?.PlaybackPositionTicks);
+            Assert.False(bookmarkedChapter.UserData?.Played);
+            var resumableChapters = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                "UserItems/Resume?includeItemTypes=AudioBook&mediaTypes=Audio",
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.NotNull(resumableChapters);
+            var resumableChapter = Assert.Single(resumableChapters.Items, item => item.Id.Equals(secondChapter.Id));
+            Assert.Equal(bookmarkTicks, resumableChapter.UserData?.PlaybackPositionTicks);
         }
         finally
         {
