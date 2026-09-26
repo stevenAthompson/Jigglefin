@@ -1,6 +1,7 @@
 using System;
 using System.Diagnostics;
 using System.Threading;
+using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Dto;
 using Microsoft.Extensions.Logging;
 
@@ -61,6 +62,9 @@ public sealed class TranscodingJob : IDisposable
     /// Gets or sets the process.
     /// </summary>
     public Process? Process { get; set; }
+
+    /// <summary>Gets or sets the selected input lease, retained until the native job exits.</summary>
+    public LivePathLease? InputPathLease { get; set; }
 
     /// <summary>
     /// Gets or sets the active request count.
@@ -303,5 +307,7 @@ public sealed class TranscodingJob : IDisposable
         TranscodingThrottler = null;
         TranscodingSegmentCleaner?.Dispose();
         TranscodingSegmentCleaner = null;
+        InputPathLease?.Dispose();
+        InputPathLease = null;
     }
 }

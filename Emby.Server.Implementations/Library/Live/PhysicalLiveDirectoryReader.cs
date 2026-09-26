@@ -12,6 +12,7 @@ public sealed class PhysicalLiveDirectoryReader : ILiveDirectoryReader
     /// <inheritdoc />
     public LiveFileInfo Stat(string path)
     {
+        using var lease = LivePathLease.Acquire(Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(path)) ?? path);
         CheckAncestors(path);
         var attributes = File.GetAttributes(path);
         FileSystemInfo info = (attributes & FileAttributes.Directory) != 0
@@ -23,6 +24,7 @@ public sealed class PhysicalLiveDirectoryReader : ILiveDirectoryReader
     /// <inheritdoc />
     public IEnumerable<LiveFileInfo> EnumerateDirectory(string path, CancellationToken cancellationToken)
     {
+        using var lease = LivePathLease.Acquire(path);
         CheckAncestors(path);
         if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
         {

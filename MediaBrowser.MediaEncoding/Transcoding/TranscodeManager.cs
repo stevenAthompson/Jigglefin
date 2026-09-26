@@ -489,11 +489,15 @@ public sealed class TranscodeManager : ITranscodeManager, IDisposable
 
         try
         {
+            // Keep every path component pinned beyond this HTTP request, until
+            // the native process exits and its TranscodingJob is disposed.
+            transcodingJob.InputPathLease = LivePathLease.Acquire(state.MediaPath);
             process.Start();
         }
         catch (Exception ex)
         {
             _logger.LogError(ex, "Error starting FFmpeg");
+            await logStream.DisposeAsync().ConfigureAwait(false);
             OnTranscodeFailedToStart(outputPath, transcodingJobType, state);
 
             throw;
@@ -629,6 +633,7 @@ public sealed class TranscodeManager : ITranscodeManager, IDisposable
             if (job is not null)
             {
                 _activeTranscodingJobs.Remove(job);
+                job.Dispose();
             }
         }
 
@@ -640,24 +645,29 @@ public sealed class TranscodeManager : ITranscodeManager, IDisposable
 
     private void OnFfMpegProcessExited(Process process, TranscodingJob job, StreamState state)
     {
-        job.HasExited = true;
-        job.ExitCode = process.ExitCode;
-
-        ReportTranscodingProgress(job, state, null, null, null, null, null);
-
-        _logger.LogDebug("Disposing stream resources");
-        state.Dispose();
-
-        if (process.ExitCode == 0)
+        try
         {
-            _logger.LogInformation("FFmpeg exited with code 0");
-        }
-        else
-        {
-            _logger.LogError("FFmpeg exited with code {0}", process.ExitCode);
-        }
+            job.HasExited = true;
+            job.ExitCode = process.ExitCode;
 
-        job.Dispose();
+            ReportTranscodingProgress(job, state, null, null, null, null, null);
+
+            _logger.LogDebug("Disposing stream resources");
+            state.Dispose();
+
+            if (process.ExitCode == 0)
+            {
+                _logger.LogInformation("FFmpeg exited with code 0");
+            }
+            else
+            {
+                _logger.LogError("FFmpeg exited with code {0}", process.ExitCode);
+            }
+        }
+        finally
+        {
+            job.Dispose();
+        }
     }
 
     private async Task AcquireResources(StreamState state, CancellationTokenSource cancellationTokenSource)

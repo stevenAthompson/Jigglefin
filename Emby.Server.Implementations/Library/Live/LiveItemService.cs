@@ -158,7 +158,8 @@ public sealed class LiveItemService : ILiveItemService, IDisposable
                 var key = "nfo:" + ProbeKey(sidecar);
                 if (!_cache.TryGetValue<XDocument>(key, out var document))
                 {
-                    using var reader = XmlReader.Create(sidecar.File.FullPath, new XmlReaderSettings
+                    using var stream = LivePathLease.OpenRead(sidecar.File.FullPath);
+                    using var reader = XmlReader.Create(stream, new XmlReaderSettings
                     {
                         DtdProcessing = DtdProcessing.Prohibit,
                         XmlResolver = null,
@@ -201,6 +202,7 @@ public sealed class LiveItemService : ILiveItemService, IDisposable
         }
 
         var key = ProbeKey(entry);
+        using var inputLease = LivePathLease.Acquire(entry.File.FullPath);
         await _probeGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {

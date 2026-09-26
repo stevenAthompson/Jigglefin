@@ -202,6 +202,34 @@ public sealed class LiveDirectoryBrowserTests
     }
 
     [Fact]
+    public void PhysicalEnumeration_PinsTheDirectoryUntilEnumeratorDisposal()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            throw Xunit.Sdk.SkipException.ForSkip("Windows filesystem sharing is required.");
+        }
+
+        var fixture = Directory.CreateTempSubdirectory("jigglefin-pinned-list-");
+        try
+        {
+            var directory = Directory.CreateDirectory(Path.Combine(fixture.FullName, "Media"));
+            File.WriteAllText(Path.Combine(directory.FullName, "One.txt"), "content not read");
+            var reader = new PhysicalLiveDirectoryReader();
+            using (var enumeration = reader.EnumerateDirectory(directory.FullName, TestContext.Current.CancellationToken).GetEnumerator())
+            {
+                Assert.True(enumeration.MoveNext());
+                Assert.ThrowsAny<IOException>(() => Directory.Move(directory.FullName, directory.FullName + "-moved"));
+            }
+
+            Directory.Move(directory.FullName, directory.FullName + "-moved");
+        }
+        finally
+        {
+            fixture.Delete(true);
+        }
+    }
+
+    [Fact]
     public void PhysicalReader_ListsLockedMediaAndSidecarsWithoutOpeningTheirContents()
     {
         var directory = Directory.CreateTempSubdirectory("jigglefin-live-test-");

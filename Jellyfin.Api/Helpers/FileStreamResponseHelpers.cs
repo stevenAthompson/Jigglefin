@@ -5,6 +5,7 @@ using System.Net.Mime;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Api.Extensions;
+using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.MediaEncoding;
 using MediaBrowser.Controller.Streaming;
 using Microsoft.AspNetCore.Http;
@@ -97,7 +98,8 @@ public static class FileStreamResponseHelpers
     }
 
     /// <summary>
-    /// Returns a static file from the server.
+    /// Returns a private server-generated file (such as HLS output, which may
+    /// still be written). Selected media must use GetProtectedFileResult.
     /// </summary>
     /// <param name="path">The path to the file.</param>
     /// <param name="contentType">The content type of the file.</param>
@@ -105,8 +107,30 @@ public static class FileStreamResponseHelpers
     public static ActionResult GetStaticFileResult(
         string path,
         string contentType)
+        => new PhysicalFileResult(path, contentType) { EnableRangeProcessing = true };
+
+    /// <summary>Returns selected media/local assets with path protection lasting through response disposal.</summary>
+    /// <param name="path">An authorized media or selected asset path.</param>
+    /// <param name="contentType">The response content type.</param>
+    /// <returns>A leased, range-capable read stream.</returns>
+    public static ActionResult GetProtectedFileResult(string path, string contentType)
     {
-        return new PhysicalFileResult(path, contentType) { EnableRangeProcessing = true };
+        // The stream, not the short-lived controller action, owns the lease.
+        // A PhysicalFileResult would reopen the path later without this protection.
+        var stream = LivePathLease.OpenRead(path);
+        try
+        {
+            return new FileStreamResult(stream, contentType)
+            {
+                EnableRangeProcessing = true,
+                LastModified = System.IO.File.GetLastWriteTimeUtc(path)
+            };
+        }
+        catch
+        {
+            stream.Dispose();
+            throw;
+        }
     }
 
     /// <summary>

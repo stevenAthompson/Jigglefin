@@ -100,6 +100,7 @@ namespace MediaBrowser.MediaEncoding.Attachments
             MediaSourceInfo mediaSource,
             CancellationToken cancellationToken)
         {
+            using var inputLease = LivePathLease.Acquire(inputFile);
             var shouldExtractOneByOne = mediaSource.MediaAttachments.Any(a => !string.IsNullOrEmpty(a.FileName)
                                                                               && !string.Equals(PathHelper.GetSafeLeafFileName(a.FileName), a.FileName, StringComparison.Ordinal));
             if (shouldExtractOneByOne && !inputFile.EndsWith(".mks", StringComparison.OrdinalIgnoreCase))

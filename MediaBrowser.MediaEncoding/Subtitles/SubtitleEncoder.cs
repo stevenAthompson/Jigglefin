@@ -176,7 +176,7 @@ namespace MediaBrowser.MediaEncoding.Subtitles
                     ? await _httpClientFactory.CreateClient(NamedClient.Default)
                         .GetStreamAsync(new Uri(fileInfo.Path), cancellationToken)
                         .ConfigureAwait(false)
-                    : AsyncFile.OpenRead(fileInfo.Path);
+                    : LivePathLease.OpenRead(fileInfo.Path);
 
                 // Short-circuit when the file is already UTF-8/ASCII.
                 if (detected is null
@@ -198,7 +198,7 @@ namespace MediaBrowser.MediaEncoding.Subtitles
                 }
             }
 
-            return AsyncFile.OpenRead(fileInfo.Path);
+            return LivePathLease.OpenRead(fileInfo.Path);
         }
 
         internal async Task<SubtitleInfo> GetReadableFile(
@@ -515,6 +515,7 @@ namespace MediaBrowser.MediaEncoding.Subtitles
         /// <inheritdoc />
         public async Task ExtractAllExtractableSubtitles(MediaSourceInfo mediaSource, CancellationToken cancellationToken)
         {
+            using var inputLease = LivePathLease.Acquire(mediaSource.Path);
             var locks = new List<IDisposable>();
             var extractableStreams = new List<MediaStream>();
 
@@ -1021,7 +1022,8 @@ namespace MediaBrowser.MediaEncoding.Subtitles
 
                 case MediaProtocol.File:
                     {
-                        return await CharsetDetector.DetectFromFileAsync(path, cancellationToken)
+                        await using var stream = LivePathLease.OpenRead(path);
+                        return await CharsetDetector.DetectFromStreamAsync(stream, cancellationToken)
                                               .ConfigureAwait(false);
                     }
 

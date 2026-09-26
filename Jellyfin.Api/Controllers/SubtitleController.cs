@@ -249,7 +249,7 @@ public class SubtitleController : BaseJellyfinApiController
             var subtitleStream = mediaSource.MediaStreams
                 .First(i => i.Type == MediaStreamType.Subtitle && i.Index == index);
 
-            return PhysicalFile(subtitleStream.Path, MimeTypes.GetMimeType(subtitleStream.Path));
+            return FileStreamResponseHelpers.GetProtectedFileResult(subtitleStream.Path, MimeTypes.GetMimeType(subtitleStream.Path));
         }
 
         if (string.Equals(format, "vtt", StringComparison.OrdinalIgnoreCase) && addVttTimeMap)

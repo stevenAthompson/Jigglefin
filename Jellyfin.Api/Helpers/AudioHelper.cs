@@ -137,7 +137,7 @@ public class AudioHelper
                 return new FileStreamResult(stream, contentType);
             }
 
-            return FileStreamResponseHelpers.GetStaticFileResult(
+            return FileStreamResponseHelpers.GetProtectedFileResult(
                 state.MediaPath,
                 contentType);
         }

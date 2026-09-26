@@ -116,6 +116,26 @@ public sealed class LiveItemServiceTests : IDisposable
     }
 
     [Fact]
+    public async Task NativeProbe_KeepsSelectedPathPinnedUntilItCompletes()
+    {
+        if (!OperatingSystem.IsWindows())
+        {
+            throw Xunit.Sdk.SkipException.ForSkip("Windows filesystem sharing is required.");
+        }
+
+        var directory = Path.GetDirectoryName(_media)!;
+        _encoder.Setup(encoder => encoder.GetMediaInfo(It.IsAny<MediaInfoRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() =>
+            {
+                Assert.ThrowsAny<IOException>(() => Directory.Move(directory, directory + "-moved"));
+                Assert.ThrowsAny<IOException>(() => File.Move(_media, _media + ".moved"));
+                return new MediaInfo { Container = "mp3" };
+            });
+        await _items.PreparePlayback(_items.Resolve(_id)!, TestContext.Current.CancellationToken);
+        Directory.Move(directory, directory + "-moved");
+    }
+
+    [Fact]
     public async Task RemovedFile_CannotUseAnAlreadySelectedObjectForPlayback()
     {
         var item = _items.Resolve(_id)!;

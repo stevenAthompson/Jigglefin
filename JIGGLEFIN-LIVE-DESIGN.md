@@ -146,8 +146,8 @@ Disguised HLS/concat inputs are rejected with NoCompatibleStream. Text subtitle
 burn-in uses a managed normalized ASS cache file with the libass-only filter: the
 generic subtitles filter's independent demuxer is not allowed to bypass input
 restrictions. This is additional defense, NOT completion of the whole-product
-offline/security audit. Path validation rejects existing root/ancestor reparse
-points, but atomic check-to-open/race protection still needs implementation.
+offline/security audit. Static reparse-point rejection has since been strengthened
+with Windows read-path leases, described at the latest checkpoint below.
 
 Authenticated HTTP tests now exercise real m4b/MP4 probing, direct bytes, byte
 ranges, MP3 transcoding, HLS segments with subtitle burn-in, local artwork and
@@ -288,6 +288,40 @@ headless browser passed direct/HLS playback, subtitles, accounts, enable/disable
 disconnected-root recovery, cache clearing and real restart/resume with unchanged
 fixture media and zero external browser requests. Desktop/mobile screenshots were
 inspected. This is source-build validation, not a new release ZIP or deployment.
+
+Windows selected-media reads now pin each path component from its volume/share
+root with non-following, read-only handles. Directory listing holds its directory
+lease through enumeration. Sidecar/subtitle streams and direct audio/video/image
+responses own their leases through stream disposal; probes, attachment/subtitle
+extraction and image decoding are protected while reading. Transcoding jobs retain
+the input lease after the HTTP action returns and release it on native exit or
+startup failure. Writable private HLS output keeps its separate upstream serving
+path; it is not mistaken for immutable source media.
+
+The implementation uses Windows `CreateFileW` sharing and reparse-point semantics
+([Microsoft reference](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-createfilew)).
+Actual Windows tests exposed that attribute-only handles do not protect a file from
+renaming, so the lease requests read access without reading content. Tests verify
+ancestor/file replacement and writes are blocked while leased, independent sibling
+creation still works, leases release after failure and synchronous/asynchronous
+disposal, and real junction targets cannot be opened. Device/extended aliases,
+DOS device names, alternate streams and ambiguous path components are rejected
+before any filesystem operation. The non-Windows development fallback rejects
+existing links but does not claim Windows's atomic sharing guarantees.
+
+A real slow FFmpeg job test observes the actual process running after startup,
+verifies input/ancestor replacement is blocked, stops it and verifies replacement
+is possible again. Missing-input startup also releases resources and removes the
+failed job. The full integration run passed 188 cases (3 existing skips) and the
+headless UI again passed direct/HLS playback, subtitles, accounts, mount recovery,
+cache clearing and restart/resume with unchanged fixture media and no external
+browser attempts. Component checks pass: controller 223; API 201; implementations
+1,014 (17 existing skips); server 63; media encoding 100 (1 existing skip). Results
+are recorded in `publish/test-results/live-path-lease`. These read-path improvements do **not**
+close the remaining drive/share mapping, hardlink/private-storage alias, startup
+write-boundary or whole-product network audits. They assume a trusted OS/storage
+administrator; a remote storage server's own filesystem behavior is not proven by
+local NTFS tests. No release ZIP or installed profile was changed in this checkpoint.
 
 Still required before release: final query/authorization/path-open audits; complete
 native-helper/server/browser outbound verification; unmodified native-client

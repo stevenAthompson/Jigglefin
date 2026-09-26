@@ -475,7 +475,7 @@ public class VideosController : BaseJellyfinApiController
                 return File(liveStream, contentType);
             }
 
-            return FileStreamResponseHelpers.GetStaticFileResult(
+            return FileStreamResponseHelpers.GetProtectedFileResult(
                 state.MediaPath,
                 contentType);
         }

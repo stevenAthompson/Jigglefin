@@ -15,6 +15,7 @@ using MediaBrowser.Controller;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Drawing;
 using MediaBrowser.Controller.Entities;
+using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Drawing;
 using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.Entities;
@@ -402,7 +403,10 @@ public sealed class ImageProcessor : IImageProcessor, IDisposable
 
     /// <inheritdoc />
     public ImageDimensions GetImageDimensions(string path)
-        => _imageEncoder.GetImageSize(path);
+    {
+        using var sourceLease = LivePathLease.Acquire(path);
+        return _imageEncoder.GetImageSize(path);
+    }
 
     /// <inheritdoc />
     public string GetImageBlurHash(string path)
@@ -414,6 +418,7 @@ public sealed class ImageProcessor : IImageProcessor, IDisposable
     /// <inheritdoc />
     public string GetImageBlurHash(string path, ImageDimensions imageDimensions)
     {
+        using var sourceLease = LivePathLease.Acquire(path);
         if (imageDimensions.Width <= 0 || imageDimensions.Height <= 0)
         {
             return string.Empty;

@@ -2020,6 +2020,7 @@ public class ImageController : BaseJellyfinApiController
         IDictionary<string, string> headers,
         string? tag)
     {
+        using var sourceLease = LivePathLease.Acquire(imageProcessingOptions.Image.Path);
         var (imagePath, imageContentType, dateImageModified) = await _imageProcessor.ProcessImage(imageProcessingOptions).ConfigureAwait(false);
 
         var disableCaching = Request.Headers[HeaderNames.CacheControl].Contains("no-cache");
@@ -2083,7 +2084,7 @@ public class ImageController : BaseJellyfinApiController
             }
         }
 
-        return PhysicalFile(imagePath, imageContentType ?? MediaTypeNames.Text.Plain);
+        return FileStreamResponseHelpers.GetProtectedFileResult(imagePath, imageContentType ?? MediaTypeNames.Text.Plain);
     }
 
     internal static bool TryGetImageExtensionFromContentType(string? contentType, [NotNullWhen(true)] out string? extension)
