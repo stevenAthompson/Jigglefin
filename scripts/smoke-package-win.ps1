@@ -13,12 +13,14 @@ $ErrorActionPreference = 'Stop'
 
 $package = (Resolve-Path -LiteralPath $PackageDirectory -ErrorAction Stop).Path
 $server = Join-Path $package 'jellyfin.exe'
+$launcher = Join-Path $package 'Start-Jigglefin.ps1'
+$launcherHost = Join-Path $env:SystemRoot 'System32/WindowsPowerShell/v1.0/powershell.exe'
 $ffmpeg = Join-Path $package 'ffmpeg.exe'
 $web = Join-Path $package 'jellyfin-web'
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $sampleVideo = Join-Path $repositoryRoot 'tests/Jellyfin.Server.Integration.Tests/Test Data/JigglefinSample.mp4'
 $sampleAudioBook = Join-Path $repositoryRoot 'tests/Jellyfin.Server.Integration.Tests/Test Data/JigglefinSample.m4b'
-foreach ($requiredFile in @($server, $ffmpeg, (Join-Path $web 'index.html'), (Join-Path $web 'config.json'))) {
+foreach ($requiredFile in @($server, $launcher, $ffmpeg, (Join-Path $web 'index.html'), (Join-Path $web 'config.json'))) {
     if (-not (Test-Path -LiteralPath $requiredFile -PathType Leaf)) {
         throw "The Windows package is missing $requiredFile"
     }
@@ -39,15 +41,108 @@ $smokeProfile = Join-Path $tempRoot ("jigglefin-package-smoke-{0}" -f [Guid]::Ne
 New-Item -ItemType Directory -Path $smokeProfile | Out-Null
 $stdout = Join-Path $smokeProfile 'stdout.log'
 $stderr = Join-Path $smokeProfile 'stderr.log'
+# Exercise Windows PowerShell 5.1, a profile path containing spaces, and the launcher's
+# bundled FFmpeg/Web defaults from outside the package's working directory.
+$serverDataDir = Join-Path $smokeProfile 'server data'
 $arguments = @(
-    '--datadir', ('"{0}"' -f $smokeProfile),
-    '--ffmpeg', ('"{0}"' -f $ffmpeg),
-    '--webdir', ('"{0}"' -f $web)
+    '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass',
+    '-File', ('"{0}"' -f $launcher),
+    '-DataDir', ('"{0}"' -f $serverDataDir)
 )
 
+function Get-LauncherServer {
+    param([System.Diagnostics.Process]$LauncherProcess)
+
+    # Parent PID alone can be reused. Also require the exact binary, isolated profile,
+    # and a creation time no earlier than this launch before observing or stopping it.
+    Get-CimInstance Win32_Process -Filter "ParentProcessId = $($LauncherProcess.Id)" |
+        Where-Object {
+            $_.ExecutablePath -eq $server -and
+            $_.CommandLine -and $_.CommandLine.Contains($serverDataDir) -and
+            $_.CreationDate -ge $LauncherProcess.StartTime
+        }
+}
+
+function Wait-LauncherServer {
+    param([System.Diagnostics.Process]$LauncherProcess)
+
+    $launchDeadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
+    while ([DateTime]::UtcNow -lt $launchDeadline) {
+        $LauncherProcess.Refresh()
+        if ($LauncherProcess.HasExited) {
+            throw "The packaged launcher exited before starting its server with code $($LauncherProcess.ExitCode)."
+        }
+        $children = @(Get-LauncherServer -LauncherProcess $LauncherProcess)
+        if ($children.Count -eq 1) {
+            return Get-Process -Id $children[0].ProcessId -ErrorAction Stop
+        }
+        if ($children.Count -gt 1) {
+            throw 'The packaged launcher started more than one matching server process.'
+        }
+        Start-Sleep -Milliseconds 200
+    }
+    throw "The packaged launcher did not start its server within $TimeoutSeconds seconds."
+}
+
+function Assert-ServerListener {
+    param([System.Diagnostics.Process]$ServerProcess)
+
+    $listeners = @(Get-NetTCPConnection -LocalPort 8096 -State Listen -ErrorAction Stop)
+    if (-not $listeners.Count -or @($listeners | Where-Object OwningProcess -NE $ServerProcess.Id).Count) {
+        throw "Port 8096 is not exclusively owned by the packaged server process $($ServerProcess.Id)."
+    }
+}
+
+$launcherProcess = $null
 $serverProcess = $null
 $smokeSucceeded = $false
 try {
+    foreach ($entryPoint in @('executable', 'launcher')) {
+        foreach ($option in @('--help', '--version', '--jigglefin-invalid-option')) {
+            $cliStdout = Join-Path $smokeProfile "$entryPoint-$($option.TrimStart('-'))-stdout.log"
+            $cliStderr = Join-Path $smokeProfile "$entryPoint-$($option.TrimStart('-'))-stderr.log"
+            $cliCommand = if ($entryPoint -eq 'launcher') { $launcherHost } else { $server }
+            $cliArguments = if ($entryPoint -eq 'launcher') { $arguments + @($option) } else { @($option) }
+            if ($entryPoint -eq 'launcher' -and $option -ne '--jigglefin-invalid-option') {
+                # Help and version must still work when an encoder is unavailable.
+                $cliArguments = $arguments + @('-FfmpegPath', ('"{0}"' -f (Join-Path $smokeProfile 'missing-ffmpeg.exe')), $option)
+            }
+            $cliProcess = Start-Process -FilePath $cliCommand -ArgumentList $cliArguments -WorkingDirectory $smokeProfile `
+                -RedirectStandardOutput $cliStdout -RedirectStandardError $cliStderr -WindowStyle Hidden -PassThru
+            try {
+                if (-not $cliProcess.WaitForExit(10000)) {
+                    throw "The packaged $entryPoint did not exit for $option within 10 seconds."
+                }
+                $cliOutput = (Get-Content -LiteralPath $cliStdout, $cliStderr -Raw) -join "`n"
+                if ($option -eq '--jigglefin-invalid-option') {
+                    if ($cliProcess.ExitCode -eq 0 -or $cliOutput -notmatch "Option 'jigglefin-invalid-option' is unknown") {
+                        throw "The packaged $entryPoint did not reject an invalid option: $cliOutput"
+                    }
+                } else {
+                    $expectedOutput = if ($option -eq '--help') { '--datadir' } else { 'Jellyfin.Server \d+\.\d+\.\d+' }
+                    if ($cliProcess.ExitCode -ne 0 -or $cliOutput -notmatch $expectedOutput -or $cliOutput -match 'ERROR\(S\)') {
+                        throw "The packaged $entryPoint failed $option (exit $($cliProcess.ExitCode)): $cliOutput"
+                    }
+                }
+            } finally {
+                if (-not $cliProcess.HasExited) {
+                    Stop-Process -InputObject $cliProcess -Force -ErrorAction SilentlyContinue
+                    Wait-Process -Id $cliProcess.Id -Timeout 10 -ErrorAction SilentlyContinue
+                    if ($entryPoint -eq 'launcher') {
+                        foreach ($child in @(Get-LauncherServer -LauncherProcess $cliProcess)) {
+                            Stop-Process -Id $child.ProcessId -Force -ErrorAction SilentlyContinue
+                            Wait-Process -Id $child.ProcessId -Timeout 10 -ErrorAction SilentlyContinue
+                        }
+                    }
+                }
+            }
+        }
+    }
+    if (Test-Path -LiteralPath $serverDataDir) {
+        throw 'An informational or invalid command unexpectedly created a server profile.'
+    }
+    Write-Host 'Packaged executable and launcher help, version, and invalid-option checks passed.'
+
     if ($HeadlessWebClient) {
         $clientScript = Join-Path $repositoryRoot 'tests/WebClientSmoke/smoke.cjs'
         $clientModule = Join-Path $repositoryRoot 'tests/WebClientSmoke/node_modules/playwright/package.json'
@@ -67,8 +162,9 @@ try {
         if ($LASTEXITCODE -ne 0) { throw 'Could not generate the headless Web audiobook sample.' }
     }
 
-    $serverProcess = Start-Process -FilePath $server -ArgumentList $arguments -WorkingDirectory $package `
+    $launcherProcess = Start-Process -FilePath $launcherHost -ArgumentList $arguments -WorkingDirectory $smokeProfile `
         -RedirectStandardOutput $stdout -RedirectStandardError $stderr -WindowStyle Hidden -PassThru
+    $serverProcess = Wait-LauncherServer -LauncherProcess $launcherProcess
 
     $baseUrl = 'http://127.0.0.1:8096'
     $deadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
@@ -106,10 +202,7 @@ try {
         throw "Packaged server did not serve its public API, bundled Web, and startup user within $TimeoutSeconds seconds."
     }
 
-    $listeners = @(Get-NetTCPConnection -LocalPort 8096 -State Listen -ErrorAction Stop)
-    if (-not ($listeners | Where-Object OwningProcess -EQ $serverProcess.Id)) {
-        throw "Port 8096 is not owned by the packaged server process $($serverProcess.Id)."
-    }
+    Assert-ServerListener -ServerProcess $serverProcess
     if ($publicInfo.StartupWizardCompleted -ne $false) {
         throw 'The smoke test did not start with a fresh, unconfigured server profile.'
     }
@@ -667,14 +760,19 @@ try {
     if (-not $serverProcess.WaitForExit(30000)) {
         throw 'The packaged server did not shut down gracefully within 30 seconds.'
     }
+    if (-not $launcherProcess.WaitForExit(10000) -or $launcherProcess.ExitCode -ne 0) {
+        throw 'The packaged launcher did not exit successfully after the server shut down.'
+    }
     $offlineMoviePath = Join-Path $mediaRoot 'Action/Offline Addition.mp4'
     Copy-Item -LiteralPath $sampleVideo -Destination $offlineMoviePath
     $offlineRemovedTrailerPath = Join-Path $trailerMovieDirectory 'Folder Trailer Film-trailer.mp4'
     Remove-Item -LiteralPath $offlineRemovedTrailerPath
     $restartStdout = Join-Path $smokeProfile 'restart-stdout.log'
     $restartStderr = Join-Path $smokeProfile 'restart-stderr.log'
-    $serverProcess = Start-Process -FilePath $server -ArgumentList $arguments -WorkingDirectory $package `
+    $serverProcess = $null
+    $launcherProcess = Start-Process -FilePath $launcherHost -ArgumentList $arguments -WorkingDirectory $smokeProfile `
         -RedirectStandardOutput $restartStdout -RedirectStandardError $restartStderr -WindowStyle Hidden -PassThru
+    $serverProcess = Wait-LauncherServer -LauncherProcess $launcherProcess
 
     $restartDeadline = [DateTime]::UtcNow.AddSeconds($TimeoutSeconds)
     $restartInfo = $null
@@ -704,6 +802,7 @@ try {
     if (-not $restartAuthentication -or $restartInfo.Id -ne $publicInfo.Id) {
         throw 'The packaged server did not restart with the same configured profile and accept its existing user.'
     }
+    Assert-ServerListener -ServerProcess $serverProcess
     $restartHeaders = @{ Authorization = "$clientHeader, Token=$($restartAuthentication.AccessToken)" }
     $restartViews = Invoke-RestMethod -Uri "$baseUrl/UserViews" -Headers $restartHeaders -TimeoutSec 15
     foreach ($expectedName in @($libraryName, $bookLibraryName, $musicLibraryName, $tvLibraryName, $homeLibraryName, $musicVideoLibraryName)) {
@@ -776,7 +875,7 @@ try {
     }
 
     $smokeSucceeded = $true
-    Write-Host "Packaged server smoke test passed: API version $($publicInfo.Version), bundled Web HTTP $($webResponse.StatusCode), login, movie with a loose trailer, audiobook, music with an album bonus video, TV, home-video/photo, and music-video folder browse, local NFO and audiobook XML metadata, client playback negotiation, external subtitle, direct media streams, live library additions and removals, persistence after restart, and discovery of a movie added and a trailer removed during downtime."
+    Write-Host "Packaged server smoke test passed through Start-Jigglefin.ps1: API version $($publicInfo.Version), bundled Web HTTP $($webResponse.StatusCode), login, movie with a loose trailer, audiobook, music with an album bonus video, TV, home-video/photo, and music-video folder browse, local NFO and audiobook XML metadata, client playback negotiation, external subtitle, direct media streams, live library additions and removals, persistence after restart, and discovery of a movie added and a trailer removed during downtime."
 } catch {
     Write-Warning "Package smoke test failed. Isolated profile and logs: $smokeProfile"
     foreach ($logPath in @($stdout, $stderr, (Join-Path $smokeProfile 'restart-stdout.log'), (Join-Path $smokeProfile 'restart-stderr.log'))) {
@@ -789,6 +888,19 @@ try {
     }
     throw
 } finally {
+    # Stop the wrapper first so a startup failure cannot leave it spawning a server
+    # after cleanup has checked for children. Only stop children proven to be ours.
+    if ($null -ne $launcherProcess) {
+        $launcherProcess.Refresh()
+        if (-not $launcherProcess.HasExited) {
+            Stop-Process -InputObject $launcherProcess -Force -ErrorAction SilentlyContinue
+            Wait-Process -Id $launcherProcess.Id -Timeout 10 -ErrorAction SilentlyContinue
+        }
+        foreach ($child in @(Get-LauncherServer -LauncherProcess $launcherProcess)) {
+            Stop-Process -Id $child.ProcessId -Force -ErrorAction SilentlyContinue
+            Wait-Process -Id $child.ProcessId -Timeout 10 -ErrorAction SilentlyContinue
+        }
+    }
     if ($null -ne $serverProcess) {
         $serverProcess.Refresh()
         if (-not $serverProcess.HasExited) {

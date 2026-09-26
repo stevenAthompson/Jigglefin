@@ -15,6 +15,13 @@ if (-not (Test-Path -LiteralPath $server)) {
     throw "Jigglefin server executable not found at $server"
 }
 
+# Informational commands need neither a media encoder nor a server profile. The
+# command-line parser also requires --version to precede any regular options.
+if ($ServerArguments.Count -eq 1 -and $ServerArguments[0] -in @('--help', '--version')) {
+    & $server @ServerArguments
+    exit $LASTEXITCODE
+}
+
 if (-not $FfmpegPath) {
     $bundledFfmpeg = Join-Path $PSScriptRoot 'ffmpeg.exe'
     if (Test-Path -LiteralPath $bundledFfmpeg) {

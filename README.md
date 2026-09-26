@@ -69,12 +69,13 @@ open and potentially migrate that database. Jellyfin and Jigglefin cannot both b
   streaming for movie, music, and audiobook samples, including same-named movie, TV, and music
   trees in separate library roots. Windows CI also uses its bundled FFmpeg to
   verify movie-to-HLS and audiobook-to-MP3 transcoding, plus local external subtitle delivery.
-  Before uploading the ZIP, CI starts the packaged server with an isolated profile, completes
+  Before uploading the ZIP, CI checks executable and launcher help/version/invalid-option behavior,
+  then starts the packaged server through `Start-Jigglefin.ps1` in Windows PowerShell 5.1 with an isolated profile, completes
   setup with a throwaway password, and checks authenticated movie, audiobook, music, TV,
   home-video/photo, and music-video folder browsing,
   local movie NFO metadata, client playback negotiation, external subtitles, direct streaming,
   headless Web playback, discovery and removal of a movie in a running monitored library, and library,
-  metadata, and streaming persistence after a clean restart. It also discovers a movie added
+  metadata, and streaming persistence after a clean shutdown and launcher-driven restart. It also discovers a movie added
   while the server was stopped and removes stale trailer data for a file deleted during downtime.
   A Swiftfin 1.6.1 API-contract test checks paged folder browsing with its broad item-type
   filter, including physical series, seasons, and music albums; an Android TV-style items query checks

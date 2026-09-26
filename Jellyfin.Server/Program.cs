@@ -73,11 +73,11 @@ namespace Jellyfin.Server
         {
             static Task ErrorParsingArguments(IEnumerable<Error> errors)
             {
-                Environment.ExitCode = 1;
+                Environment.ExitCode = errors.All(error => error is HelpRequestedError or VersionRequestedError) ? 0 : 1;
                 return Task.CompletedTask;
             }
 
-            // Parse the command line arguments and either start the app or exit indicating error
+            // Parse the command line arguments, treating help/version requests as successful exits.
             return Parser.Default.ParseArguments<StartupOptions>(args)
                 .MapResult(StartApp, ErrorParsingArguments);
         }

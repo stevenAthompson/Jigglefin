@@ -18,6 +18,10 @@ Jigglefin stores its own data under `%LOCALAPPDATA%\jigglefin` and temporary fil
 profile unless you intentionally want to migrate that database. Two servers cannot use port 8096
 at the same time.
 
+Run `.\Start-Jigglefin.ps1 --help` to list server options or
+`.\Start-Jigglefin.ps1 --version` to print the server version. These commands do not start the
+server, create a profile, or require FFmpeg.
+
 The bundled server is based on [Jellyfin Server](https://github.com/jellyfin/jellyfin). The web
 client is built without changes from [Jellyfin Web](https://github.com/jellyfin/jellyfin-web) commit
 `839563a2d633041d5854948d680bd393423b1abb`. The bundled FFmpeg binaries come from
