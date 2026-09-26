@@ -192,7 +192,11 @@ public sealed class LiveProfileMigrationTests
                 if (!string.IsNullOrEmpty(ffmpeg))
                 {
                     var playback = await Get<PlaybackInfoResponse>(client, $"Items/{liveChapterId}/PlaybackInfo");
-                    Assert.Equal(chapter, Assert.Single(playback.MediaSources).Path);
+                    using (var lease = LivePathLease.Acquire(chapter))
+                    {
+                        Assert.Equal(lease.ReadPath, Assert.Single(playback.MediaSources).Path);
+                    }
+
                     Assert.Equal(bookmark, (await Get<BaseItemDto>(client, $"Items/{liveChapterId}")).UserData.PlaybackPositionTicks);
                     using var stream = await client.GetAsync($"Audio/{liveChapterId}/stream?static=true", TestContext.Current.CancellationToken);
                     Assert.Equal(HttpStatusCode.OK, stream.StatusCode);

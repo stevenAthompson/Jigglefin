@@ -12,6 +12,60 @@ internal static class LivePathComparison
 {
     private const string NetworkDrivePrefix = "network-drive:";
 
+    public static bool ReadPathOverlapsPrivateStorage(string readPath, string privatePath)
+    {
+        if (!OperatingSystem.IsWindows() || !readPath.StartsWith(@"\\?\Volume{", StringComparison.OrdinalIgnoreCase))
+        {
+            return OverlapsPrivateStorage(readPath, privatePath);
+        }
+
+        // This address comes from an already opened root, not configuration.
+        // Resolve only its local volume namespace into the same comparison form
+        // used for private paths. Never reopen the original media drive letter.
+        if (readPath.Length < 49 || readPath[47] != '}' || readPath[48] != '\\'
+            || !Guid.TryParseExact(readPath.AsSpan(11, 36), "D", out _))
+        {
+            throw new InvalidDataException("Invalid resolved volume address.");
+        }
+
+        var buffer = new StringBuilder(32768);
+        if (QueryDosDevice(readPath[4..48], buffer, buffer.Capacity) == 0)
+        {
+            throw new IOException("Could not inspect the resolved media volume.", new Win32Exception(Marshal.GetLastWin32Error()));
+        }
+
+        var media = buffer.ToString().TrimEnd('\\') + readPath[48..].TrimEnd('\\');
+        var longPrivate = Path.GetFullPath(privatePath);
+        var longIdentities = Identities(longPrivate, expandShortNames: true);
+        foreach (var identity in longIdentities)
+        {
+            if (Contains(media, identity) || Contains(identity, media))
+            {
+                return true;
+            }
+        }
+
+        if (!media.Contains('~', StringComparison.Ordinal))
+        {
+            return false;
+        }
+
+        // A selected read through an existing GUID spelling may retain 8.3
+        // components. As for configuration, expand only private aliases.
+        foreach (var longIdentity in longIdentities)
+        {
+            foreach (var shortIdentity in Identities(ShortPrivatePath(longPrivate)))
+            {
+                if (AliasComponentsOverlap(media, longIdentity, shortIdentity))
+                {
+                    return true;
+                }
+            }
+        }
+
+        return false;
+    }
+
     public static bool OverlapsPrivateStorage(string media, string privatePath)
     {
         if (Overlaps(media, privatePath))

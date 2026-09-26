@@ -123,16 +123,24 @@ public sealed class LiveLibraryStoreTests : IDisposable
     {
         var nested = Directory.CreateDirectory(Path.Combine(_media, "Unvisited"));
         File.WriteAllText(Path.Combine(nested.FullName, "Chapter.mp3"), "fixture");
+        string readRoot;
+        using (var lease = LivePathLease.Acquire(_media))
+        {
+            readRoot = lease.ReadPath;
+        }
+
         var library = _store.AddLibrary("Media", [_media]);
         Assert.Empty(_reader.EnumerationCalls);
         var folder = Assert.Single(_store.Browse(library.Id, TestContext.Current.CancellationToken));
-        Assert.Equal(new[] { _media }, _reader.EnumerationCalls);
+        Assert.Equal(new[] { readRoot }, _reader.EnumerationCalls);
         Assert.DoesNotContain(nested.FullName, _reader.StatCalls);
+        Assert.DoesNotContain(Path.Combine(readRoot, "Unvisited"), _reader.StatCalls);
 
         var child = Assert.Single(_store.Browse(folder.Id, TestContext.Current.CancellationToken));
         Assert.Equal("Chapter.mp3", child.Name);
-        Assert.Equal(new[] { _media, nested.FullName }, _reader.EnumerationCalls);
+        Assert.Equal(new[] { readRoot, Path.Combine(readRoot, "Unvisited") }, _reader.EnumerationCalls);
         Assert.DoesNotContain(child.File.FullPath, _reader.StatCalls);
+        Assert.DoesNotContain(child.File.ReadPath, _reader.StatCalls);
     }
 
     [Fact]

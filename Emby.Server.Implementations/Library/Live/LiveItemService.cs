@@ -133,10 +133,11 @@ public sealed class LiveItemService : ILiveItemService, IDisposable
                 return;
             }
 
-            entry = _browser.GetEntry(context.Library.Roots[0], string.Empty);
+            entry = _library.GetEntry(context.Library.Roots[0].Id)
+                ?? throw new DirectoryNotFoundException("The media root no longer exists.");
         }
 
-        var root = context.Library.Roots.Single(candidate => candidate.Id.Equals(entry.RootId));
+        var root = entry.ReadRoot ?? context.Library.Roots.Single(candidate => candidate.Id.Equals(entry.RootId));
         var directory = entry.File.IsDirectory ? entry.RelativePath : Path.GetDirectoryName(entry.RelativePath) ?? string.Empty;
         LoadArtwork(item, root, entry, directory);
         bool? unambiguous = null;
@@ -158,7 +159,7 @@ public sealed class LiveItemService : ILiveItemService, IDisposable
                 var key = "nfo:" + ProbeKey(sidecar);
                 if (!_cache.TryGetValue<XDocument>(key, out var document))
                 {
-                    using var stream = LivePathLease.OpenRead(sidecar.File.FullPath);
+                    using var stream = LivePathLease.OpenRead(sidecar.File.ReadPath ?? sidecar.File.FullPath);
                     using var reader = XmlReader.Create(stream, new XmlReaderSettings
                     {
                         DtdProcessing = DtdProcessing.Prohibit,
@@ -202,7 +203,7 @@ public sealed class LiveItemService : ILiveItemService, IDisposable
         }
 
         var key = ProbeKey(entry);
-        using var inputLease = LivePathLease.Acquire(entry.File.FullPath);
+        using var inputLease = LivePathLease.AcquireReadPath(entry.File.ReadPath ?? entry.File.FullPath);
         await _probeGate.WaitAsync(cancellationToken).ConfigureAwait(false);
         try
         {
@@ -215,7 +216,7 @@ public sealed class LiveItemService : ILiveItemService, IDisposable
                     ExtractChapters = true
                 }, cancellationToken).ConfigureAwait(false);
                 probe.Id = item.Id.ToString("N");
-                probe.Path = entry.File.FullPath;
+                probe.Path = inputLease.ReadPath;
                 probe.Protocol = MediaProtocol.File;
                 probe.IsRemote = false;
                 probe.Type = MediaSourceType.Default;
@@ -227,6 +228,9 @@ public sealed class LiveItemService : ILiveItemService, IDisposable
             }
 
             var independent = Clone(probe);
+            // Playback revalidates the selection. Metadata and sidecars must use
+            // that same resolved root, not an earlier selected object's mapping.
+            item.LiveContext = new LiveItemContext(item.LiveContext.Library, entry);
             LoadSubtitles(item.LiveContext.Library, entry, independent, cancellationToken);
             ApplyProbe(item, independent);
             LoadLocalMetadata(item);
@@ -249,7 +253,8 @@ public sealed class LiveItemService : ILiveItemService, IDisposable
     }
 
     private static string ProbeKey(LiveDirectoryEntry entry)
-        => string.Create(CultureInfo.InvariantCulture, $"{entry.Id:N}:{entry.File.Length}:{entry.File.LastWriteTimeUtc.Ticks}");
+        => Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(
+            string.Create(CultureInfo.InvariantCulture, $"{entry.Id:N}:{entry.File.ReadPath ?? entry.File.FullPath}:{entry.File.Length}:{entry.File.LastWriteTimeUtc.Ticks}"))));
 
     private static MemoryCacheEntryOptions CacheOptions()
         => new() { Size = 1, SlidingExpiration = TimeSpan.FromMinutes(30) };
@@ -333,7 +338,7 @@ public sealed class LiveItemService : ILiveItemService, IDisposable
                         continue;
                     }
 
-                    item.ImageInfos = [.. item.ImageInfos, new ItemImageInfo { Path = artwork.File.FullPath, Type = type, DateModified = artwork.File.LastWriteTimeUtc }];
+                    item.ImageInfos = [.. item.ImageInfos, new ItemImageInfo { Path = artwork.File.ReadPath ?? artwork.File.FullPath, Type = type, DateModified = artwork.File.LastWriteTimeUtc }];
                     item.LiveContext.ImageTags[type] = Convert.ToHexStringLower(SHA256.HashData(Encoding.UTF8.GetBytes(ProbeKey(artwork))));
                     break;
                 }
@@ -352,7 +357,7 @@ public sealed class LiveItemService : ILiveItemService, IDisposable
             return;
         }
 
-        var root = library.Roots.Single(candidate => candidate.Id.Equals(entry.RootId));
+        var root = entry.ReadRoot ?? library.Roots.Single(candidate => candidate.Id.Equals(entry.RootId));
         var directory = Path.GetDirectoryName(entry.RelativePath) ?? string.Empty;
         var stem = Path.GetFileNameWithoutExtension(entry.Name);
         var index = probe.MediaStreams.Select(stream => stream.Index).DefaultIfEmpty(-1).Max() + 1;
@@ -375,7 +380,7 @@ public sealed class LiveItemService : ILiveItemService, IDisposable
                 Index = index++,
                 Type = MediaStreamType.Subtitle,
                 Codec = extension[1..],
-                Path = sibling.File.FullPath,
+                Path = sibling.File.ReadPath ?? sibling.File.FullPath,
                 IsExternal = true,
                 IsForced = parts.Contains("forced", StringComparer.OrdinalIgnoreCase),
                 IsDefault = parts.Contains("default", StringComparer.OrdinalIgnoreCase),

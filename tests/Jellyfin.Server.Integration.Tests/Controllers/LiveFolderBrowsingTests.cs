@@ -43,6 +43,12 @@ public sealed class LiveFolderBrowsingTests
             await File.WriteAllTextAsync(sidecar, "not XML: browsing must not parse", TestContext.Current.CancellationToken);
             var beforeMedia = (new FileInfo(media).Length, File.GetLastWriteTimeUtc(media));
             var beforeSidecar = (new FileInfo(sidecar).Length, File.GetLastWriteTimeUtc(sidecar));
+            string readRoot;
+            using (var lease = LivePathLease.Acquire(fixture.FullName))
+            {
+                readRoot = lease.ReadPath;
+            }
+
             var reader = new TrackingReader();
             using var factory = new JellyfinApplicationFactory();
             using var configured = factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
@@ -78,8 +84,9 @@ public sealed class LiveFolderBrowsingTests
                 var items = await Query(client, $"Items?parentId={libraryId}&recursive=true");
                 Assert.Equal(3, items.Items.Count);
                 Assert.DoesNotContain(items.Items, item => item.Name == "Deep");
-                Assert.Equal(new[] { fixture.FullName }, reader.Enumerations);
+                Assert.Equal(new[] { readRoot }, reader.Enumerations);
                 Assert.DoesNotContain(deep.FullName, reader.Stats);
+                Assert.DoesNotContain(Path.Combine(readRoot, "Unvisited", "Deep"), reader.Stats);
                 mediaId = Assert.Single(items.Items, item => item.Name == "Chapter.mp3").Id;
 
                 var legacyItems = await Query(client, $"Users/{user.Id}/Items?parentId={libraryId}");
@@ -126,7 +133,7 @@ public sealed class LiveFolderBrowsingTests
             using var stale = await client.GetAsync($"Items/{mediaId}", TestContext.Current.CancellationToken);
             Assert.Equal(HttpStatusCode.NotFound, stale.StatusCode);
             Assert.Equal(initialCatalogCount, await database.BaseItems.CountAsync(TestContext.Current.CancellationToken));
-            Assert.All(reader.Enumerations, path => Assert.Equal(fixture.FullName, path));
+            Assert.All(reader.Enumerations, path => Assert.Equal(readRoot, path));
         }
         finally
         {

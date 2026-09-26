@@ -90,6 +90,12 @@ internal sealed class LiveFolderFixture : IDisposable
 
     public string PathFor(string relative) => Path.Combine(Media, relative.Replace('/', Path.DirectorySeparatorChar));
 
+    public string ReadPathFor(string relative)
+    {
+        using var lease = LivePathLease.Acquire(Media);
+        return Path.Combine(lease.ReadPath, relative.Replace('/', Path.DirectorySeparatorChar));
+    }
+
     public string MakeDirectory(string relative) => Directory.CreateDirectory(PathFor(relative)).FullName;
 
     public string Write(string relative, byte[] bytes)
@@ -119,12 +125,19 @@ internal sealed class LiveFolderFixture : IDisposable
 
     public async Task<QueryResult<BaseItemDto>> Browse(Guid parent, string directory, string query = "", HttpClient? client = null)
     {
+        string readDirectory;
+        using (var lease = LivePathLease.Acquire(directory))
+        {
+            readDirectory = lease.ReadPath;
+        }
+
         var beforeLists = Reader.Enumerations.Count;
         var beforeStats = Reader.Stats.Count;
         var items = await Query($"Items?parentId={parent}{query}", client);
-        Assert.Equal(new[] { directory }, Reader.Enumerations.Skip(beforeLists));
+        Assert.Equal(new[] { readDirectory }, Reader.Enumerations.Skip(beforeLists));
         Assert.All(Reader.Stats.Skip(beforeStats), path => Assert.True(
-            string.Equals(path, directory, StringComparison.OrdinalIgnoreCase) || directory.StartsWith(path + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase),
+            string.Equals(path, directory, StringComparison.OrdinalIgnoreCase) || directory.StartsWith(path + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase)
+            || string.Equals(path, readDirectory, StringComparison.OrdinalIgnoreCase) || readDirectory.StartsWith(path + Path.DirectorySeparatorChar, StringComparison.OrdinalIgnoreCase),
             "Listing unexpectedly inspected a child/sidecar: " + path));
         return items;
     }

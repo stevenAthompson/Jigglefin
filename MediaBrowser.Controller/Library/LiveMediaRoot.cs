@@ -1,4 +1,5 @@
 using System;
+using System.Text.Json.Serialization;
 
 namespace MediaBrowser.Controller.Library;
 
@@ -6,4 +7,9 @@ namespace MediaBrowser.Controller.Library;
 /// <param name="Id">The stable root identity.</param>
 /// <param name="Name">The user-visible root name.</param>
 /// <param name="FullPath">The canonical absolute root path.</param>
-public sealed record LiveMediaRoot(Guid Id, string Name, string FullPath);
+public sealed record LiveMediaRoot(Guid Id, string Name, string FullPath)
+{
+    /// <summary>Gets an operation's resolved root address; never persisted as configuration.</summary>
+    [JsonIgnore]
+    public string? ReadPath { get; init; }
+}

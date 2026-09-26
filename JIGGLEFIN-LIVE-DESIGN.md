@@ -723,3 +723,60 @@ and sidecar service can still use the original logical root between separate
 stat/read calls. The post-acquisition fix above must not be mistaken for proof of
 that entire authorization-to-open handoff. Final API/path-open and distribution
 review remain open; the goal is not complete.
+
+### Root-validation to selected-reader handoff
+
+Four deterministic owned-drive cases reproduced a gap before acquisition: changing
+the mapping between the private-storage check and the root stat/browse could expose
+the replacement profile location. The physical reader now returns its resolved read
+address separately from the logical address. The browser validates that resolved
+root against private storage before accessing children, then carries it through
+directory reads, entry resolution and selected sidecars. These transient addresses
+are not persisted as root configuration or used for client item/bookmark IDs.
+
+Playback revalidates the selected entry and binds its probe, stream source, artwork,
+NFO and subtitles to the same resolved root. A newly requested private mapping is
+rejected. The bounded probe/sidecar cache includes the physical location in its
+hashed key so a legitimate remap to another file with equal size/time cannot reuse
+the former file's probe. This remains on-demand metadata caching, not a membership
+catalog. A read address is not a held lease: each actual reader still acquires and
+retains its own path lease for its lifetime.
+
+Seven new server cases cover both sides of root validation, selected metadata,
+artwork/subtitles, playback-time remapping, a new private-root request, and equal-
+attribute cache isolation. Existing filesystem-observation assertions were updated
+to expect the physical read paths while retaining exact immediate-directory and
+no-descendant checks. Logical browse DTO paths, IDs and migration state stay intact.
+
+- Development ZIP: `publish/Jigglefin-live-root-handoff-check-20260926-r1.zip`.
+- SHA-256: `FF4858C4E46542A180BFD37452FB801596D1631BB93FB5373C5665504C39C8D7`.
+- Headless web/native fixture: `%TEMP%\jigglefin-folder-web-zpj9bU`.
+- Actual older-ZIP upgrade: `%TEMP%\jigglefin-zip-upgrade-8eb4bec1e25044bea64180a0f93170cb`.
+- Evidence: `publish/test-results/live-root-handoff`; package reports have the
+  `r1-` prefix. `handoff-before.trx` retains the four original failures separately
+  from passing handoff/consumer reports and the full-suite reruns.
+
+Final source suites pass **1,887** cases: controller **229**, media encoding
+**107/1 existing skip**, integration **196/3**, server **107**, implementations
+**1,017/17**, API **203** and Skia **28**, with clean test-process exits. Integration
+and implementations use the `complete-` reports; the other suites use `final-`.
+Earlier `integration.trx` and `verified-` reports retain obsolete logical-path
+assertion failures; no assertion of bounded access was removed or newly skipped.
+Both Android shell/bootstrap Node tests also pass.
+
+The complete packaged UI/native workflow and actual older-ZIP upgrade pass, with
+55 native helpers across two startups, no observed outbound/UNC or external browser
+attempts, unchanged fixture media and clean shutdowns. The main README now describes
+this live implementation, not the superseded scan-backed product. Nothing was
+deployed or pushed; the installed profile, user drive mappings and `Z:\Media` remain
+untouched.
+
+The final API review is still open, specifically inherited HLS cache/session
+selection. `HlsSegmentController` retains anonymous legacy segment actions that
+select private transcode filenames without the live item/root authorization used
+by modern playback. Its existing unit test even expects that anonymous file result.
+`StreamingHelpers` also reuses a job by caller-provided play-session ID without
+binding that job's source ID to the authorized requested item. These require
+dedicated HTTP regressions and corrections, then packaged/client verification;
+the successful read-handoff tests do not close those permission checks. Final
+distribution/CI documentation and release packaging remain after that fix.

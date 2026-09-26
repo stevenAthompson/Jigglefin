@@ -150,12 +150,13 @@ public sealed class LiveItemServiceTests : IDisposable
     {
         var poster = Path.Combine(Path.GetDirectoryName(_media)!, "folder.jpg");
         File.WriteAllText(poster, "image attributes only");
+        var posterReadPath = ReadAddress(poster);
         var item = _items.Resolve(_id)!;
         Assert.Empty(item.ImageInfos);
         using (var locked = File.Open(poster, FileMode.Open, FileAccess.Read, FileShare.None))
         {
             _items.LoadLocalMetadata(item);
-            Assert.Equal(poster, Assert.Single(item.ImageInfos).Path);
+            Assert.Equal(posterReadPath, Assert.Single(item.ImageInfos).Path);
         }
 
         var firstTag = item.LiveContext.ImageTags[ImageType.Primary];
@@ -191,7 +192,7 @@ public sealed class LiveItemServiceTests : IDisposable
         _encoder.VerifyNoOtherCalls();
         var source = await _items.PreparePlayback(item, TestContext.Current.CancellationToken);
         var selected = Assert.Single(source.MediaStreams, stream => stream.IsExternal);
-        Assert.Equal(subtitle, selected.Path);
+        Assert.Equal(ReadAddress(subtitle), selected.Path);
         Assert.Equal("en", selected.Language);
         Assert.True(selected.IsForced);
         File.Delete(subtitle);

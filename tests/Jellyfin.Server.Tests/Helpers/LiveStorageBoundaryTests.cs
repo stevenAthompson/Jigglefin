@@ -2,12 +2,21 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
+using System.Threading;
+using System.Threading.Tasks;
 using System.Xml.Linq;
 using Emby.Server.Implementations.Library.Live;
 using Jellyfin.Server.Helpers;
+using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.MediaEncoding;
+using MediaBrowser.Model.Entities;
+using MediaBrowser.Model.MediaInfo;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging.Abstractions;
+using Moq;
 using Serilog;
 using Xunit;
 using Xunit.Sdk;
@@ -480,6 +489,185 @@ public sealed class LiveStorageBoundaryTests
         }
     }
 
+    [Theory]
+    [InlineData(false, false)]
+    [InlineData(false, true)]
+    [InlineData(true, false)]
+    [InlineData(true, true)]
+    public void MappingChangesBetweenValidationAndReads_CannotExposePrivateStorage(bool beforeRootStat, bool lookup)
+    {
+        RequireWindows();
+        var fixture = Directory.CreateTempSubdirectory("jigglefin-root-read-handoff-");
+        try
+        {
+            var media = Directory.CreateDirectory(Path.Combine(fixture.FullName, "Media"));
+            var profile = Directory.CreateDirectory(Path.Combine(fixture.FullName, "Profile"));
+            const string MediaBytes = "original selected media";
+            File.WriteAllText(Path.Combine(media.FullName, "Chapter.m4b"), MediaBytes);
+            File.WriteAllText(Path.Combine(profile.FullName, "Chapter.m4b"), "private data must not be exposed");
+            File.WriteAllText(Path.Combine(profile.FullName, "PrivateOnly.txt"), "not a media entry");
+            using var drive = new TestDrive(media.FullName);
+            var reader = new RemappingReader();
+            var store = new LiveLibraryStore(new LiveDirectoryBrowser(reader), Path.Combine(profile.FullName, "data"), [profile.FullName]);
+            var group = store.AddLibrary("Mapped", [drive.Root]);
+            var original = Assert.Single(store.Browse(group.Id, TestContext.Current.CancellationToken));
+            if (beforeRootStat)
+            {
+                reader.BeforeStat = () => drive.Repoint(profile.FullName);
+                if (lookup)
+                {
+                    Assert.Throws<UnauthorizedAccessException>(() => store.GetEntry(original.Id));
+                }
+                else
+                {
+                    Assert.Throws<UnauthorizedAccessException>(() => store.Browse(group.Id, TestContext.Current.CancellationToken));
+                }
+            }
+            else
+            {
+                reader.AfterStat = () => drive.Repoint(profile.FullName);
+                var entry = lookup ? store.GetEntry(original.Id)! : Assert.Single(store.Browse(group.Id, TestContext.Current.CancellationToken));
+                Assert.Equal(original.Id, entry.Id);
+                Assert.Equal(MediaBytes.Length, entry.File.Length);
+                using var stream = LivePathLease.OpenRead(entry.File.ReadPath ?? entry.File.FullPath);
+                using var content = new StreamReader(stream);
+                Assert.Equal(MediaBytes, content.ReadToEnd());
+            }
+
+            // A new request rechecks the now-private mapping rather than trusting
+            // the previous request's successful root validation.
+            Assert.Throws<UnauthorizedAccessException>(() => store.Browse(group.Id, TestContext.Current.CancellationToken));
+            Assert.Equal(MediaBytes, File.ReadAllText(Path.Combine(media.FullName, "Chapter.m4b")));
+        }
+        finally
+        {
+            fixture.Delete(true);
+        }
+    }
+
+    [Fact]
+    public void SelectedMetadata_RemainsBoundAfterMappingChangesButNewRootSelectionRevalidates()
+    {
+        RequireWindows();
+        var fixture = Directory.CreateTempSubdirectory("jigglefin-selected-root-handoff-");
+        try
+        {
+            var media = Directory.CreateDirectory(Path.Combine(fixture.FullName, "Media"));
+            var profile = Directory.CreateDirectory(Path.Combine(fixture.FullName, "Profile"));
+            foreach (var directory in new[] { media, profile })
+            {
+                File.WriteAllText(Path.Combine(directory.FullName, "Chapter.m4b"), directory.Name);
+                File.WriteAllText(Path.Combine(directory.FullName, "Chapter.nfo"), "<audiobook><title>" + directory.Name + "</title></audiobook>");
+                File.WriteAllText(Path.Combine(directory.FullName, "folder.jpg"), directory.Name);
+            }
+
+            using var drive = new TestDrive(media.FullName);
+            var browser = new LiveDirectoryBrowser(new PhysicalLiveDirectoryReader());
+            var store = new LiveLibraryStore(browser, Path.Combine(profile.FullName, "data"), [profile.FullName]);
+            var group = store.AddLibrary("Mapped", [drive.Root]);
+            var id = store.Browse(group.Id, TestContext.Current.CancellationToken).Single(entry => entry.Name == "Chapter.m4b").Id;
+            var encoder = new Mock<IMediaEncoder>(MockBehavior.Strict);
+            using var items = new LiveItemService(store, browser, encoder.Object, NullLogger<LiveItemService>.Instance);
+            var selected = items.Resolve(id)!;
+            var selectedGroup = items.Resolve(group.Id)!;
+            drive.Repoint(profile.FullName);
+            items.LoadLocalMetadata(selected);
+            Assert.Equal("Media", selected.Name);
+            using var image = LivePathLease.OpenRead(Assert.Single(selected.ImageInfos).Path);
+            using var content = new StreamReader(image);
+            Assert.Equal("Media", content.ReadToEnd());
+            Assert.Throws<UnauthorizedAccessException>(() => items.LoadLocalMetadata(selectedGroup));
+            Assert.Null(items.Resolve(id));
+            encoder.VerifyNoOtherCalls();
+        }
+        finally
+        {
+            fixture.Delete(true);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task PlaybackAndSidecars_KeepValidatedRootAndReprobeAChangedLocation(bool privateReplacement)
+    {
+        RequireWindows();
+        var fixture = Directory.CreateTempSubdirectory("jigglefin-playback-root-handoff-");
+        try
+        {
+            var media = Directory.CreateDirectory(Path.Combine(fixture.FullName, "Media"));
+            var profile = Directory.CreateDirectory(Path.Combine(fixture.FullName, "Profile"));
+            var replacement = privateReplacement ? profile : Directory.CreateDirectory(Path.Combine(fixture.FullName, "Other"));
+            var timestamp = new DateTime(2026, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+            foreach (var directory in new[] { media, replacement })
+            {
+                // Same length/time forces cache isolation to depend on the resolved
+                // location while the client-visible ID and bookmark stay stable.
+                var video = Path.Combine(directory.FullName, "Movie.mp4");
+                await File.WriteAllTextAsync(video, "same probe fixture", TestContext.Current.CancellationToken);
+                File.SetLastWriteTimeUtc(video, timestamp);
+                await File.WriteAllTextAsync(Path.Combine(directory.FullName, "Movie.nfo"), "<movie><title>" + directory.Name + "</title></movie>", TestContext.Current.CancellationToken);
+                await File.WriteAllTextAsync(Path.Combine(directory.FullName, "Movie.en.srt"), directory.Name, TestContext.Current.CancellationToken);
+                await File.WriteAllTextAsync(Path.Combine(directory.FullName, "folder.jpg"), directory.Name, TestContext.Current.CancellationToken);
+            }
+
+            using var drive = new TestDrive(media.FullName);
+            var browser = new LiveDirectoryBrowser(new PhysicalLiveDirectoryReader());
+            var store = new LiveLibraryStore(browser, Path.Combine(profile.FullName, "data"), [profile.FullName]);
+            var group = store.AddLibrary("Mapped", [drive.Root]);
+            var id = store.Browse(group.Id, TestContext.Current.CancellationToken).Single(entry => entry.Name == "Movie.mp4").Id;
+            var encoder = new Mock<IMediaEncoder>(MockBehavior.Strict);
+            var calls = 0;
+            encoder.Setup(value => value.GetMediaInfo(It.IsAny<MediaInfoRequest>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync((MediaInfoRequest request, CancellationToken _) =>
+                {
+                    var expected = calls++ == 0 ? media : replacement;
+                    using var lease = LivePathLease.Acquire(Path.Combine(expected.FullName, "Movie.mp4"));
+                    Assert.Equal(lease.ReadPath, request.MediaSource.Path);
+                    if (calls == 1)
+                    {
+                        drive.Repoint(replacement.FullName);
+                    }
+
+                    return new MediaInfo { Container = "mp4", MediaStreams = [new MediaStream { Index = 0, Type = MediaStreamType.Video }] };
+                });
+            using var items = new LiveItemService(store, browser, encoder.Object, NullLogger<LiveItemService>.Instance);
+            var selected = items.Resolve(id)!;
+            var original = await items.PreparePlayback(selected, TestContext.Current.CancellationToken);
+            Assert.Equal("Media", selected.Name);
+            using (var lease = LivePathLease.Acquire(Path.Combine(media.FullName, "Movie.mp4")))
+            {
+                Assert.Equal(lease.ReadPath, original.Path);
+            }
+
+            foreach (var path in new[] { Assert.Single(selected.ImageInfos).Path, Assert.Single(original.MediaStreams, stream => stream.IsExternal).Path })
+            {
+                using var stream = LivePathLease.OpenRead(path);
+                using var content = new StreamReader(stream);
+                Assert.Equal("Media", await content.ReadToEndAsync(TestContext.Current.CancellationToken));
+            }
+
+            if (privateReplacement)
+            {
+                await Assert.ThrowsAsync<UnauthorizedAccessException>(() => items.PreparePlayback(selected, TestContext.Current.CancellationToken));
+                Assert.Equal(1, calls);
+            }
+            else
+            {
+                var updated = await items.PreparePlayback(selected, TestContext.Current.CancellationToken);
+                Assert.Equal("Other", selected.Name);
+                Assert.Equal(id, selected.Id);
+                Assert.NotEqual(original.Path, updated.Path);
+                Assert.NotEqual(original.ETag, updated.ETag);
+                Assert.Equal(2, calls);
+            }
+        }
+        finally
+        {
+            fixture.Delete(true);
+        }
+    }
+
     private static void RequireWindows()
     {
         if (!OperatingSystem.IsWindows())
@@ -505,6 +693,30 @@ public sealed class LiveStorageBoundaryTests
     [DllImport("kernel32.dll", EntryPoint = "GetShortPathNameW", CharSet = CharSet.Unicode, SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     private static extern uint GetShortPathName(string path, StringBuilder shortPath, int size);
+
+    private sealed class RemappingReader : ILiveDirectoryReader
+    {
+        private readonly PhysicalLiveDirectoryReader _physical = new();
+
+        public Action? BeforeStat { get; set; }
+
+        public Action? AfterStat { get; set; }
+
+        public LiveFileInfo Stat(string path)
+        {
+            var before = BeforeStat;
+            BeforeStat = null;
+            before?.Invoke();
+            var result = _physical.Stat(path);
+            var after = AfterStat;
+            AfterStat = null;
+            after?.Invoke();
+            return result;
+        }
+
+        public IEnumerable<LiveFileInfo> EnumerateDirectory(string path, CancellationToken cancellationToken)
+            => _physical.EnumerateDirectory(path, cancellationToken);
+    }
 
     private sealed class TestNetworkDrive : IDisposable
     {

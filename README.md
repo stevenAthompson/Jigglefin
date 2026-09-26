@@ -2,125 +2,110 @@
 
 ![Jigglefin logo](branding/jigglefin-256.png)
 
-Jigglefin is a Windows-focused, folder-first fork of Jellyfin Server. It keeps the standard
-Jellyfin API and media item types so unmodified Jellyfin clients can connect, browse, and stream.
-Windows builds are self-contained portable packages. Verified behavior and client limitations
-are listed below.
+Jigglefin is a Windows-focused, offline file-and-folder server derived from Jellyfin.
+It keeps Jellyfin authentication, streaming and playback-state APIs so standard
+Jellyfin clients can connect, without maintaining a scanned media catalog.
 
-The filesystem is the source of truth. A movie library such as:
+This branch (`codex/live-filesystem`) replaces the older, scan-backed Jigglefin.
+It is still a development build undergoing final release checks. Older CI artifacts
+from the `jigglefin` branch are **not** this implementation. Use a separate test
+profile; do not replace your production installation yet.
 
-    Movies/
-      Action/
-        Loose Movie.mp4
-      Comedy/
-        Matched Movie (2020)/
-          Matched Movie (2020).mp4
-          movie.nfo
+## How it works
 
-opens as Action and Comedy folders in the normal client library tile. The loose file is a Movie
-item; the dedicated movie directory is one Movie item with local NFO metadata. TV, music, books,
-audiobooks, home videos/photos, and music videos use the same folder-first approach while
-retaining their usual Jellyfin media item kinds.
+- Adding a location saves its address. It does not scan, probe or even open the
+  media location during setup or startup.
+- Opening a folder lists its current immediate files and folders. New and removed
+  entries appear on the next request—no rescan. A folder never collapses into a
+  movie, album or series, and unsupported files remain visible.
+- Selecting an entry reads its local NFO/XML/OPF and artwork where supported.
+  Playing audio/video probes only that selected file. Small on-demand metadata
+  caches are disposable and never determine what appears in a directory.
+- Playback positions, favorites, accounts and folder permissions live in the
+  private server profile. Clearing the selection cache does not erase bookmarks.
+  IDs follow configured root and relative path; moving or renaming files changes
+  their identity.
+- Media is read-only to the application. Private profile, cache, log and temporary
+  locations must be outside media trees. Links/reparse entries can be listed but
+  cannot be traversed or played.
+- There are no online metadata providers, remote artwork/subtitle searches,
+  plugins, updates, remote URL media or opt-in internet features. Local/LAN media
+  shares and incoming client connections remain supported.
 
-## Try the Windows build
+The bundled web UI is a small folder browser, not Jellyfin Web. It includes local
+accounts, folder access, filename sorting/filtering, playback and cache controls.
+Native Jellyfin apps may still display their own catalog-oriented menus. Unsupported
+APIs return compatible empty results or a navigable **Use Folder View** fallback;
+they never trigger a recursive scan to imitate a catalog.
 
-Download the Jigglefin-win-x64 ZIP from a successful run of
-[Jigglefin CI](https://github.com/stevenAthompson/Jigglefin/actions/workflows/jigglefin-ci.yml).
-This portable package includes the .NET runtime, unmodified Jellyfin Web, and verified official
-Jellyfin FFmpeg and FFprobe binaries. It does not require a separate FFmpeg installation.
+## Try a development Windows package
 
-1. Extract the ZIP somewhere you can keep between upgrades.
-2. Run Start-Jigglefin.ps1 in PowerShell from the extracted folder.
-3. Open http://localhost:8096/web/, create an admin account, and add folders as media libraries.
-4. Connect other Jellyfin clients to the server address, such as http://WINDOWS-HOST:8096.
+The portable ZIP includes the .NET runtime, the offline folder UI and prepared
+Jellyfin FFmpeg/FFprobe. It does not require a separate runtime or encoder install.
 
-Read the included README-PORTABLE.md for profile locations, command-line options, and cautions.
-Jigglefin stores its data under %LOCALAPPDATA%\jigglefin and does not open an existing Jellyfin
-profile by default. Do not point it at a Jellyfin profile unless you intentionally want it to
-open and potentially migrate that database. Jellyfin and Jigglefin cannot both bind port 8096.
+1. Extract the ZIP into a new directory.
+2. Run `Start-Jigglefin.ps1 -DataDir <new-test-profile-path>` in PowerShell.
+3. Open `http://localhost:8096/web/`, create a local account, and add folder
+   locations under Settings.
+4. Connect standard Jellyfin clients to the same server address and use Folder View.
 
-## Current behavior and limits
+See [README-PORTABLE.md](README-PORTABLE.md) for launcher details. Without `-DataDir`,
+the server uses `%LOCALAPPDATA%\jigglefin`; temporary files normally use
+`%TEMP%\jigglefin`. Two servers cannot share port 8096.
 
-- Physical category folders stay navigable. A single loose movie or named TV episode does not
-  automatically replace its parent category with a Movie or Series. Book and audiobook folders
-  with additional child folders or both book and audiobook files remain browseable instead of
-  hiding those entries, as do movie folders with `Extras` or loose trailer files and music folders that mix tracks with
-  non-disc subfolders. Music albums also expose bonus video files beside tracks as standard
-  `MusicVideo` items. A multi-disc `MusicAlbum` exposes its physical disc folders in the folder
-  browser. Home-video folders with both photos and videos, or photos and child folders, remain
-  physical folders; photo-only albums open through the Web folder browser. Music-specific track
-  lists remain compatible with Jellyfin Web. Same-named movie, book, and audiobook files beside
-  directories keep both paths browseable; loose audiobook names come from filenames.
-- Kodi-style NFO and legacy-style `movie.xml`, `<movie-file>.xml`, `series.xml`, `season.xml`,
-  `<episode-file>.xml`, `artist.xml`, `album.xml`, `<book-file>.xml`, and `<audiobook-file>.xml`
-  sidecars, local artwork, embedded tags, and
-  filenames are used ahead of remote metadata. Network metadata providers are disabled by
-  default for new libraries; explicit provider choices remain available. Book OPF sidecars are
-  supported without applying a shared `metadata.opf` to unrelated books in a mixed folder.
-  A shared `book.xml` or `audiobook.xml` is read only when its folder has exactly one book or
-  audiobook media file; OPF takes precedence over book XML. Other legacy XML media types remain
-  work in progress.
-- Media library entries are presented as folders in UserViews so standard clients use their
-  built-in folder browser. Web folder-list responses also keep shows, seasons, artists, and albums
-  navigable; direct details retain their standard media types.
-- The unmodified Jellyfin Web client is tested headlessly against the packaged server for physical
-  movie, audiobook, music, TV, home-video, and music-video folder navigation and sustained playback
-  of synthetic media, plus browsing a photo-only album. Automated API
-  tests cover browse paths, rename/removal rescans, and direct or byte-range
-  streaming for movie, music, and audiobook samples, including same-named movie, TV, and music
-  trees in separate library roots. Windows CI also uses its bundled FFmpeg to
-  verify movie-to-HLS and audiobook-to-MP3 transcoding, plus local external subtitle delivery.
-  Before uploading the ZIP, CI checks executable and launcher help/version/invalid-option behavior,
-  then starts the packaged server through `Start-Jigglefin.ps1` in Windows PowerShell 5.1 with an isolated profile, completes
-  setup with a throwaway password, and checks authenticated movie, audiobook, music, TV,
-  home-video/photo, and music-video folder browsing,
-  local movie NFO metadata, client playback negotiation, external subtitles, direct streaming,
-  headless Web playback, discovery and removal of a movie in a running monitored library, and library,
-  metadata, and streaming persistence after a clean shutdown and launcher-driven restart. It also discovers a movie added
-  while the server was stopped and removes stale trailer data for a file deleted during downtime.
-  A Swiftfin 1.6.1 API-contract test checks paged folder browsing with its broad item-type
-  filter, including physical series, seasons, and music albums; an Android TV-style items query checks
-  folder paths and child counts. A restricted-user API test verifies that known folder and media
-  IDs cannot bypass a blocked library's browse or stream permissions. Unmodified Android TV and
-  Android mobile apps were also tested in a CLI-only emulator for native browsing and playback.
-  A separate owner-library check used local copies of 97 real media files: a movie, a TV episode
-  and extra, a VHS rip, 12 FLAC tracks, and 81 MP3 audiobook chapters. All files were indexed and
-  byte-range streamed; local NFO/artwork and representative headless Web playback also passed.
-  The original library was never configured in the test server, and the copied media tree was unchanged.
-  Swiftfin's actual Apple interface remains unverified; its coverage is API-contract testing only.
-  Unusual mixed-content layouts outside the documented cases may still need compatibility fixes.
-  New profiles preserve audiobook positions from the start of each file until its actual end,
-  including short chapter files. Existing profiles keep their saved settings: set both audiobook
-  resume thresholds to `0` in Dashboard > Playback > Resume to remove the old five-minute cutoffs.
-  Android TV 0.19.10 plays audiobooks
-  but does not automatically resume saved audio bookmarks; the server retains those positions.
+## Verification and known limits
 
-The detailed design and upstream merge strategy are in [JIGGLEFIN.md](JIGGLEFIN.md).
+Automated tests cover fresh bounded listings, zero setup/startup media access,
+local metadata edits, access restrictions, direct/range/transcoded playback,
+subtitles, restart/resume, and unchanged synthetic media. Windows tests include
+long paths, short-name aliases, owned drive remapping and real local SMB when
+explicitly enabled. Packaged tests exercise the headless web UI and an actual
+older-ZIP profile upgrade. Native-call observation checks attempted DNS, sockets,
+UNC accesses and helper processes, not just successful HTTP requests.
+
+Stock Android mobile 2.7.3 and Android TV 0.19.10 have been exercised in a headless
+emulator. Mobile audiobook resume and TV video resume passed. **Android TV's folder
+audio player restarts at zero on reopen even though the server retains the saved
+position.** This is a stock-client limitation, not a claim of automatic audiobook
+resume on every client. Physical-device/background playback is not fully verified.
+Apple/Swiftfin interface testing remains deferred; API-contract coverage is not
+Apple-device validation.
+
+The latest completed checks, package hashes and outstanding gates are recorded in
+[JIGGLEFIN-LIVE-DESIGN.md](JIGGLEFIN-LIVE-DESIGN.md). [JIGGLEFIN.md](JIGGLEFIN.md)
+describes the superseded scan-backed implementation, not current behavior.
 
 ## Build from source on Windows
 
-Install the .NET 10 SDK and FFmpeg, then run these commands in PowerShell:
+Use the .NET 10 SDK and Node.js 24 or later. Run these commands from a checkout of
+this development branch (not the older default branch). Build dependencies require
+network access; the installed product does not download them at runtime.
 
-    git clone https://github.com/stevenAthompson/Jigglefin.git
-    cd Jigglefin
-    git switch jigglefin
-    dotnet restore Jellyfin.sln --locked-mode
-    dotnet build Jellyfin.sln --configuration Debug --no-restore
-    dotnet test Jellyfin.sln --configuration Debug --no-build
-    .\scripts\dev-run.ps1
+```powershell
+dotnet restore Jellyfin.sln --locked-mode
+dotnet build Jellyfin.sln --configuration Debug --no-restore -m:1
+npm ci --prefix Jigglefin.Web --ignore-scripts --no-audit --no-fund
+npm run check --prefix Jigglefin.Web
+npm run build --prefix Jigglefin.Web
+.\scripts\prepare-ffmpeg.ps1 -OutputDirectory publish/ffmpeg-prepared
+.\scripts\package-win.ps1 -FfmpegDirectory publish/ffmpeg-prepared
+```
 
-The development launcher runs the server without an embedded web client. The CI workflow builds
-the web client from a pinned upstream commit and packages the self-contained Windows server. See
-[JIGGLEFIN.md](JIGGLEFIN.md) for the equivalent local packaging commands.
-
-The master branch is kept as a clean mirror of jellyfin/jellyfin for upstream updates. Jigglefin
-changes live on the jigglefin branch in focused, tested commits.
+Run `dotnet test Jellyfin.sln --configuration Debug --no-build` for source tests.
+Set `JIGGLEFIN_TEST_FFMPEG` to the prepared `ffmpeg.exe` to enable native playback
+tests. Local SMB tests require explicit `JIGGLEFIN_TEST_LOCAL_SMB=1` and an already
+available local administrative share; they do not create shares or change host
+services. Package/UI/native-audit scripts and their fixtures are in `scripts/` and
+`tests/`. Tests must never write to an owner's real media tree.
 
 ## Upstream and licenses
 
-Jigglefin is based on [Jellyfin Server](https://github.com/jellyfin/jellyfin), which remains the
-majority of this codebase. The portable package also includes unmodified builds of
-[Jellyfin Web](https://github.com/jellyfin/jellyfin-web) and
-[Jellyfin FFmpeg](https://github.com/jellyfin/jellyfin-ffmpeg). Jigglefin is an independent fork,
-not an official Jellyfin release. The source and packaged license files identify the applicable
-licenses for each component.
+Most server, authentication, streaming and transcoding code remains upstream
+[Jellyfin Server](https://github.com/jellyfin/jellyfin). Jigglefin's live directory
+layer and API adapters are kept separate where possible; upstream updates still
+need regression testing against the offline/read-only contract.
+
+Jigglefin is an independent fork, not an official Jellyfin release. The portable
+package includes [Jellyfin FFmpeg](https://github.com/jellyfin/jellyfin-ffmpeg),
+the Jigglefin folder UI and locally bundled hls.js, with their license notices.
+It does not ship the old Jellyfin Web build.

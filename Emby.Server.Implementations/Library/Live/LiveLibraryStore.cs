@@ -295,7 +295,7 @@ public sealed class LiveLibraryStore : ILiveLibrary
 
             var address = ResolveAddress(library, itemId);
             RequireSeparatePrivateStorage(address.Root);
-            var entry = _browser.GetEntry(address.Root, address.RelativePath);
+            var entry = _browser.GetEntry(address.Root, address.RelativePath, RequireSeparateReadStorage);
             if (!entry.Id.Equals(itemId))
             {
                 throw new InvalidDataException("The item address does not match its stable identifier.");
@@ -321,14 +321,14 @@ public sealed class LiveLibraryStore : ILiveLibrary
                 }
 
                 entries = library.Roots.Count == 1
-                    ? _browser.Browse(library.Roots[0], string.Empty, cancellationToken)
+                    ? _browser.Browse(library.Roots[0], string.Empty, cancellationToken, RequireSeparateReadStorage)
                     : library.Roots.Select(DescribeMountPoint).ToArray();
             }
             else
             {
                 var address = ResolveAddress(library, parentId);
                 RequireSeparatePrivateStorage(address.Root);
-                entries = _browser.Browse(address.Root, address.RelativePath, cancellationToken);
+                entries = _browser.Browse(address.Root, address.RelativePath, cancellationToken, RequireSeparateReadStorage);
             }
 
             Remember(entries, cancellationToken);
@@ -350,7 +350,7 @@ public sealed class LiveLibraryStore : ILiveLibrary
         try
         {
             RequireSeparatePrivateStorage(root);
-            return _browser.GetEntry(root, string.Empty);
+            return _browser.GetEntry(root, string.Empty, RequireSeparateReadStorage);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
         {
@@ -379,6 +379,14 @@ public sealed class LiveLibraryStore : ILiveLibrary
         if (_privateDirectories.Any(path => LivePathComparison.OverlapsPrivateStorage(root.FullPath, path)))
         {
             throw new UnauthorizedAccessException("This media location now overlaps private server storage.");
+        }
+    }
+
+    private void RequireSeparateReadStorage(string readRoot)
+    {
+        if (_privateDirectories.Any(path => LivePathComparison.ReadPathOverlapsPrivateStorage(readRoot, path)))
+        {
+            throw new UnauthorizedAccessException("The resolved media location overlaps private server storage.");
         }
     }
 

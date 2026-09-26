@@ -112,13 +112,14 @@ public sealed class LocalSidecarLibraryTests
         var selected = await fixture.Navigate(group.Id, "Shelf", "Chosen" + extension);
         var before = fixture.Reader.Enumerations.Count;
         Assert.Equal("Shared title", (await fixture.Details(selected.Id)).Name);
-        Assert.Equal(new[] { fixture.PathFor("Shelf") }, fixture.Reader.Enumerations.Skip(before));
+        Assert.Equal(new[] { fixture.ReadPathFor("Shelf") }, fixture.Reader.Enumerations.Skip(before));
         var otherExtension = extension == ".mp4" ? ".mp4" : extension == ".pdf" ? ".m4b" : ".pdf";
         var other = fixture.Write("Shelf/Another" + otherExtension, [9, 8, 7]);
         Assert.Equal("Chosen" + extension, (await fixture.Details(selected.Id)).Name);
         File.Delete(other);
         Assert.Equal("Shared title", (await fixture.Details(selected.Id)).Name);
         Assert.DoesNotContain(fixture.PathFor("Shelf/Unvisited"), fixture.Reader.Enumerations);
+        Assert.DoesNotContain(fixture.ReadPathFor("Shelf/Unvisited"), fixture.Reader.Enumerations);
         Assert.Equal(metadata, await File.ReadAllTextAsync(sidecar, TestContext.Current.CancellationToken));
         await fixture.AssertNoCatalogImport();
     }
@@ -158,6 +159,7 @@ public sealed class LocalSidecarLibraryTests
         File.Delete(sidecar);
         Assert.Equal("Physical Folder", (await fixture.Details(folder.Id)).Name);
         Assert.DoesNotContain(fixture.PathFor("Physical Folder/Child"), fixture.Reader.Enumerations);
+        Assert.DoesNotContain(fixture.ReadPathFor("Physical Folder/Child"), fixture.Reader.Enumerations);
         await fixture.AssertNoCatalogImport();
     }
 

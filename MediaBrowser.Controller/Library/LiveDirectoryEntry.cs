@@ -1,4 +1,5 @@
 using System;
+using System.Text.Json.Serialization;
 
 namespace MediaBrowser.Controller.Library;
 
@@ -11,6 +12,10 @@ namespace MediaBrowser.Controller.Library;
 /// <param name="File">The filesystem attributes.</param>
 public sealed record LiveDirectoryEntry(Guid Id, Guid RootId, Guid? ParentId, string Name, string RelativePath, LiveFileInfo File)
 {
+    /// <summary>Gets the validated physical root used for this entry and its selected sidecars.</summary>
+    [JsonIgnore]
+    public LiveMediaRoot? ReadRoot { get; init; }
+
     /// <summary>Gets whether a configured mount point is unavailable, not a discovered media entry.</summary>
     public bool IsUnavailable { get; init; }
 }

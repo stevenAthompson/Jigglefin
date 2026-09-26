@@ -113,34 +113,38 @@ public sealed class LiveDirectoryBrowser
     /// <summary>Reads one entry's current attributes, without loading metadata.</summary>
     /// <param name="root">The authorized configured root.</param>
     /// <param name="relativePath">The relative path, or empty for the root itself.</param>
+    /// <param name="validateReadRoot">Optional private-storage check of the resolved root, before descendant access.</param>
     /// <returns>The current entry.</returns>
-    public LiveDirectoryEntry GetEntry(LiveMediaRoot root, string relativePath)
+    public LiveDirectoryEntry GetEntry(LiveMediaRoot root, string relativePath, Action<string>? validateReadRoot = null)
     {
         var fullPath = ResolveWithinRoot(root, relativePath);
-        var info = StatWithoutFollowingLinks(root, fullPath);
-        return Describe(root, info);
+        var (readRoot, info) = StatWithoutFollowingLinks(root, fullPath, validateReadRoot);
+        return Describe(readRoot, info);
     }
 
     /// <summary>Reads only the selected directory, never its descendants.</summary>
     /// <param name="root">The authorized configured root.</param>
     /// <param name="relativePath">The relative directory path, or empty for the root.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
+    /// <param name="validateReadRoot">Optional private-storage check of the resolved root, before enumeration.</param>
     /// <returns>The immediate filesystem entries, with no cached membership.</returns>
-    public IReadOnlyList<LiveDirectoryEntry> Browse(LiveMediaRoot root, string relativePath, CancellationToken cancellationToken = default)
+    public IReadOnlyList<LiveDirectoryEntry> Browse(LiveMediaRoot root, string relativePath, CancellationToken cancellationToken = default, Action<string>? validateReadRoot = null)
     {
         cancellationToken.ThrowIfCancellationRequested();
         var fullPath = ResolveWithinRoot(root, relativePath);
-        RequireDirectory(StatWithoutFollowingLinks(root, fullPath));
+        var (readRoot, directory) = StatWithoutFollowingLinks(root, fullPath, validateReadRoot);
+        RequireDirectory(directory);
+        var readPath = directory.ReadPath ?? directory.FullPath;
         var entries = new List<LiveDirectoryEntry>();
-        foreach (var info in _reader.EnumerateDirectory(fullPath, cancellationToken))
+        foreach (var info in _reader.EnumerateDirectory(readPath, cancellationToken))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            if (!string.Equals(Path.GetDirectoryName(info.FullPath), fullPath, _pathComparison))
+            if (!string.Equals(Path.GetDirectoryName(info.FullPath), Path.TrimEndingDirectorySeparator(readPath), _pathComparison))
             {
                 throw new IOException("The directory reader returned an entry outside the requested directory.");
             }
 
-            entries.Add(Describe(root, info));
+            entries.Add(Describe(readRoot, info with { FullPath = Path.Combine(fullPath, Path.GetFileName(info.FullPath)) }));
         }
 
         return entries;
@@ -175,18 +179,20 @@ public sealed class LiveDirectoryBrowser
         return Path.TrimEndingDirectorySeparator(fullPath);
     }
 
-    private LiveFileInfo StatWithoutFollowingLinks(LiveMediaRoot root, string fullPath)
+    private (LiveMediaRoot Root, LiveFileInfo File) StatWithoutFollowingLinks(LiveMediaRoot root, string fullPath, Action<string>? validateReadRoot)
     {
-        var info = _reader.Stat(root.FullPath);
+        var info = _reader.Stat(root.ReadPath ?? root.FullPath);
         RequireDirectory(info);
+        root = root with { ReadPath = info.ReadPath ?? info.FullPath };
+        validateReadRoot?.Invoke(root.ReadPath);
         var relative = RelativeWithinRoot(root.FullPath, fullPath);
         if (relative == ".")
         {
-            return info;
+            return (root, info with { FullPath = root.FullPath });
         }
 
         var segments = relative.Split(Path.DirectorySeparatorChar);
-        var current = root.FullPath;
+        var current = root.ReadPath;
         for (var index = 0; index < segments.Length; index++)
         {
             current = Path.Combine(current, segments[index]);
@@ -202,7 +208,7 @@ public sealed class LiveDirectoryBrowser
             }
         }
 
-        return info;
+        return (root, info with { FullPath = fullPath });
     }
 
     private static void RequireDirectory(LiveFileInfo info)
@@ -223,12 +229,12 @@ public sealed class LiveDirectoryBrowser
         var relativePath = RelativeWithinRoot(root.FullPath, info.FullPath);
         if (relativePath == ".")
         {
-            return new LiveDirectoryEntry(root.Id, root.Id, null, root.Name, string.Empty, info);
+            return new LiveDirectoryEntry(root.Id, root.Id, null, root.Name, string.Empty, info) { ReadRoot = root };
         }
 
         var parent = Path.GetDirectoryName(relativePath);
         var parentId = string.IsNullOrEmpty(parent) ? root.Id : EntryId(root, parent);
-        return new LiveDirectoryEntry(EntryId(root, relativePath), root.Id, parentId, Path.GetFileName(info.FullPath), relativePath, info);
+        return new LiveDirectoryEntry(EntryId(root, relativePath), root.Id, parentId, Path.GetFileName(info.FullPath), relativePath, info) { ReadRoot = root };
     }
 
     /// <summary>Computes a saved path's identity without loading or trusting its filesystem contents.</summary>

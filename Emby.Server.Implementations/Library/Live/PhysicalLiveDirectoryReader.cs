@@ -13,7 +13,7 @@ public sealed class PhysicalLiveDirectoryReader : ILiveDirectoryReader
     public LiveFileInfo Stat(string path)
     {
         var parent = Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(path));
-        using var lease = LivePathLease.Acquire(parent ?? path);
+        using var lease = LivePathLease.AcquireReadPath(parent ?? path);
         var readPath = parent is null ? lease.ReadPath : Path.Combine(lease.ReadPath, Path.GetFileName(Path.TrimEndingDirectorySeparator(path)));
         var attributes = File.GetAttributes(readPath);
         FileSystemInfo info = (attributes & FileAttributes.Directory) != 0
@@ -25,7 +25,7 @@ public sealed class PhysicalLiveDirectoryReader : ILiveDirectoryReader
     /// <inheritdoc />
     public IEnumerable<LiveFileInfo> EnumerateDirectory(string path, CancellationToken cancellationToken)
     {
-        using var lease = LivePathLease.Acquire(path);
+        using var lease = LivePathLease.AcquireReadPath(path);
 
         var options = new EnumerationOptions
         {
@@ -50,7 +50,6 @@ public sealed class PhysicalLiveDirectoryReader : ILiveDirectoryReader
         // Never ask for the length of a link target. Listed links are visible but
         // cannot be selected/traversed by LiveDirectoryBrowser.
         long? length = !directory && !link ? ((FileInfo)info).Length : null;
-        return new LiveFileInfo(logicalPath, directory, link, length, info.LastWriteTimeUtc);
+        return new LiveFileInfo(logicalPath, directory, link, length, info.LastWriteTimeUtc) { ReadPath = info.FullName };
     }
-
 }
