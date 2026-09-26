@@ -242,21 +242,56 @@ boundary is unchanged and directly tested. Direct/range audio and native MP3/HLS
 tests navigate physical folders and negotiate playback instead of asking scans to
 collapse folders into playable items. Authorized entry DTOs include their real paths.
 
-The complete integration rerun is **139 passed, 51 failed, 3 skipped** (193 total),
-down from 102 failures. Remaining failures are all in `FolderFirstLibraryTests` (29),
-`FolderFirstRescanTests` (8), and `LocalSidecarLibraryTests` (14). They remain enabled:
-mixed/multi-root/empty/same-name/authorization coverage must be retained while moving
-to immediate listings, freshness without scans, and selection-time metadata. The
-sidecar work must also cover OPF and Emby/Kodi precedence, ambiguity and editing;
-it must not merely delete unsupported assertions. The full suite is still NOT green.
-API tests now pass 199; server implementations pass 1,011 (17 skipped). The latest headless browser
-run again passed direct/HLS playback, subtitles, accounts, enable/disable, cache
-clearing and restart/resume with unchanged media and zero external requests.
+That integration checkpoint was **139 passed, 51 failed, 3 skipped** (193 total),
+down from 102 failures. The remaining obsolete expectations in `FolderFirstLibraryTests`,
+`FolderFirstRescanTests`, and `LocalSidecarLibraryTests` have now been replaced with
+physical-layout matrices and stronger read-boundary assertions, not disabled.
+The shared fixture asserts zero media access at startup, no enumeration on mount,
+exactly one immediate-directory enumeration per browse, no child/sidecar stat during
+listing, and unchanged legacy catalog row counts. Locked content, exact path sets,
+all collection labels, same-named files/folders, DVD/disc/extras layouts, empty folders,
+multi-root identities/playback and unauthorized endpoint access remain covered.
+See `tests/LIVE-FOLDER-COVERAGE.md` for the mapping and reproducible commands.
 
-Still required before release: remaining query/filter compatibility and
-authorization/path-open audits; complete
-native-helper/server/browser outbound verification; updated integration/native-client
-regression; and upgrade-profile Windows package validation. Clean-profile packaging
+Selection-time metadata now supports local OPF as well as additional Kodi/Emby
+folder sidecars, nested XML genres and audio album/artist fields. Shared movie/book
+metadata applies to a file only when that selected directory has one appropriate
+file; a PDF and audiobook together are ambiguous. This bounded immediate check is
+only made after selecting an item with an existing shared sidecar. No descendant
+search, scan, probe or online lookup is performed. Specific-sidecar precedence,
+edits/removal, malformed/oversized XML, external entities, folder identity and image
+endpoints have direct HTTP coverage. Folder metadata never collapses its children.
+
+Disconnected locations in multi-root groups retain their configured identities and
+an explicit Offline/unavailable label without hiding available roots. Reconnection
+appears on the next folder request, with no refresh task. Opening unavailable paths
+still fails closed. HTTP, component and actual headless browser tests cover recovery.
+
+Resume requests now support nested-folder scope, media/item-type/name filters,
+pagination, omitted user data/counts and per-user active-session exclusion. They
+validate only saved addresses, never enumerate media directories. Missing files
+retain their saved position but are not advertised; same-prefix sibling folders,
+completed/non-playable files and folder state do not appear as resumable media.
+Immediate listings apply favorite/played/liked/resumable filters from independent
+user state, with filename or saved-state sorting and no metadata hydration.
+Metadata-only sort requests safely fall back to filenames. Recursive flags still
+cannot turn a browse request into a traversal.
+
+The complete integration suite now passes: **187 passed, 0 failed, 3 skipped**
+(190 total), with real FFmpeg configured and no test-family exclusions. The focused
+folder/sidecar/refresh replacement run passed all 53 cases before adding the offline
+mount and two query cases. Current full-run evidence is in the ignored development
+artifact `publish/test-results/live-contract-complete/integration-final.trx`.
+Latest component checks: API 200 passed; implementations 1,012 passed/17 skipped;
+server 63 passed; controller 209 passed; media encoding 100 passed/1 skipped. The
+headless browser passed direct/HLS playback, subtitles, accounts, enable/disable,
+disconnected-root recovery, cache clearing and real restart/resume with unchanged
+fixture media and zero external browser requests. Desktop/mobile screenshots were
+inspected. This is source-build validation, not a new release ZIP or deployment.
+
+Still required before release: final query/authorization/path-open audits; complete
+native-helper/server/browser outbound verification; unmodified native-client
+regression; and actual older-release upgrade-profile Windows package validation. Clean-profile packaging
 and the simplified browser are now tested, but not substitutes for these gates.
 The installed server and previous release ZIP have not been replaced by this
 incomplete branch. No real Apple-device UI coverage has been added.

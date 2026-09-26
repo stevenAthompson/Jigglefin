@@ -167,6 +167,25 @@ public sealed class LiveLibraryStoreTests : IDisposable
     }
 
     [Fact]
+    public void MissingLocation_DoesNotHideOtherConfiguredRootsAndReappearsWithoutScan()
+    {
+        var other = Directory.CreateDirectory(Path.Combine(_fixture.FullName, "Other"));
+        var group = _store.AddLibrary("Two roots", [_media, other.FullName]);
+        var original = _store.Browse(group.Id, TestContext.Current.CancellationToken);
+        other.Delete();
+        var disconnected = _store.Browse(group.Id, TestContext.Current.CancellationToken);
+        Assert.Equal(original.Select(item => item.Id), disconnected.Select(item => item.Id));
+        Assert.False(disconnected[0].IsUnavailable);
+        Assert.True(disconnected[1].IsUnavailable);
+        Assert.Throws<FileNotFoundException>(() => _store.Browse(disconnected[1].Id, TestContext.Current.CancellationToken));
+        Directory.CreateDirectory(other.FullName);
+        var returned = _store.Browse(group.Id, TestContext.Current.CancellationToken);
+        Assert.Equal(disconnected[1].Id, returned[1].Id);
+        Assert.False(returned[1].IsUnavailable);
+        Assert.Empty(_reader.EnumerationCalls);
+    }
+
+    [Fact]
     public void MultipleRoots_ListConfiguredLocationsWithoutEnumeratingThem()
     {
         var other = Directory.CreateDirectory(Path.Combine(_fixture.FullName, "Other"));

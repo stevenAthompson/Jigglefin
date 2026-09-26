@@ -13,6 +13,7 @@ using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Database.Implementations.Enums;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Session;
 using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.Entities;
@@ -37,6 +38,7 @@ public sealed class LiveFolderApiFilter : IActionFilter
     private readonly IServerApplicationHost _host;
     private readonly ILiveItemService _items;
     private readonly ILiveUserDataStore _state;
+    private readonly ISessionManager _sessions;
 
     /// <summary>Initializes a new instance of the <see cref="LiveFolderApiFilter"/> class.</summary>
     /// <param name="library">The live filesystem library.</param>
@@ -44,13 +46,15 @@ public sealed class LiveFolderApiFilter : IActionFilter
     /// <param name="host">The server identity.</param>
     /// <param name="items">Selected local metadata and playback items.</param>
     /// <param name="state">Durable user bookmarks.</param>
-    public LiveFolderApiFilter(ILiveLibrary library, IUserManager users, IServerApplicationHost host, ILiveItemService items, ILiveUserDataStore state)
+    /// <param name="sessions">Existing local client playback sessions.</param>
+    public LiveFolderApiFilter(ILiveLibrary library, IUserManager users, IServerApplicationHost host, ILiveItemService items, ILiveUserDataStore state, ISessionManager sessions)
     {
         _library = library;
         _users = users;
         _host = host;
         _items = items;
         _state = state;
+        _sessions = sessions;
     }
 
     /// <inheritdoc />
@@ -227,7 +231,7 @@ public sealed class LiveFolderApiFilter : IActionFilter
 
     private BaseItemDto[] Views(User? user)
         => _library.GetLibraries().Where(library => CanAccess(user, library))
-            .Select(library => Folder(library.Id, library.Name, HomeId)).ToArray();
+            .Select(library => WithUserData(Folder(library.Id, library.Name, HomeId), user)).ToArray();
 
     private QueryResult<BaseItemDto> Items(ActionExecutingContext context, User? user)
     {
@@ -253,6 +257,23 @@ public sealed class LiveFolderApiFilter : IActionFilter
         }
 
         // Recursive means nothing here: every request is limited to its selected directory.
+        items = FilterItems(items, args);
+        var descending = (Arg<SortOrder[]>(args, "sortOrder") ?? []).FirstOrDefault() == SortOrder.Descending;
+        var ordered = items.OrderByDescending(item => item.IsFolder == true);
+        // Metadata-only sorts fall back to filesystem names; never hydrate a listing.
+        var sort = (Arg<ItemSortBy[]>(args, "sortBy") ?? []).FirstOrDefault(key => key != ItemSortBy.IsFolder);
+        ordered = sort switch
+        {
+            ItemSortBy.DatePlayed => descending ? ordered.ThenByDescending(item => item.UserData?.LastPlayedDate) : ordered.ThenBy(item => item.UserData?.LastPlayedDate),
+            ItemSortBy.PlayCount => descending ? ordered.ThenByDescending(item => item.UserData?.PlayCount) : ordered.ThenBy(item => item.UserData?.PlayCount),
+            ItemSortBy.Runtime => descending ? ordered.ThenByDescending(item => item.RunTimeTicks) : ordered.ThenBy(item => item.RunTimeTicks),
+            _ => ordered
+        };
+        return Page(descending ? ordered.ThenByDescending(item => item.Name, StringComparer.OrdinalIgnoreCase) : ordered.ThenBy(item => item.Name, StringComparer.OrdinalIgnoreCase), args);
+    }
+
+    private static IEnumerable<BaseItemDto> FilterItems(IEnumerable<BaseItemDto> items, IDictionary<string, object?> args)
+    {
         var search = Arg<string>(args, "searchTerm");
         if (!string.IsNullOrEmpty(search))
         {
@@ -263,16 +284,45 @@ public sealed class LiveFolderApiFilter : IActionFilter
         var includeKinds = Arg<BaseItemKind[]>(args, "includeItemTypes") ?? [];
         var excludeKinds = Arg<BaseItemKind[]>(args, "excludeItemTypes") ?? [];
         var mediaTypes = Arg<MediaType[]>(args, "mediaTypes") ?? [];
-        items = items.Where(item => !excluded.Contains(item.Id)
+        var filters = Arg<ItemFilter[]>(args, "filters") ?? [];
+        var favorite = Arg<bool?>(args, "isFavorite");
+        var played = Arg<bool?>(args, "isPlayed");
+        return items.Where(item => !excluded.Contains(item.Id)
             && (includeKinds.Length == 0 || includeKinds.Contains(item.Type))
             && !excludeKinds.Contains(item.Type)
-            && (mediaTypes.Length == 0 || mediaTypes.Contains(item.MediaType)));
-        var descending = (Arg<SortOrder[]>(args, "sortOrder") ?? []).FirstOrDefault() == SortOrder.Descending;
-        var ordered = items.OrderByDescending(item => item.IsFolder == true);
-        var all = (descending ? ordered.ThenByDescending(item => item.Name, StringComparer.OrdinalIgnoreCase) : ordered.ThenBy(item => item.Name, StringComparer.OrdinalIgnoreCase)).ToArray();
+            && (mediaTypes.Length == 0 || mediaTypes.Contains(item.MediaType))
+            && (!favorite.HasValue || favorite.Value == (item.UserData?.IsFavorite == true))
+            && (!played.HasValue || played.Value == (item.UserData?.Played == true))
+            && filters.All(filter => filter switch
+            {
+                ItemFilter.IsFolder => item.IsFolder == true,
+                ItemFilter.IsNotFolder => item.IsFolder != true,
+                ItemFilter.IsPlayed => item.UserData?.Played == true,
+                ItemFilter.IsUnplayed => item.UserData?.Played != true,
+                ItemFilter.IsFavorite => item.UserData?.IsFavorite == true,
+                ItemFilter.IsResumable => item.IsFolder != true && item.UserData is { PlaybackPositionTicks: > 0, Played: false },
+                ItemFilter.Likes => item.UserData?.Likes == true,
+                ItemFilter.Dislikes => item.UserData?.Likes == false,
+                ItemFilter.IsFavoriteOrLikes => item.UserData?.IsFavorite == true || item.UserData?.Likes == true,
+                _ => false
+            }));
+    }
+
+    private static QueryResult<BaseItemDto> Page(IEnumerable<BaseItemDto> items, IDictionary<string, object?> args)
+    {
+        var all = items.ToArray();
         var start = Math.Max(0, Arg<int?>(args, "startIndex") ?? 0);
         var limit = Math.Max(0, Arg<int?>(args, "limit") ?? all.Length);
-        return new QueryResult<BaseItemDto>(start, all.Length, all.Skip(start).Take(limit).ToArray());
+        var page = all.Skip(start).Take(limit).ToArray();
+        if (Arg<bool?>(args, "enableUserData") == false)
+        {
+            foreach (var item in page)
+            {
+                item.UserData = null;
+            }
+        }
+
+        return new QueryResult<BaseItemDto>(start, Arg<bool?>(args, "enableTotalRecordCount") == false ? 0 : all.Length, page);
     }
 
     private BaseItemDto Item(Guid id, User? user, bool details = false)
@@ -293,6 +343,12 @@ public sealed class LiveFolderApiFilter : IActionFilter
             dto.OriginalTitle = selected.OriginalTitle;
             dto.ProductionYear = selected.ProductionYear;
             dto.Genres = selected.Genres;
+            if (selected is MediaBrowser.Controller.Entities.Audio.Audio audio)
+            {
+                dto.Album = audio.Album;
+                dto.Artists = audio.Artists;
+            }
+
             dto.RunTimeTicks = selected.RunTimeTicks;
             dto.Container = selected.Container;
             dto.Chapters = selected.LiveContext.Chapters.ToList();
@@ -304,7 +360,7 @@ public sealed class LiveFolderApiFilter : IActionFilter
 
         if (library.Id.Equals(id))
         {
-            return Folder(id, library.Name, HomeId);
+            return WithUserData(Folder(id, library.Name, HomeId), user);
         }
 
         return WithUserData(ToDto(_library.GetEntry(id) ?? throw new FileNotFoundException(), library), user);
@@ -352,11 +408,30 @@ public sealed class LiveFolderApiFilter : IActionFilter
         }
 
         var list = new List<BaseItemDto>();
-        var mediaTypes = Arg<MediaType[]>(args, "mediaTypes") ?? [];
         var parent = Arg<Guid?>(args, "parentId");
+        LiveLibraryDefinition? parentLibrary = null;
+        string? directoryPrefix = null;
+        if (parent.HasValue && !parent.Value.Equals(HomeId) && !parent.Value.Equals(Guid.Empty))
+        {
+            parentLibrary = Authorize(parent.Value, user);
+            if (!parent.Value.Equals(parentLibrary.Id))
+            {
+                var folder = _library.GetEntry(parent.Value);
+                if (folder is null || !folder.File.IsDirectory || folder.File.IsLink)
+                {
+                    throw new FileNotFoundException();
+                }
+
+                directoryPrefix = Path.TrimEndingDirectorySeparator(folder.File.FullPath) + Path.DirectorySeparatorChar;
+            }
+        }
+
+        var active = Arg<bool>(args, "excludeActiveSessions")
+            ? _sessions.Sessions.Where(session => session.UserId.Equals(user.Id) && session.NowPlayingItem is not null).Select(session => session.NowPlayingItem.Id).ToHashSet()
+            : [];
         foreach (var saved in _state.GetSaved(user.Id))
         {
-            if (saved.Data.PlaybackPositionTicks <= 0 || saved.Data.Played)
+            if (saved.Data.PlaybackPositionTicks <= 0 || saved.Data.Played || active.Contains(saved.ItemId))
             {
                 continue;
             }
@@ -364,13 +439,14 @@ public sealed class LiveFolderApiFilter : IActionFilter
             try
             {
                 var library = Authorize(saved.ItemId, user);
-                if (parent.HasValue && !parent.Value.Equals(HomeId) && !parent.Value.Equals(Guid.Empty) && !parent.Value.Equals(library.Id))
+                if (parentLibrary is not null && !parentLibrary.Id.Equals(library.Id))
                 {
                     continue;
                 }
 
                 var item = Item(saved.ItemId, user);
-                if (mediaTypes.Length == 0 || mediaTypes.Contains(item.MediaType))
+                if (item.IsFolder != true && item.MediaType is MediaType.Audio or MediaType.Video
+                    && (directoryPrefix is null || item.Path.StartsWith(directoryPrefix, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal)))
                 {
                     list.Add(item);
                 }
@@ -384,9 +460,7 @@ public sealed class LiveFolderApiFilter : IActionFilter
             }
         }
 
-        var start = Math.Max(0, Arg<int?>(args, "startIndex") ?? 0);
-        var limit = Math.Max(0, Arg<int?>(args, "limit") ?? list.Count);
-        return new QueryResult<BaseItemDto>(start, list.Count, list.Skip(start).Take(limit).ToArray());
+        return Page(FilterItems(list, args), args);
     }
 
     private BaseItemDto ToDto(LiveDirectoryEntry entry, LiveLibraryDefinition library)
@@ -400,7 +474,12 @@ public sealed class LiveFolderApiFilter : IActionFilter
         var dto = Folder(entry.Id, entry.Name, parent);
         dto.Path = entry.File.FullPath;
         dto.IsFolder = entry.File.IsDirectory;
-        dto.LocationType = LocationType.FileSystem;
+        dto.LocationType = entry.IsUnavailable ? LocationType.Offline : LocationType.FileSystem;
+        if (entry.IsUnavailable)
+        {
+            dto.Overview = "This configured location is unavailable. Reconnect it or check access permissions.";
+        }
+
         if (!entry.File.IsDirectory)
         {
             (dto.Type, dto.MediaType) = LiveMediaClassifier.Classify(entry.Name);

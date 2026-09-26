@@ -316,7 +316,7 @@ public sealed class LiveLibraryStore : ILiveLibrary
             {
                 entries = library.Roots.Count == 1
                     ? _browser.Browse(library.Roots[0], string.Empty, cancellationToken)
-                    : library.Roots.Select(root => _browser.GetEntry(root, string.Empty)).ToArray();
+                    : library.Roots.Select(DescribeMountPoint).ToArray();
             }
             else
             {
@@ -334,6 +334,21 @@ public sealed class LiveLibraryStore : ILiveLibrary
         var root = _browser.Mount(Path.GetFileName(Path.TrimEndingDirectorySeparator(path)) is { Length: > 0 } name ? name : path, path);
         ValidateLocation(libraries.SelectMany(item => item.Roots), root);
         return root;
+    }
+
+    private LiveDirectoryEntry DescribeMountPoint(LiveMediaRoot root)
+    {
+        try
+        {
+            return _browser.GetEntry(root, string.Empty);
+        }
+        catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
+        {
+            // One disconnected/inaccessible location must not hide the other roots.
+            // This is a configured mount point, not a fake file or cached membership.
+            // Opening it still revalidates the actual path and fails closed.
+            return new LiveDirectoryEntry(root.Id, root.Id, null, root.Name, string.Empty, new LiveFileInfo(root.FullPath, true, false, null, DateTime.UnixEpoch)) { IsUnavailable = true };
+        }
     }
 
     private void ValidateLocation(IEnumerable<LiveMediaRoot> roots, LiveMediaRoot root)

@@ -67,7 +67,7 @@ function time(seconds) {
   const hours = Math.floor(seconds / 3600), minutes = Math.floor(seconds / 60) % 60;
   return hours ? `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds % 60).padStart(2, '0')}` : `${minutes}:${String(seconds % 60).padStart(2, '0')}`;
 }
-function kind(item) { return item.IsFolder ? 'Folder' : item.MediaType === 'Audio' ? (item.Type === 'AudioBook' ? 'Audiobook' : 'Audio') : item.MediaType === 'Video' ? 'Video' : item.MediaType === 'Photo' ? 'Image' : 'File'; }
+function kind(item) { return item.LocationType === 'Offline' ? 'Unavailable folder' : item.IsFolder ? 'Folder' : item.MediaType === 'Audio' ? (item.Type === 'AudioBook' ? 'Audiobook' : 'Audio') : item.MediaType === 'Video' ? 'Video' : item.MediaType === 'Photo' ? 'Image' : 'File'; }
 function playable(item) { return !item.IsFolder && ['Audio', 'Video'].includes(item.MediaType); }
 function setToken(value) { token = value; if (value) localStorage.setItem(storageKey + 'token', value); else localStorage.removeItem(storageKey + 'token'); }
 function showAuth(firstTime) {

@@ -9,4 +9,8 @@ namespace MediaBrowser.Controller.Library;
 /// <param name="Name">The filesystem name (the configured name for the root).</param>
 /// <param name="RelativePath">The path relative to its configured root.</param>
 /// <param name="File">The filesystem attributes.</param>
-public sealed record LiveDirectoryEntry(Guid Id, Guid RootId, Guid? ParentId, string Name, string RelativePath, LiveFileInfo File);
+public sealed record LiveDirectoryEntry(Guid Id, Guid RootId, Guid? ParentId, string Name, string RelativePath, LiveFileInfo File)
+{
+    /// <summary>Gets whether a configured mount point is unavailable, not a discovered media entry.</summary>
+    public bool IsUnavailable { get; init; }
+}

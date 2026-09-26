@@ -12,7 +12,9 @@ using Jellyfin.Data.Enums;
 using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Database.Implementations.Enums;
 using MediaBrowser.Controller;
+using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.Session;
 using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.Querying;
@@ -21,6 +23,7 @@ using Microsoft.AspNetCore.Mvc;
 using Microsoft.AspNetCore.Mvc.Controllers;
 using Microsoft.AspNetCore.Mvc.Filters;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Xunit;
 
@@ -31,6 +34,8 @@ public sealed class LiveFolderApiFilterTests
     private readonly Mock<ILiveLibrary> _library = new(MockBehavior.Strict);
     private readonly Mock<IUserManager> _users = new(MockBehavior.Strict);
     private readonly Mock<IServerApplicationHost> _host = new(MockBehavior.Strict);
+    private readonly Mock<ILiveUserDataStore> _state = new(MockBehavior.Strict);
+    private readonly Mock<ISessionManager> _sessions = new(MockBehavior.Strict);
     private readonly User _user = new("test", "test", "test");
     private readonly LiveLibraryDefinition _definition = new(Guid.NewGuid(), "Books", []);
 
@@ -39,6 +44,7 @@ public sealed class LiveFolderApiFilterTests
         _user.SetPermission(PermissionKind.EnableAllFolders, true);
         _users.Setup(manager => manager.GetUserById(_user.Id)).Returns(_user);
         _host.SetupGet(host => host.SystemId).Returns("test-server");
+        _state.Setup(store => store.Get(It.IsAny<Guid>(), It.IsAny<Guid>())).Returns((Guid userId, Guid itemId) => new UserItemData { Key = itemId.ToString("N") });
     }
 
     [Theory]
@@ -91,8 +97,32 @@ public sealed class LiveFolderApiFilterTests
         _user.SetPermission(PermissionKind.EnableAllFolders, false);
         _library.Setup(library => library.FindLibrary(_definition.Id)).Returns(_definition);
         Assert.IsType<NotFoundResult>(Apply<ItemsController>("GetItems", new() { ["parentId"] = _definition.Id }));
+        Assert.IsType<NotFoundResult>(Apply<ItemsController>("GetResumeItems", new() { ["parentId"] = _definition.Id }));
         _library.Verify(library => library.Browse(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
         _library.Verify(library => library.GetEntry(It.IsAny<Guid>()), Times.Never);
+        _state.VerifyNoOtherCalls();
+    }
+
+    [Fact]
+    public void Resume_ExcludesOnlyThisUsersActiveItemBeforeAccessingItsPath()
+    {
+        var active = Entry("Playing.m4b", false);
+        var other = Entry("Other.m4b", false);
+        var data = new UserItemData { Key = "saved", PlaybackPositionTicks = 10 };
+        _state.Setup(store => store.GetSaved(_user.Id)).Returns([(active.Id, data), (other.Id, data)]);
+        _library.Setup(library => library.FindLibrary(other.Id)).Returns(_definition);
+        _library.Setup(library => library.GetEntry(other.Id)).Returns(other);
+        _sessions.SetupGet(manager => manager.Sessions).Returns(
+        [
+            new SessionInfo(_sessions.Object, NullLogger.Instance) { UserId = _user.Id, NowPlayingItem = new BaseItemDto { Id = active.Id } },
+            new SessionInfo(_sessions.Object, NullLogger.Instance) { UserId = Guid.NewGuid(), NowPlayingItem = new BaseItemDto { Id = other.Id } }
+        ]);
+        var result = Apply<ItemsController>("GetResumeItems", new() { ["excludeActiveSessions"] = true });
+        var query = Assert.IsType<QueryResult<BaseItemDto>>(Assert.IsType<OkObjectResult>(result).Value);
+        Assert.Equal(other.Id, Assert.Single(query.Items).Id);
+        _library.Verify(library => library.FindLibrary(active.Id), Times.Never);
+        _library.Verify(library => library.GetEntry(active.Id), Times.Never);
+        _library.Verify(library => library.Browse(It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Fact]
@@ -210,9 +240,7 @@ public sealed class LiveFolderApiFilterTests
             MethodInfo = controller.GetMethod(method)!
         };
         var context = new ActionExecutingContext(new ActionContext(http, new RouteData(), descriptor), [], arguments ?? [], new object());
-        var state = new Mock<ILiveUserDataStore>();
-        state.Setup(store => store.Get(It.IsAny<Guid>(), It.IsAny<Guid>())).Returns((Guid userId, Guid itemId) => new MediaBrowser.Controller.Entities.UserItemData { Key = itemId.ToString("N") });
-        new LiveFolderApiFilter(_library.Object, _users.Object, _host.Object, Mock.Of<ILiveItemService>(), state.Object).OnActionExecuting(context);
+        new LiveFolderApiFilter(_library.Object, _users.Object, _host.Object, Mock.Of<ILiveItemService>(), _state.Object, _sessions.Object).OnActionExecuting(context);
         return context.Result;
     }
 

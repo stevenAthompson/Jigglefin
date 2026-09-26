@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
 using System.IO;
 using System.Linq;
@@ -138,15 +139,18 @@ public sealed class LiveItemService : ILiveItemService, IDisposable
         var root = context.Library.Roots.Single(candidate => candidate.Id.Equals(entry.RootId));
         var directory = entry.File.IsDirectory ? entry.RelativePath : Path.GetDirectoryName(entry.RelativePath) ?? string.Empty;
         LoadArtwork(item, root, entry, directory);
-        string[] candidates = entry.File.IsDirectory
-            ? [Path.Combine(directory, "folder.nfo"), Path.Combine(directory, "movie.nfo"), Path.Combine(directory, "tvshow.nfo"), Path.Combine(directory, "album.nfo"), Path.Combine(directory, "movie.xml")]
-            : [Path.ChangeExtension(entry.RelativePath, ".nfo"), Path.ChangeExtension(entry.RelativePath, ".xml")];
-        foreach (var candidate in candidates)
+        bool? unambiguous = null;
+        foreach (var candidate in MetadataCandidates(entry, directory).DistinctBy(candidate => candidate.Path, StringComparer.OrdinalIgnoreCase))
         {
             try
             {
-                var sidecar = _browser.GetEntry(root, candidate);
+                var sidecar = _browser.GetEntry(root, candidate.Path);
                 if (sidecar.File.IsDirectory || sidecar.File.Length > 1024 * 1024)
+                {
+                    continue;
+                }
+
+                if (candidate.Shared && !(unambiguous ??= IsUnambiguousFile(root, entry, directory)))
                 {
                     continue;
                 }
@@ -164,8 +168,10 @@ public sealed class LiveItemService : ILiveItemService, IDisposable
                     _cache.Set(key, document, CacheOptions());
                 }
 
-                ApplyMetadata(item, document!);
-                return;
+                if (ApplyMetadata(item, document!))
+                {
+                    return;
+                }
             }
             catch (FileNotFoundException)
             {
@@ -175,7 +181,7 @@ public sealed class LiveItemService : ILiveItemService, IDisposable
             }
             catch (Exception exception) when (exception is XmlException or IOException or UnauthorizedAccessException)
             {
-                _logger.LogDebug(exception, "Could not read local sidecar {Sidecar}", candidate);
+                _logger.LogDebug(exception, "Could not read local sidecar {Sidecar}", candidate.Path);
             }
         }
     }
@@ -248,6 +254,62 @@ public sealed class LiveItemService : ILiveItemService, IDisposable
 
     private static MediaInfo Clone(MediaInfo probe)
         => JsonSerializer.Deserialize<MediaInfo>(JsonSerializer.SerializeToUtf8Bytes(probe))!;
+
+    private static IEnumerable<(string Path, bool Shared)> MetadataCandidates(LiveDirectoryEntry entry, string directory)
+    {
+        if (entry.File.IsDirectory)
+        {
+            // These describe the selected folder itself, never replace it with media.
+            foreach (var name in new[] { "folder.nfo", "movie.nfo", "tvshow.nfo", "season.nfo", "artist.nfo", "album.nfo", "book.nfo", "audiobook.nfo", "metadata.opf", "content.opf", "folder.xml", "movie.xml", "series.xml", "season.xml", "artist.xml", "album.xml", "book.xml", "audiobook.xml" })
+            {
+                yield return (Path.Combine(directory, name), false);
+            }
+
+            yield break;
+        }
+
+        yield return (Path.ChangeExtension(entry.RelativePath, ".nfo"), false);
+        var type = LiveMediaClassifier.Classify(entry.Name).MediaType;
+        if (type == MediaType.Video)
+        {
+            yield return (Path.Combine(directory, "movie.nfo"), true);
+        }
+
+        if (type == MediaType.Book)
+        {
+            yield return (Path.ChangeExtension(entry.RelativePath, ".opf"), false);
+            yield return (Path.Combine(directory, "metadata.opf"), true);
+            yield return (Path.Combine(directory, "content.opf"), true);
+        }
+
+        yield return (Path.ChangeExtension(entry.RelativePath, ".xml"), false);
+        if (type == MediaType.Video)
+        {
+            yield return (Path.Combine(directory, "movie.xml"), true);
+        }
+        else if (type is MediaType.Book or MediaType.Audio)
+        {
+            if (type == MediaType.Audio)
+            {
+                yield return (Path.Combine(directory, "audiobook.xml"), true);
+            }
+
+            yield return (Path.Combine(directory, "book.xml"), true);
+        }
+    }
+
+    private bool IsUnambiguousFile(LiveMediaRoot root, LiveDirectoryEntry selected, string directory)
+    {
+        var type = LiveMediaClassifier.Classify(selected.Name).MediaType;
+        var candidates = _browser.Browse(root, directory).Where(entry => !entry.File.IsDirectory && !entry.File.IsLink)
+            .Where(entry => type == MediaType.Video
+                ? LiveMediaClassifier.Classify(entry.Name).MediaType == MediaType.Video
+                : LiveMediaClassifier.Classify(entry.Name).MediaType is MediaType.Book or MediaType.Audio)
+            .Take(2).ToArray();
+        // Only an existing shared sidecar warrants one immediate-directory check.
+        // No content reads, probes, cached membership or descendant traversal.
+        return candidates.Length == 1 && candidates[0].Id.Equals(selected.Id);
+    }
 
     private void LoadArtwork(BaseItem item, LiveMediaRoot root, LiveDirectoryEntry entry, string directory)
     {
@@ -336,19 +398,33 @@ public sealed class LiveItemService : ILiveItemService, IDisposable
         }
     }
 
-    private static void ApplyMetadata(BaseItem item, XDocument document)
+    private static bool ApplyMetadata(BaseItem item, XDocument document)
     {
-        var fields = document.Root?.Elements().ToArray() ?? [];
+        var root = document.Root;
+        if (root is null || !new[] { "movie", "episodedetails", "tvshow", "season", "artist", "album", "musicvideo", "book", "audiobook", "item", "series", "video", "audio", "folder", "package" }.Contains(root.Name.LocalName, StringComparer.OrdinalIgnoreCase))
+        {
+            return false;
+        }
+
+        var fields = root.Name.LocalName.Equals("package", StringComparison.OrdinalIgnoreCase)
+            ? root.Elements().FirstOrDefault(element => element.Name.LocalName.Equals("metadata", StringComparison.OrdinalIgnoreCase))?.Elements().ToArray() ?? []
+            : root.Elements().ToArray();
         string? Field(params string[] names) => fields.FirstOrDefault(element => names.Contains(element.Name.LocalName, StringComparer.OrdinalIgnoreCase))?.Value.Trim();
-        item.Name = Field("title", "LocalTitle") is { Length: > 0 } title ? title : item.Name;
+        item.Name = Field("title", "LocalTitle", "name") is { Length: > 0 } title ? title : item.Name;
         item.Overview = Field("plot", "overview", "Description");
         item.OriginalTitle = Field("originaltitle");
         if (int.TryParse(Field("year", "ProductionYear"), NumberStyles.Integer, CultureInfo.InvariantCulture, out var year))
         {
             item.ProductionYear = year;
         }
+        else if (DateTime.TryParse(Field("date"), CultureInfo.InvariantCulture, DateTimeStyles.None, out var date))
+        {
+            item.ProductionYear = date.Year;
+        }
 
-        item.Genres = fields.Where(element => string.Equals(element.Name.LocalName, "genre", StringComparison.OrdinalIgnoreCase)).Select(element => element.Value.Trim()).ToArray();
+        item.Genres = fields.Where(element => element.Name.LocalName.Equals("genres", StringComparison.OrdinalIgnoreCase)).SelectMany(element => element.Elements())
+            .Concat(fields).Where(element => element.Name.LocalName.Equals("genre", StringComparison.OrdinalIgnoreCase) || element.Name.LocalName.Equals("subject", StringComparison.OrdinalIgnoreCase))
+            .Select(element => element.Value.Trim()).Where(value => value.Length > 0).Distinct(StringComparer.OrdinalIgnoreCase).ToArray();
         if (item is Audio audio)
         {
             audio.Album = Field("album");
@@ -357,5 +433,6 @@ public sealed class LiveItemService : ILiveItemService, IDisposable
 
         // IDs, URLs, trailers, scraper blocks, embedded network images and NFO playback
         // state are deliberately ignored. They never select a source or overwrite a bookmark.
+        return true;
     }
 }
