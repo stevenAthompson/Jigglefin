@@ -16,6 +16,7 @@ using MediaBrowser.Model.IO;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Serilog;
+using Serilog.Events;
 using Serilog.Extensions.Logging;
 using ILogger = Microsoft.Extensions.Logging.ILogger;
 
@@ -263,42 +264,39 @@ public static class StartupHelpers
     }
 
     /// <summary>
-    /// Initialize Serilog using configuration and fall back to defaults on failure.
+    /// Initialize fixed local logging sinks; legacy configuration can change levels only.
     /// </summary>
     /// <param name="configuration">The configuration object.</param>
     /// <param name="appPaths">The application paths.</param>
     public static void InitializeLoggingFramework(IConfiguration configuration, IApplicationPaths appPaths)
     {
-        try
-        {
-            var startupLogger = new LoggerProviderCollection();
-            startupLogger.AddProvider(new SetupServer.SetupLoggerFactory());
-            // Serilog.Log is used by SerilogLoggerFactory when no logger is specified
-            Log.Logger = new LoggerConfiguration()
-                .ReadFrom.Configuration(configuration)
-                .Enrich.FromLogContext()
-                .Enrich.WithThreadId()
-                .WriteTo.Async(e => e.Providers(startupLogger))
-                .CreateLogger();
-        }
-        catch (Exception ex)
-        {
-            Log.Logger = new LoggerConfiguration()
-                .WriteTo.Console(
-                    outputTemplate: "[{Timestamp:HH:mm:ss}] [{Level:u3}] [{ThreadId}] {SourceContext}: {Message:lj}{NewLine}{Exception}",
-                    formatProvider: CultureInfo.InvariantCulture)
-                .WriteTo.Async(x => x.File(
-                    Path.Combine(appPaths.LogDirectoryPath, "log_.log"),
-                    rollingInterval: RollingInterval.Day,
-                    outputTemplate: "[{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz}] [{Level:u3}] [{ThreadId}] {SourceContext}: {Message}{NewLine}{Exception}",
-                    formatProvider: CultureInfo.InvariantCulture,
-                    encoding: Encoding.UTF8))
-                .Enrich.FromLogContext()
-                .Enrich.WithThreadId()
-                .CreateLogger();
-
-            Log.Logger.Fatal(ex, "Failed to create/read logger configuration");
-        }
+        var startupLogger = new LoggerProviderCollection();
+        startupLogger.AddProvider(new SetupServer.SetupLoggerFactory());
+        // Never pass unfiltered legacy JSON/environment settings to Serilog's
+        // reflection-based sink loader: it can load code, contact remote services
+        // or write files outside the already-validated private log directory.
+        LogEventLevel Level(string key, LogEventLevel fallback)
+            => Enum.TryParse<LogEventLevel>(configuration["Serilog:MinimumLevel:" + key], true, out var level) && Enum.IsDefined(level) ? level : fallback;
+        Log.Logger = new LoggerConfiguration()
+            .MinimumLevel.Is(Level("Default", LogEventLevel.Information))
+            .MinimumLevel.Override("Microsoft", Level("Override:Microsoft", LogEventLevel.Warning))
+            .MinimumLevel.Override("System", Level("Override:System", LogEventLevel.Warning))
+            .WriteTo.Console(
+                outputTemplate: "[{Timestamp:HH:mm:ss}] [{Level:u3}] [{ThreadId}] {SourceContext}: {Message:lj}{NewLine}{Exception}",
+                formatProvider: CultureInfo.InvariantCulture)
+            .WriteTo.Async(x => x.File(
+                Path.Combine(appPaths.LogDirectoryPath, "log_.log"),
+                rollingInterval: RollingInterval.Day,
+                retainedFileCountLimit: 3,
+                rollOnFileSizeLimit: true,
+                fileSizeLimitBytes: 100000000,
+                outputTemplate: "[{Timestamp:yyyy-MM-dd HH:mm:ss.fff zzz}] [{Level:u3}] [{ThreadId}] {SourceContext}: {Message}{NewLine}{Exception}",
+                formatProvider: CultureInfo.InvariantCulture,
+                encoding: Encoding.UTF8))
+            .Enrich.FromLogContext()
+            .Enrich.WithThreadId()
+            .WriteTo.Async(e => e.Providers(startupLogger))
+            .CreateLogger();
     }
 
     /// <summary>

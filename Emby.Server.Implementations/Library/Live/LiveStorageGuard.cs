@@ -46,12 +46,19 @@ public static class LiveStorageGuard
         if (File.Exists(database))
         {
             CheckPrivateAncestors(database);
+            LivePrivateFiles.ValidateFile(database);
             // Our configuration store uses SQLite's rollback journal, not WAL.
             // Do not open a foreign WAL database which could create a shared-memory
             // sidecar before its root locations have been checked.
             if (File.Exists(database + "-wal"))
             {
                 throw new InvalidDataException("Live folder configuration has an unexpected WAL file. Restore a closed, consistent profile before starting.");
+            }
+
+            if (File.Exists(database + "-journal"))
+            {
+                CheckPrivateAncestors(database + "-journal");
+                LivePrivateFiles.ValidateFile(database + "-journal");
             }
 
             using var connection = new SqliteConnection(new SqliteConnectionStringBuilder { DataSource = database, Mode = SqliteOpenMode.ReadOnly, Pooling = false }.ToString());
@@ -70,6 +77,7 @@ public static class LiveStorageGuard
         foreach (var path in writable)
         {
             CheckPrivateAncestors(path);
+            LivePrivateFiles.ValidateTree(path);
         }
     }
 
@@ -85,19 +93,11 @@ public static class LiveStorageGuard
                 throw new InvalidDataException("A configured media root is not fully qualified.");
             }
 
-            if (writable.Any(path => Contains(path, root) || Contains(root, path)))
+            if (writable.Any(path => LivePathComparison.Overlaps(path, root)))
             {
                 throw new InvalidDataException("Private profile/cache/log/metadata/transcode locations overlap a media root. Move the private location outside media before starting; no startup files were created.");
             }
         }
-    }
-
-    private static bool Contains(string parent, string child)
-    {
-        parent = LiveDirectoryBrowser.NormalizeRootPath(parent);
-        child = LiveDirectoryBrowser.NormalizeRootPath(child);
-        var comparison = OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal;
-        return string.Equals(parent, child, comparison) || child.StartsWith(Path.EndsInDirectorySeparator(parent) ? parent : parent + Path.DirectorySeparatorChar, comparison);
     }
 
     private static void CheckPrivateAncestors(string path)

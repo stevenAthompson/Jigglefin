@@ -294,6 +294,7 @@ public sealed class LiveLibraryStore : ILiveLibrary
             }
 
             var address = ResolveAddress(library, itemId);
+            RequireSeparatePrivateStorage(address.Root);
             var entry = _browser.GetEntry(address.Root, address.RelativePath);
             if (!entry.Id.Equals(itemId))
             {
@@ -314,6 +315,11 @@ public sealed class LiveLibraryStore : ILiveLibrary
             IReadOnlyList<LiveDirectoryEntry> entries;
             if (library.Id.Equals(parentId))
             {
+                if (library.Roots.Count == 1)
+                {
+                    RequireSeparatePrivateStorage(library.Roots[0]);
+                }
+
                 entries = library.Roots.Count == 1
                     ? _browser.Browse(library.Roots[0], string.Empty, cancellationToken)
                     : library.Roots.Select(DescribeMountPoint).ToArray();
@@ -321,6 +327,7 @@ public sealed class LiveLibraryStore : ILiveLibrary
             else
             {
                 var address = ResolveAddress(library, parentId);
+                RequireSeparatePrivateStorage(address.Root);
                 entries = _browser.Browse(address.Root, address.RelativePath, cancellationToken);
             }
 
@@ -331,15 +338,16 @@ public sealed class LiveLibraryStore : ILiveLibrary
 
     private LiveMediaRoot Mount(IEnumerable<LiveLibraryDefinition> libraries, string path)
     {
-        var root = _browser.Mount(Path.GetFileName(Path.TrimEndingDirectorySeparator(path)) is { Length: > 0 } name ? name : path, path);
+        var root = LiveDirectoryBrowser.DescribeRoot(Path.GetFileName(Path.TrimEndingDirectorySeparator(path)) is { Length: > 0 } name ? name : path, path);
         ValidateLocation(libraries.SelectMany(item => item.Roots), root);
-        return root;
+        return _browser.Mount(root.Name, root.FullPath);
     }
 
     private LiveDirectoryEntry DescribeMountPoint(LiveMediaRoot root)
     {
         try
         {
+            RequireSeparatePrivateStorage(root);
             return _browser.GetEntry(root, string.Empty);
         }
         catch (Exception exception) when (exception is IOException or UnauthorizedAccessException)
@@ -353,14 +361,22 @@ public sealed class LiveLibraryStore : ILiveLibrary
 
     private void ValidateLocation(IEnumerable<LiveMediaRoot> roots, LiveMediaRoot root)
     {
-        if (_privateDirectories.Any(path => ContainsPath(root.FullPath, path) || ContainsPath(path, root.FullPath)))
+        if (_privateDirectories.Any(path => LivePathComparison.Overlaps(root.FullPath, path)))
         {
             throw new ArgumentException("Media roots and private server state must not overlap.", nameof(root));
         }
 
-        if (roots.Any(item => ContainsPath(item.FullPath, root.FullPath) || ContainsPath(root.FullPath, item.FullPath)))
+        if (roots.Any(item => LivePathComparison.Overlaps(item.FullPath, root.FullPath)))
         {
             throw new ArgumentException("This path overlaps an existing media root.", nameof(root));
+        }
+    }
+
+    private void RequireSeparatePrivateStorage(LiveMediaRoot root)
+    {
+        if (_privateDirectories.Any(path => LivePathComparison.Overlaps(root.FullPath, path)))
+        {
+            throw new UnauthorizedAccessException("This media location now overlaps private server storage.");
         }
     }
 

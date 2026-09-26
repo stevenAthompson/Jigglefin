@@ -38,6 +38,8 @@ auto-updates, a remote tuner and a hostname-based proxy. Requests exercise remot
 search/download/plugin/configuration and refresh endpoints with a hostile Host
 header. Three files disguised as playable media contain HLS/concat references to
 a loopback trap; NFO artwork/trailer URLs point to that trap too. None may connect.
+Legacy logging settings deliberately point a file sink into synthetic media; that
+destination must be ignored and the media snapshot must remain unchanged.
 
 Native module observers hook Winsock connect/WSAConnect, dynamically obtained
 ConnectEx/AcceptEx, name-based connections, UDP sends, synchronous/asynchronous

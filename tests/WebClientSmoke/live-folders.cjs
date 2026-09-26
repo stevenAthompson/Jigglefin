@@ -161,6 +161,8 @@ async function main() {
     // Old opt-in settings must not reactivate removed network features.
     await fs.writeFile(path.join(profile, 'config/system.xml'), '<?xml version="1.0"?><ServerConfiguration><EnableAutoUpdate>true</EnableAutoUpdate><PluginRepositories><RepositoryInfo><Name>Never contact</Name><Url>http://never-resolve.invalid/plugins.json</Url><Enabled>true</Enabled></RepositoryInfo></PluginRepositories></ServerConfiguration>');
     await fs.writeFile(path.join(profile, 'config/livetv.xml'), '<?xml version="1.0"?><LiveTvOptions><TunerHosts><TunerHostInfo><Id>offline-audit</Id><Url>http://never-resolve.invalid/tuner</Url><Type>hdhomerun</Type></TunerHostInfo></TunerHosts></LiveTvOptions>');
+    // Old logging destinations are data, not permission to write into media.
+    await fs.writeFile(path.join(profile, 'config/logging.json'), JSON.stringify({ Serilog: { WriteTo: [{ Name: 'File', Args: { path: path.join(media, 'must-not-be-a-server-log.txt') } }] } }));
   }
   await startServer();
   browser = await chromium.launch({ headless: true });

@@ -420,3 +420,56 @@ client connections and passive discovery replies remain permitted by the contrac
 The older ZIP migration gate is covered, but not every historical Jellyfin version
 or the user's production profile. The installed server and previous release ZIP
 have not been replaced. No real Apple-device UI coverage has been added.
+
+### Private-write and drive-alias checkpoint
+
+The private-storage audit reproduced ten concrete failures in the previous build:
+hardlinks at six writable private locations, two nested private directory links,
+a substituted-drive overlap, and legacy logging redirected into synthetic media.
+Those regressions now pass. Startup checks existing **private storage only** for
+reparse points and multiply-linked files, before creating markers/logs/databases;
+it does not enumerate media or read media content. Private configuration readers
+also reject hardlinks before parsing their content. Link counts come from read-only
+Windows file-information handles ([Microsoft reference](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/ns-fileapi-by_handle_file_information)).
+An unsafe profile is rejected, not repaired, deleted or silently rewritten.
+The live configuration database and rollback journal are checked before SQLite
+opens them. Hardlink tests hold their media-side targets exclusively locked;
+rejection needs attributes, not a content read or a write to either link.
+
+Root/private-location comparison now consults the local DOS-device namespace to
+detect substituted drives and volume aliases without statting media
+([Microsoft reference](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-querydosdevicew)).
+It runs before mount validation and again for saved-ID/browse access. Tests change
+an owned temporary mapping between requests: private data stays inaccessible and
+unaffected roots remain available. A dangling network-device mapping still permits
+startup with local private storage without resolving/opening its share. Network
+provider names are needed only when comparing two network locations; inability to
+establish that comparison fails closed. No user drive mapping or share is changed.
+
+Logging uses fixed console/private-file/startup sinks. Legacy JSON/environment
+settings can set supported log levels only; arbitrary sink assemblies, paths and
+network destinations are not passed to the configurable sink loader. The bundled
+logging defaults no longer advertise those options. Tests cover a real redirected
+file sink, an unknown requested assembly and retained Debug-level output.
+
+This is not yet the complete storage-alias proof: real SMB/reconnect behavior,
+short-name and local-share aliases, and a drive mapping changed during an active
+native read still need checking. Startup inspection does not defend against a
+storage administrator replacing private files after validation; the trusted
+OS/storage-administrator assumption still applies. Final API/native-client and
+distribution gates remain open. The installed profile and `Z:\Media` are untouched.
+
+Verification for this checkpoint: all **84 server tests** (15 new storage/logging
+cases), **190 integration tests** (3 existing skips), and **1,014 implementation
+tests** (17 existing skips) pass. The actual package/launcher passes the complete
+headless UI/native-network workflow with legacy logging directed into media,
+unchanged media hashes/mtimes, zero external browser attempts and zero observed
+outbound calls across 56 native helpers. The older-ZIP upgrade passes again,
+including locked-media migration, permissions and independent audiobook progress.
+
+- Final tested ZIP: `publish/Jigglefin-live-storage-check-20260926-r3.zip`.
+- SHA-256: `F8295E10A52FFF4A4071033A37F2BE619EDC58EA019D580E7F0A44C1E1B85B8C`.
+- Final UI/native fixture: `%TEMP%\jigglefin-folder-web-9YWQWU`.
+- Final upgrade fixture: `%TEMP%\jigglefin-zip-upgrade-14c40cd37ac34a54ae22895ac02f4c95`.
+- Evidence: `publish/test-results/live-storage-audit`, including the original
+  failing `storage-before.trx` and the final `final-*` package reports.

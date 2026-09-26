@@ -92,5 +92,10 @@ public static class LegacyFolderConfiguration
         {
             throw new InvalidDataException("Private configuration must use bounded regular files/directories, not links.");
         }
+
+        if (!directory)
+        {
+            LivePrivateFiles.ValidateFile(path);
+        }
     }
 }
