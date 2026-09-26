@@ -1,0 +1,173 @@
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Threading;
+using Emby.Server.Implementations.Library.Live;
+using MediaBrowser.Controller.Library;
+using Xunit;
+
+namespace Jellyfin.Server.Implementations.Tests.Library;
+
+public sealed class LiveLibraryStoreTests : IDisposable
+{
+    private readonly DirectoryInfo _fixture = Directory.CreateTempSubdirectory("jigglefin-live-store-test-");
+    private readonly TrackingReader _reader = new();
+    private readonly string _media;
+    private readonly string _state;
+    private readonly LiveLibraryStore _store;
+
+    public LiveLibraryStoreTests()
+    {
+        _media = Directory.CreateDirectory(Path.Combine(_fixture.FullName, "Media")).FullName;
+        _state = Path.Combine(_fixture.FullName, "State");
+        _store = CreateStore();
+    }
+
+    [Fact]
+    public void StartupAndConfigurationQueries_DoNotAccessMedia()
+    {
+        Assert.Empty(_store.GetLibraries());
+        var library = _store.AddLibrary("Books", [_media]);
+        Assert.Equal(new[] { _media }, _reader.StatCalls);
+        Assert.Empty(_reader.EnumerationCalls);
+        _reader.StatCalls.Clear();
+
+        var restarted = CreateStore();
+        Assert.Equal(library.Id, Assert.Single(restarted.GetLibraries()).Id);
+        Assert.Equal(library.Id, restarted.FindLibrary(library.Id)!.Id);
+        Assert.Empty(_reader.StatCalls);
+        Assert.Empty(_reader.EnumerationCalls);
+    }
+
+    [Fact]
+    public void MountAndBrowse_NeverDiscoverDescendantsUntilNavigation()
+    {
+        var nested = Directory.CreateDirectory(Path.Combine(_media, "Unvisited"));
+        File.WriteAllText(Path.Combine(nested.FullName, "Chapter.mp3"), "fixture");
+        var library = _store.AddLibrary("Media", [_media]);
+        Assert.Empty(_reader.EnumerationCalls);
+        var folder = Assert.Single(_store.Browse(library.Id, TestContext.Current.CancellationToken));
+        Assert.Equal(new[] { _media }, _reader.EnumerationCalls);
+        Assert.DoesNotContain(nested.FullName, _reader.StatCalls);
+
+        var child = Assert.Single(_store.Browse(folder.Id, TestContext.Current.CancellationToken));
+        Assert.Equal("Chapter.mp3", child.Name);
+        Assert.Equal(new[] { _media, nested.FullName }, _reader.EnumerationCalls);
+        Assert.DoesNotContain(child.File.FullPath, _reader.StatCalls);
+    }
+
+    [Fact]
+    public void RememberedAddresses_AreNotDirectoryMembership()
+    {
+        var file = Path.Combine(_media, "Old.mp3");
+        File.WriteAllText(file, "fixture");
+        var library = _store.AddLibrary("Books", [_media]);
+        var old = Assert.Single(_store.Browse(library.Id, TestContext.Current.CancellationToken));
+        File.Delete(file);
+        File.WriteAllText(Path.Combine(_media, "New.mp3"), "fixture");
+
+        var restarted = CreateStore();
+        Assert.Equal("New.mp3", Assert.Single(restarted.Browse(library.Id, TestContext.Current.CancellationToken)).Name);
+        Assert.Throws<FileNotFoundException>(() => restarted.GetEntry(old.Id));
+    }
+
+    [Fact]
+    public void CachedClientId_ResolvesAfterRestartAndRenameWithoutScanning()
+    {
+        File.WriteAllText(Path.Combine(_media, "Chapter.mp3"), "fixture");
+        var library = _store.AddLibrary("Books", [_media]);
+        var item = Assert.Single(_store.Browse(library.Id, TestContext.Current.CancellationToken));
+        _store.RenameLibrary("Books", "Audiobooks");
+        _reader.EnumerationCalls.Clear();
+        _reader.StatCalls.Clear();
+
+        var restarted = CreateStore();
+        Assert.Equal("Audiobooks", restarted.FindLibrary(item.Id)!.Name);
+        Assert.Empty(_reader.StatCalls);
+        Assert.Equal(item.Id, restarted.GetEntry(item.Id)!.Id);
+        Assert.Empty(_reader.EnumerationCalls);
+    }
+
+    [Fact]
+    public void RemovedRoots_CannotResolveRememberedAddresses()
+    {
+        File.WriteAllText(Path.Combine(_media, "Chapter.mp3"), "fixture");
+        var library = _store.AddLibrary("Books", [_media]);
+        var item = Assert.Single(_store.Browse(library.Id, TestContext.Current.CancellationToken));
+        _reader.StatCalls.Clear();
+        _reader.EnumerationCalls.Clear();
+
+        _store.RemoveLibrary("Books");
+        Assert.Null(_store.FindLibrary(item.Id));
+        Assert.Null(_store.GetEntry(item.Id));
+        Assert.Empty(_reader.StatCalls);
+        Assert.Empty(_reader.EnumerationCalls);
+        Assert.True(File.Exists(item.File.FullPath));
+    }
+
+    [Fact]
+    public void MultipleRoots_ListConfiguredLocationsWithoutEnumeratingThem()
+    {
+        var other = Directory.CreateDirectory(Path.Combine(_fixture.FullName, "Other"));
+        var library = _store.AddLibrary("Media", [_media, other.FullName]);
+        var entries = _store.Browse(library.Id, TestContext.Current.CancellationToken);
+        Assert.Equal(2, entries.Count);
+        Assert.All(entries, item => Assert.True(item.File.IsDirectory));
+        Assert.Empty(_reader.EnumerationCalls);
+    }
+
+    [Fact]
+    public void StateAndMediaPaths_CannotOverlap()
+    {
+        Assert.Throws<ArgumentException>(() => _store.AddLibrary("Invalid", [_fixture.FullName]));
+        Assert.Throws<ArgumentException>(() => _store.AddLibrary("Invalid", [_state]));
+        Assert.Empty(_store.GetLibraries());
+        Assert.Empty(_reader.EnumerationCalls);
+    }
+
+    [Fact]
+    public void OverlappingRoots_AreRejectedWithoutEnumeration()
+    {
+        var nested = Directory.CreateDirectory(Path.Combine(_media, "Child"));
+        _store.AddLibrary("Media", [_media]);
+        Assert.Throws<ArgumentException>(() => _store.AddLibrary("Duplicate", [_media]));
+        Assert.Throws<ArgumentException>(() => _store.AddLibrary("Nested", [nested.FullName]));
+        Assert.Single(_store.GetLibraries());
+        Assert.Empty(_reader.EnumerationCalls);
+    }
+
+    [Fact]
+    public void OverlappingPathsInSingleRequest_AreRejectedAtomically()
+    {
+        var nested = Directory.CreateDirectory(Path.Combine(_media, "Child"));
+        Assert.Throws<ArgumentException>(() => _store.AddLibrary("Invalid", [_media, nested.FullName]));
+        Assert.Empty(_store.GetLibraries());
+        Assert.Empty(_reader.EnumerationCalls);
+    }
+
+    public void Dispose() => _fixture.Delete(true);
+
+    private LiveLibraryStore CreateStore() => new(new LiveDirectoryBrowser(_reader), _state);
+
+    private sealed class TrackingReader : ILiveDirectoryReader
+    {
+        private readonly PhysicalLiveDirectoryReader _physical = new();
+
+        public List<string> StatCalls { get; } = [];
+
+        public List<string> EnumerationCalls { get; } = [];
+
+        public LiveFileInfo Stat(string path)
+        {
+            StatCalls.Add(path);
+            return _physical.Stat(path);
+        }
+
+        public IEnumerable<LiveFileInfo> EnumerateDirectory(string path, CancellationToken cancellationToken)
+        {
+            EnumerationCalls.Add(path);
+            return _physical.EnumerateDirectory(path, cancellationToken);
+        }
+    }
+}

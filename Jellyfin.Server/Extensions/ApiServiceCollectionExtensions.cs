@@ -124,6 +124,7 @@ namespace Jellyfin.Server.Extensions
                     opts.RespectBrowserAcceptHeader = true;
 
                     opts.Filters.Add<AndroidTvAudioBookCompatibilityFilter>();
+                    opts.Filters.Add<LiveFolderApiFilter>();
 
                     opts.OutputFormatters.Insert(0, new CamelCaseJsonProfileFormatter());
                     opts.OutputFormatters.Insert(0, new PascalCaseJsonProfileFormatter());

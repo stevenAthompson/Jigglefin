@@ -17,6 +17,7 @@ using Jellyfin.Networking;
 using Jellyfin.Networking.HappyEyeballs;
 using Jellyfin.Server.Extensions;
 using Jellyfin.Server.HealthChecks;
+using Jellyfin.Server.Infrastructure;
 using Jellyfin.Server.Implementations.Extensions;
 using Jellyfin.Server.Implementations.Users;
 using MediaBrowser.Common.Net;
@@ -31,6 +32,7 @@ using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.FileProviders;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Http;
 using Microsoft.Extensions.Primitives;
 using Prometheus;
 
@@ -65,6 +67,7 @@ namespace Jellyfin.Server
         {
             services.AddResponseCompression();
             services.AddHttpContextAccessor();
+            services.AddSingleton<IHttpMessageHandlerBuilderFilter, OfflineHttpClientFilter>();
             services.AddHttpsRedirection(options =>
             {
                 options.HttpsPort = _serverApplicationHost.HttpsPort;
@@ -150,9 +153,8 @@ namespace Jellyfin.Server
                 options.FallBackToParentUICultures = true;
             });
 
-            services.AddHostedService<RecordingsHost>();
             services.AddHostedService<AutoDiscoveryHost>();
-            services.AddHostedService<NfoUserDataSaver>();
+            // Live-TV recording and NFO user-data saving can write into media roots.
             services.AddHostedService<LibraryChangedNotifier>();
             services.AddHostedService<UserDataChangeNotifier>();
             services.AddHostedService<RecordingNotifier>();

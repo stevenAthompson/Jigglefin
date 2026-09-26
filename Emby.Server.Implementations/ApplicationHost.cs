@@ -26,6 +26,7 @@ using Emby.Server.Implementations.Dto;
 using Emby.Server.Implementations.HttpServer.Security;
 using Emby.Server.Implementations.IO;
 using Emby.Server.Implementations.Library;
+using Emby.Server.Implementations.Library.Live;
 using Emby.Server.Implementations.Library.Search;
 using Emby.Server.Implementations.Library.SimilarItems;
 using Emby.Server.Implementations.Localization;
@@ -421,7 +422,10 @@ namespace Emby.Server.Implementations
 
             EnsureStartupWizardIntegrity();
 
-            Resolve<ITaskManager>().AddTasks(GetExports<IScheduledTask>(false));
+            // Only private server-state housekeeping is permitted in the live filesystem build.
+            // In particular, saved triggers must not revive scans, provider work, or plugin updates.
+            Resolve<ITaskManager>().AddTasks(GetExports<IScheduledTask>(false).Where(task => task.Key is
+                "DeleteCacheFiles" or "CleanLogFiles" or "DeleteTranscodeFiles" or "CleanActivityLog"));
 
             ConfigurationManager.ConfigurationUpdated += OnConfigurationUpdated;
             ConfigurationManager.NamedConfigurationUpdated += OnConfigurationUpdated;
@@ -437,10 +441,7 @@ namespace Emby.Server.Implementations
             Logger.LogInformation("Core startup complete");
             CoreStartupHasCompleted = true;
 
-            // A library may have changed while the server was stopped. Queue a scan on
-            // every start, including existing profiles whose saved task triggers do
-            // not include a startup trigger.
-            Resolve<ILibraryManager>().QueueLibraryScan();
+            // Filesystem membership is read on navigation. Startup never scans media roots.
 
             return Task.CompletedTask;
         }
@@ -580,12 +581,16 @@ namespace Emby.Server.Implementations
             serviceCollection.AddTransient(provider => new Lazy<IUserViewManager>(provider.GetRequiredService<IUserViewManager>));
             serviceCollection.AddTransient(provider => new Lazy<IExternalDataManager>(provider.GetRequiredService<IExternalDataManager>));
             serviceCollection.AddSingleton<ILibraryManager, LibraryManager>();
+            serviceCollection.AddSingleton<ILiveDirectoryReader, PhysicalLiveDirectoryReader>();
+            serviceCollection.AddSingleton<LiveDirectoryBrowser>();
+            serviceCollection.AddSingleton<ILiveLibrary>(provider => new LiveLibraryStore(
+                provider.GetRequiredService<LiveDirectoryBrowser>(), Path.Combine(ApplicationPaths.DataPath, "live-folders")));
             serviceCollection.AddSingleton<NamingOptions>();
             serviceCollection.AddSingleton<VideoListResolver>();
 
             serviceCollection.AddSingleton<IMusicManager, MusicManager>();
 
-            serviceCollection.AddSingleton<ILibraryMonitor, LibraryMonitor>();
+            serviceCollection.AddSingleton<ILibraryMonitor, LiveLibraryMonitor>();
             serviceCollection.AddSingleton<DotIgnoreIgnoreRule>();
 
             serviceCollection.AddSingleton<ISimilarItemsManager, SimilarItemsManager>();
@@ -885,10 +890,8 @@ namespace Emby.Server.Implementations
         /// <returns>IEnumerable{Assembly}.</returns>
         protected IEnumerable<Assembly> GetComposablePartAssemblies()
         {
-            foreach (var p in _pluginManager.LoadAssemblies())
-            {
-                yield return p;
-            }
+            // Third-party assemblies can perform arbitrary network and media writes.
+            // The offline build deliberately does not execute installed plugins.
 
             // Include composable parts in the Model assembly
             yield return typeof(SystemInfo).Assembly;

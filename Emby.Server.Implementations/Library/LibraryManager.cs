@@ -1420,9 +1420,8 @@ namespace Emby.Server.Implementations.Library
         /// <returns>Task.</returns>
         public Task ValidateMediaLibrary(IProgress<double> progress, CancellationToken cancellationToken)
         {
-            // Just run the scheduled task so that the user can see it
-            _taskManager.CancelIfRunningAndQueue<RefreshMediaLibraryTask>();
-
+            cancellationToken.ThrowIfCancellationRequested();
+            progress.Report(100);
             return Task.CompletedTask;
         }
 
@@ -1432,71 +1431,16 @@ namespace Emby.Server.Implementations.Library
         /// <param name="progress">The progress.</param>
         /// <param name="cancellationToken">The cancellation token.</param>
         /// <returns>Task.</returns>
-        public async Task ValidateMediaLibraryInternal(IProgress<double> progress, CancellationToken cancellationToken)
+        public Task ValidateMediaLibraryInternal(IProgress<double> progress, CancellationToken cancellationToken)
         {
-            IsScanRunning = true;
-            ClearIgnoreRuleCache();
-            LibraryMonitor.Stop();
-
-            try
-            {
-                await PerformLibraryValidation(progress, cancellationToken).ConfigureAwait(false);
-            }
-            finally
-            {
-                ClearIgnoreRuleCache();
-                LibraryMonitor.Start();
-                IsScanRunning = false;
-            }
+            // Compatibility no-op, including callers holding an old scheduled task ID.
+            return ValidateMediaLibrary(progress, cancellationToken);
         }
 
-        public async Task ValidateTopLibraryFolders(CancellationToken cancellationToken, bool removeRoot = false)
+        public Task ValidateTopLibraryFolders(CancellationToken cancellationToken, bool removeRoot = false)
         {
-            ClearIgnoreRuleCache();
-            RootFolder.Children = null;
-            await RootFolder.RefreshMetadata(cancellationToken).ConfigureAwait(false);
-
-            // Start by just validating the children of the root, but go no further
-            await RootFolder.ValidateChildren(
-                new Progress<double>(),
-                new MetadataRefreshOptions(new DirectoryService(_fileSystem)),
-                recursive: false,
-                allowRemoveRoot: removeRoot,
-                cancellationToken: cancellationToken).ConfigureAwait(false);
-
-            var rootFolder = GetUserRootFolder();
-            rootFolder.Children = null;
-
-            await rootFolder.RefreshMetadata(cancellationToken).ConfigureAwait(false);
-
-            await rootFolder.ValidateChildren(
-                new Progress<double>(),
-                new MetadataRefreshOptions(new DirectoryService(_fileSystem)),
-                recursive: false,
-                allowRemoveRoot: removeRoot,
-                cancellationToken: cancellationToken).ConfigureAwait(false);
-
-            // Quickly scan CollectionFolders for changes
-            var toDelete = new List<Guid>();
-            foreach (var child in rootFolder.Children!.OfType<Folder>())
-            {
-                // If the user has somehow deleted the collection directory, remove the metadata from the database.
-                if (child is CollectionFolder collectionFolder && !Directory.Exists(collectionFolder.Path))
-                {
-                    toDelete.Add(collectionFolder.Id);
-                }
-                else
-                {
-                    await child.RefreshMetadata(cancellationToken).ConfigureAwait(false);
-                }
-            }
-
-            if (toDelete.Count > 0)
-            {
-                _persistenceService.DeleteItem(toDelete.ToArray());
-            }
-
-            ClearIgnoreRuleCache();
+            cancellationToken.ThrowIfCancellationRequested();
+            return Task.CompletedTask;
         }
 
         /// <inheritdoc />
@@ -3303,7 +3247,7 @@ namespace Emby.Server.Implementations.Library
         /// <inheritdoc />
         public void QueueLibraryScan()
         {
-            _taskManager.QueueScheduledTask<RefreshMediaLibraryTask>();
+            // No ingestion queue exists in Jigglefin's live filesystem mode.
         }
 
         /// <inheritdoc />

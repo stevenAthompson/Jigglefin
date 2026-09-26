@@ -35,7 +35,7 @@ public class BaseItemTests
     [InlineData(true, false)]
     [InlineData(false, true)]
     [InlineData(true, true)]
-    public async Task ValidateChildren_FailedEnumeration_DoesNotReconcileOrDeleteChildren(bool failAfterFirstChild, bool accessDenied)
+    public async Task ValidateChildren_DoesNotAttemptEnumerationOrReconcileChildren(bool failAfterFirstChild, bool accessDenied)
     {
         var previousLibrary = BaseItem.LibraryManager;
         var previousRepository = BaseItem.ItemRepository;
@@ -55,7 +55,8 @@ public class BaseItemTests
                 Path = "/media/review-folder"
             };
             await folder.ValidateChildren(new Progress<double>(), new MetadataRefreshOptions(directory.Object), recursive: false, cancellationToken: TestContext.Current.CancellationToken).ConfigureAwait(true);
-            Assert.True(folder.EnumerationAttempted);
+            Assert.False(folder.EnumerationAttempted);
+            directory.VerifyNoOtherCalls();
             repository.VerifyNoOtherCalls();
             library.VerifyNoOtherCalls();
         }

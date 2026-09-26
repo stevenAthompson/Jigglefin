@@ -328,8 +328,10 @@ namespace MediaBrowser.Controller.Entities
         /// <returns>Task.</returns>
         public Task ValidateChildren(IProgress<double> progress, MetadataRefreshOptions metadataRefreshOptions, bool recursive = true, bool allowRemoveRoot = false, CancellationToken cancellationToken = default)
         {
-            Children = null; // invalidate cached children.
-            return ValidateChildrenInternal(progress, recursive, true, allowRemoveRoot, metadataRefreshOptions, metadataRefreshOptions.DirectoryService, cancellationToken);
+            // Legacy callers must not turn live navigation back into catalog ingestion.
+            cancellationToken.ThrowIfCancellationRequested();
+            progress.Report(100);
+            return Task.CompletedTask;
         }
 
         private Dictionary<Guid, BaseItem> GetActualChildrenDictionary()
