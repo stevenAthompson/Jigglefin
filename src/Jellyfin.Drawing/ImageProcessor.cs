@@ -121,7 +121,8 @@ public sealed class ImageProcessor : IImageProcessor, IDisposable
         ItemImageInfo originalImage = options.Image;
         BaseItem item = options.Item;
 
-        string originalImagePath = originalImage.Path;
+        using var sourceLease = LivePathLease.AcquireReadPath(originalImage.Path);
+        string originalImagePath = sourceLease.ReadPath;
         DateTime dateModified = originalImage.DateModified;
         ImageDimensions? originalImageSize = null;
         if (originalImage.Width > 0 && originalImage.Height > 0)
@@ -404,21 +405,22 @@ public sealed class ImageProcessor : IImageProcessor, IDisposable
     /// <inheritdoc />
     public ImageDimensions GetImageDimensions(string path)
     {
-        using var sourceLease = LivePathLease.Acquire(path);
-        return _imageEncoder.GetImageSize(path);
+        using var sourceLease = LivePathLease.AcquireReadPath(path);
+        return _imageEncoder.GetImageSize(sourceLease.ReadPath);
     }
 
     /// <inheritdoc />
     public string GetImageBlurHash(string path)
     {
-        var size = GetImageDimensions(path);
-        return GetImageBlurHash(path, size);
+        using var sourceLease = LivePathLease.AcquireReadPath(path);
+        var size = _imageEncoder.GetImageSize(sourceLease.ReadPath);
+        return GetImageBlurHash(sourceLease.ReadPath, size);
     }
 
     /// <inheritdoc />
     public string GetImageBlurHash(string path, ImageDimensions imageDimensions)
     {
-        using var sourceLease = LivePathLease.Acquire(path);
+        using var sourceLease = LivePathLease.AcquireReadPath(path);
         if (imageDimensions.Width <= 0 || imageDimensions.Height <= 0)
         {
             return string.Empty;
@@ -433,7 +435,7 @@ public sealed class ImageProcessor : IImageProcessor, IDisposable
         int xComp = Math.Min((int)xCompF + 1, 9);
         int yComp = Math.Min((int)yCompF + 1, 9);
 
-        return _imageEncoder.GetImageBlurHash(xComp, yComp, path);
+        return _imageEncoder.GetImageBlurHash(xComp, yComp, sourceLease.ReadPath);
     }
 
     /// <inheritdoc />

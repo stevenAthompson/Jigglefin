@@ -123,7 +123,7 @@ public static class FileStreamResponseHelpers
             return new FileStreamResult(stream, contentType)
             {
                 EnableRangeProcessing = true,
-                LastModified = System.IO.File.GetLastWriteTimeUtc(path)
+                LastModified = System.IO.File.GetLastWriteTimeUtc(stream.SafeFileHandle)
             };
         }
         catch

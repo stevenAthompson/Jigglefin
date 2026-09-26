@@ -2020,7 +2020,13 @@ public class ImageController : BaseJellyfinApiController
         IDictionary<string, string> headers,
         string? tag)
     {
-        using var sourceLease = LivePathLease.Acquire(imageProcessingOptions.Image.Path);
+        var originalImage = imageProcessingOptions.Image;
+        using var sourceLease = LivePathLease.AcquireReadPath(originalImage.Path);
+        imageProcessingOptions.Image = new ItemImageInfo
+        {
+            Path = sourceLease.ReadPath, Type = originalImage.Type, DateModified = originalImage.DateModified,
+            Width = originalImage.Width, Height = originalImage.Height, BlurHash = originalImage.BlurHash
+        };
         var (imagePath, imageContentType, dateImageModified) = await _imageProcessor.ProcessImage(imageProcessingOptions).ConfigureAwait(false);
 
         var disableCaching = Request.Headers[HeaderNames.CacheControl].Contains("no-cache");

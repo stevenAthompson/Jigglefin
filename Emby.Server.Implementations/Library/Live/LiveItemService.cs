@@ -210,7 +210,7 @@ public sealed class LiveItemService : ILiveItemService, IDisposable
             {
                 probe = await _encoder.GetMediaInfo(new MediaInfoRequest
                 {
-                    MediaSource = new MediaSourceInfo { Path = entry.File.FullPath, Protocol = MediaProtocol.File, VideoType = VideoType.VideoFile },
+                    MediaSource = new MediaSourceInfo { Path = inputLease.ReadPath, Protocol = MediaProtocol.File, VideoType = VideoType.VideoFile },
                     MediaType = item.MediaType == MediaType.Audio ? DlnaProfileType.Audio : DlnaProfileType.Video,
                     ExtractChapters = true
                 }, cancellationToken).ConfigureAwait(false);

@@ -671,3 +671,55 @@ original drive letter immune to remapping. That path needs its own regression an
 end-to-end consumer fix; it is not being claimed safe from these startup tests.
 All tests used owned synthetic fixtures. The user's mappings, installed profile
 and `Z:\Media` are unchanged; no development package has been deployed here.
+
+### Stable addresses for active readers
+
+An owned-drive regression reproduced the active-read bug in both managed and real
+FFmpeg reads: handles pinned the original file, but subsequent readers opened the
+replacement reached through the remapped letter. `LivePathLease.ReadPath` now uses
+the opened root's volume GUID, or its UNC address for SMB. All subsequent component
+opens use that address. Normal SUBST/mapped-share aliases are expanded before
+pinning so they cannot hide path ancestors; an unsupported raw NT device alias
+with a path suffix fails closed. The configured address/IDs remain logical and
+unchanged. Internal read-address acquisition accepts only a validated volume GUID
+extension; configuration and the original untrusted-path entry point still reject it.
+
+The implementation uses
+[GetFinalPathNameByHandleW](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getfinalpathnamebyhandlew)
+with the opened-name flag, avoiding SMB component-normalization queries. A missing
+local GUID does not silently fall back to a drive letter. Readers must keep the
+lease alive; returning a stable string is not itself authorization or a lifetime lock.
+
+Managed streams/listings, probes, image processing, subtitle/attachment extraction
+and transcoding now consume their lease's address. Transcoding rewrites exactly the
+expected generated `-i file:` argument before logging/launching; unexpected or
+ambiguous commands fail closed. The job retains the lease until native exit. Source
+image descriptors are copied, not mutated in the shared item. HTTP Last-Modified
+uses the opened stream handle rather than reopening its original pathname.
+
+The refined drive test uses two different valid WAV files: after remapping, the
+logical address reaches the replacement while protected managed bytes and FFmpeg's
+PCM checksum still match the original. Nested reads, hidden junction ancestors,
+raw alias rejection, lock release and native argument binding are also covered.
+All ten audio/video/long/short/SMB playback cases and the slow native-job case pass.
+Complete suites pass: controller **229**, media encoding **107/1 existing skip**,
+integration **196/3**, server **100**, implementations **1,017/17**, API **203** and
+Skia **28**. No test-process failures or new skips remain.
+
+- Development ZIP: `publish/Jigglefin-live-stable-read-check-20260926-r1.zip`.
+- SHA-256: `62C50D5B0FB26D1348BB86E4BBBEFD4759D621A83C6FCC322CFBA327F1A0FEC4`.
+- Own-UI/native fixture: `%TEMP%\jigglefin-folder-web-iPUj78`.
+- Actual older-ZIP upgrade: `%TEMP%\jigglefin-zip-upgrade-d06c7b1451594bd59f790f614b221e97`.
+- Evidence: `publish/test-results/live-stable-read`; retain `remap-before.trx`
+  as the original two failures, separate from final passing results.
+
+The package's complete own-UI/native-outbound and older-ZIP upgrade workflows pass
+again, with unchanged synthetic media and no attempted outbound/UNC accesses.
+Nothing was deployed and the user's media/profile/mappings were not changed.
+
+Remaining before release: bind the **earlier root/private-storage validation** to
+the physical address handed to these leases. In particular, the current browser
+and sidecar service can still use the original logical root between separate
+stat/read calls. The post-acquisition fix above must not be mistaken for proof of
+that entire authorization-to-open handoff. Final API/path-open and distribution
+review remain open; the goal is not complete.

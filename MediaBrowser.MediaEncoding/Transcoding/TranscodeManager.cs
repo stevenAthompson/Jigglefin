@@ -21,6 +21,7 @@ using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.MediaEncoding;
 using MediaBrowser.Controller.Session;
 using MediaBrowser.Controller.Streaming;
+using MediaBrowser.MediaEncoding.Encoder;
 using MediaBrowser.Model.Dlna;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.IO;
@@ -446,8 +447,6 @@ public sealed class TranscodeManager : ITranscodeManager, IDisposable
             state,
             cancellationTokenSource);
 
-        _logger.LogInformation("{Filename} {Arguments}", process.StartInfo.FileName, process.StartInfo.Arguments);
-
         var logFilePrefix = "FFmpeg.Transcode-";
         if (state.VideoRequest is not null
             && EncodingHelper.IsCopyCodec(state.OutputVideoCodec))
@@ -476,22 +475,20 @@ public sealed class TranscodeManager : ITranscodeManager, IDisposable
             FileOptions.Asynchronous);
 
         await JsonSerializer.SerializeAsync(logStream, state.MediaSource, cancellationToken: cancellationTokenSource.Token).ConfigureAwait(false);
-        var commandLineLogMessageBytes = Encoding.UTF8.GetBytes(
-            Environment.NewLine
-            + Environment.NewLine
-            + process.StartInfo.FileName + " " + process.StartInfo.Arguments
-            + Environment.NewLine
-            + Environment.NewLine);
-
-        await logStream.WriteAsync(commandLineLogMessageBytes, cancellationTokenSource.Token).ConfigureAwait(false);
-
         process.Exited += (_, _) => OnFfMpegProcessExited(process, transcodingJob, state);
 
         try
         {
             // Keep every path component pinned beyond this HTTP request, until
             // the native process exits and its TranscodingJob is disposed.
-            transcodingJob.InputPathLease = LivePathLease.Acquire(state.MediaPath);
+            transcodingJob.InputPathLease = LivePathLease.AcquireReadPath(state.MediaPath);
+            process.StartInfo.Arguments = EncodingUtils.BindFileInput(commandLineArguments, state.MediaPath, transcodingJob.InputPathLease.ReadPath);
+            _logger.LogInformation("{Filename} {Arguments}", process.StartInfo.FileName, process.StartInfo.Arguments);
+            var commandLineLogMessageBytes = Encoding.UTF8.GetBytes(
+                Environment.NewLine + Environment.NewLine
+                + process.StartInfo.FileName + " " + process.StartInfo.Arguments
+                + Environment.NewLine + Environment.NewLine);
+            await logStream.WriteAsync(commandLineLogMessageBytes, cancellationTokenSource.Token).ConfigureAwait(false);
             process.Start();
         }
         catch (Exception ex)

@@ -515,7 +515,7 @@ namespace MediaBrowser.MediaEncoding.Subtitles
         /// <inheritdoc />
         public async Task ExtractAllExtractableSubtitles(MediaSourceInfo mediaSource, CancellationToken cancellationToken)
         {
-            using var inputLease = LivePathLease.Acquire(mediaSource.Path);
+            using var inputLease = LivePathLease.AcquireReadPath(mediaSource.Path);
             var locks = new List<IDisposable>();
             var extractableStreams = new List<MediaStream>();
 
@@ -553,7 +553,7 @@ namespace MediaBrowser.MediaEncoding.Subtitles
 
                 if (extractableStreams.Count > 0)
                 {
-                    await ExtractAllExtractableSubtitlesInternal(mediaSource, extractableStreams, cancellationToken).ConfigureAwait(false);
+                    await ExtractAllExtractableSubtitlesInternal(mediaSource, inputLease.ReadPath, extractableStreams, cancellationToken).ConfigureAwait(false);
                     await ExtractAllExtractableSubtitlesMKS(mediaSource, extractableStreams, cancellationToken).ConfigureAwait(false);
                 }
             }
@@ -594,7 +594,8 @@ namespace MediaBrowser.MediaEncoding.Subtitles
 
             foreach (string mksFile in mksFiles)
             {
-                var inputPath = _mediaEncoder.GetInputArgument(mksFile, mediaSource);
+                using var inputLease = LivePathLease.AcquireReadPath(mksFile);
+                var inputPath = _mediaEncoder.GetInputArgument(inputLease.ReadPath, mediaSource);
                 var outputPaths = new List<string>();
                 var args = string.Format(
                     CultureInfo.InvariantCulture,
@@ -648,10 +649,11 @@ namespace MediaBrowser.MediaEncoding.Subtitles
 
         private async Task ExtractAllExtractableSubtitlesInternal(
             MediaSourceInfo mediaSource,
+            string readPath,
             List<MediaStream> subtitleStreams,
             CancellationToken cancellationToken)
         {
-            var inputPath = _mediaEncoder.GetInputPathArgument(mediaSource.Path, mediaSource);
+            var inputPath = _mediaEncoder.GetInputPathArgument(readPath, mediaSource);
             var outputPaths = new List<string>();
             var args = string.Format(
                 CultureInfo.InvariantCulture,

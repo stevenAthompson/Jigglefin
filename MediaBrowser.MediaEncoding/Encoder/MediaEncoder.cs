@@ -516,7 +516,13 @@ namespace MediaBrowser.MediaEncoding.Encoder
             VideoType? videoType,
             CancellationToken cancellationToken)
         {
-            using var inputLease = LivePathLease.Acquire(primaryPath);
+            using var inputLease = LivePathLease.AcquireReadPath(primaryPath);
+            if (inputPath != EncodingUtils.GetInputArgument("file", primaryPath, MediaProtocol.File))
+            {
+                throw new NotSupportedException("Jigglefin probes one self-contained local file.");
+            }
+
+            inputPath = EncodingUtils.GetInputArgument("file", inputLease.ReadPath, MediaProtocol.File);
             var args = extractChapters
                 ? "{0} -i {1} -threads {2} -v warning -print_format json -show_streams -show_chapters -show_format"
                 : "{0} -i {1} -threads {2} -v warning -print_format json -show_streams -show_format";

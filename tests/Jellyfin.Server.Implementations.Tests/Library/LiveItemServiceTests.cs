@@ -94,7 +94,8 @@ public sealed class LiveItemServiceTests : IDisposable
     [Fact]
     public async Task Probe_IsOnDemandCachedIsolatedAndDisposable()
     {
-        _encoder.Setup(encoder => encoder.GetMediaInfo(It.Is<MediaInfoRequest>(request => request.MediaSource.Path == _media && request.MediaSource.Protocol == MediaProtocol.File), It.IsAny<CancellationToken>()))
+        var readPath = ReadAddress(_media);
+        _encoder.Setup(encoder => encoder.GetMediaInfo(It.Is<MediaInfoRequest>(request => request.MediaSource.Path == readPath && request.MediaSource.Protocol == MediaProtocol.File), It.IsAny<CancellationToken>()))
             .ReturnsAsync(() => new MediaInfo
             {
                 Container = "mp3",
@@ -182,7 +183,8 @@ public sealed class LiveItemServiceTests : IDisposable
         await File.WriteAllTextAsync(Path.Combine(nested.FullName, "Movie.en.srt"), "not selected", TestContext.Current.CancellationToken);
         var group = Assert.Single(_library.GetLibraries());
         var id = _library.Browse(group.Id, TestContext.Current.CancellationToken).Single(entry => entry.Name == "Movie.mp4").Id;
-        _encoder.Setup(encoder => encoder.GetMediaInfo(It.Is<MediaInfoRequest>(request => request.MediaSource.Path == video), It.IsAny<CancellationToken>()))
+        var readPath = ReadAddress(video);
+        _encoder.Setup(encoder => encoder.GetMediaInfo(It.Is<MediaInfoRequest>(request => request.MediaSource.Path == readPath), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new MediaInfo { MediaStreams = [new MediaStream { Type = MediaStreamType.Video, Index = 0 }] });
         var item = _items.Resolve(id)!;
         _items.LoadLocalMetadata(item);
@@ -196,6 +198,12 @@ public sealed class LiveItemServiceTests : IDisposable
         var updated = await _items.PreparePlayback(item, TestContext.Current.CancellationToken);
         Assert.DoesNotContain(updated.MediaStreams, stream => stream.IsExternal);
         _encoder.Verify(encoder => encoder.GetMediaInfo(It.IsAny<MediaInfoRequest>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    private static string ReadAddress(string path)
+    {
+        using var lease = LivePathLease.Acquire(path);
+        return lease.ReadPath;
     }
 
     [Fact]

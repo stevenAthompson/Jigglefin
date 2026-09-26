@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
 using Microsoft.Win32.SafeHandles;
@@ -12,7 +13,7 @@ namespace MediaBrowser.Controller.Library;
 /// <summary>
 /// Pins a Windows path from its volume/share root to the selected entry. Every
 /// component is opened without following reparse points and without write/delete
-/// sharing, so subsequent managed/native readers cannot race a name replacement.
+/// sharing. Readers must use ReadPath, never reopen the original drive letter.
 /// This is not authorization; callers must authorize the selected live ID first.
 /// </summary>
 public sealed partial class LivePathLease : IDisposable
@@ -23,10 +24,22 @@ public sealed partial class LivePathLease : IDisposable
     {
     }
 
+    /// <summary>Gets the protected read address, valid only for the lifetime of this lease.</summary>
+    public string ReadPath { get; private set; } = string.Empty;
+
     /// <summary>Protects an existing path until the returned lease is disposed.</summary>
     /// <param name="path">An authorized absolute file or directory path.</param>
     /// <returns>A lease which must outlive every consumer of the path.</returns>
     public static LivePathLease Acquire(string path)
+        => AcquireCore(path, allowResolvedPath: false);
+
+    /// <summary>Protects an internal read address, including a volume path produced by an earlier lease.</summary>
+    /// <param name="path">An already authorized read address, not a user-supplied configuration location.</param>
+    /// <returns>A lease whose ReadPath must be used by the actual reader.</returns>
+    public static LivePathLease AcquireReadPath(string path)
+        => AcquireCore(path, allowResolvedPath: true);
+
+    private static LivePathLease AcquireCore(string path, bool allowResolvedPath)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         if (!Path.IsPathFullyQualified(path))
@@ -36,23 +49,33 @@ public sealed partial class LivePathLease : IDisposable
 
         if (OperatingSystem.IsWindows())
         {
-            ValidateWindowsSyntax(path);
+            ValidateWindowsSyntax(path, allowResolvedPath);
+            path = ExpandDriveAliases(path);
+            ValidateWindowsSyntax(path, allowResolvedPath);
         }
 
         var fullPath = Path.GetFullPath(path);
         var root = Path.GetPathRoot(fullPath)!;
         var components = fullPath[root.Length..].Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries);
-        var lease = new LivePathLease();
+        var lease = new LivePathLease { ReadPath = fullPath };
         try
         {
             var current = root;
             lease.Pin(current, components.Length > 0);
+            if (OperatingSystem.IsWindows())
+            {
+                // Resolve only the opened root. Later components and consumers
+                // must never go back through the mutable drive-letter mapping.
+                current = StablePath(lease._handles[^1]);
+            }
+
             for (var index = 0; index < components.Length; index++)
             {
                 current = Path.Combine(current, components[index]);
                 lease.Pin(current, index < components.Length - 1);
             }
 
+            lease.ReadPath = current;
             return lease;
         }
         catch
@@ -67,10 +90,10 @@ public sealed partial class LivePathLease : IDisposable
     /// <returns>A read-only seekable stream; disposal also releases all path handles.</returns>
     public static FileStream OpenRead(string path)
     {
-        var lease = Acquire(path);
+        var lease = AcquireReadPath(path);
         try
         {
-            return new LeasedReadStream(path, lease);
+            return new LeasedReadStream(lease.ReadPath, lease);
         }
         catch
         {
@@ -101,8 +124,9 @@ public sealed partial class LivePathLease : IDisposable
             // read access is essential even though the lease never reads bytes.
             // Unlike managed File APIs, CreateFileW does not automatically enable
             // long paths. Only add this prefix to our canonical, validated path;
-            // caller-supplied device/extended aliases remain forbidden.
-            var nativePath = path.StartsWith(@"\\", StringComparison.Ordinal)
+            // caller-supplied device/extended aliases remain forbidden; only the
+            // internal read-address entry point accepts a canonical volume GUID.
+            var nativePath = path.StartsWith(@"\\?\", StringComparison.Ordinal) ? path : path.StartsWith(@"\\", StringComparison.Ordinal)
                 ? @"\\?\UNC\" + path[2..]
                 : @"\\?\" + path;
             var handle = CreateFile(nativePath, 0x81, 1, IntPtr.Zero, 3, 0x02200000, IntPtr.Zero);
@@ -146,10 +170,13 @@ public sealed partial class LivePathLease : IDisposable
         }
     }
 
-    private static void ValidateWindowsSyntax(string path)
+    private static void ValidateWindowsSyntax(string path, bool allowResolvedPath)
     {
         var syntax = path.Replace('/', '\\');
-        if (syntax.StartsWith(@"\\?\", StringComparison.Ordinal) || syntax.StartsWith(@"\\.\", StringComparison.Ordinal))
+        var volumePath = syntax.StartsWith(@"\\?\Volume{", StringComparison.OrdinalIgnoreCase)
+            && syntax.Length >= 49 && syntax[47] == '}' && syntax[48] == '\\'
+            && Guid.TryParseExact(syntax.AsSpan(11, 36), "D", out _);
+        if ((syntax.StartsWith(@"\\?\", StringComparison.Ordinal) && !(allowResolvedPath && volumePath)) || syntax.StartsWith(@"\\.\", StringComparison.Ordinal))
         {
             throw new ArgumentException("Device/extended path aliases are not readable media paths.", nameof(path));
         }
@@ -164,6 +191,98 @@ public sealed partial class LivePathLease : IDisposable
             }
         }
     }
+
+    private static string ExpandDriveAliases(string path)
+    {
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+        while (!path.StartsWith(@"\\", StringComparison.Ordinal))
+        {
+            var drive = path[..2];
+            if (!seen.Add(drive))
+            {
+                throw new IOException("A selected drive alias contains a cycle.");
+            }
+
+            var buffer = new StringBuilder(32768);
+            if (QueryDosDevice(drive, buffer, buffer.Capacity) == 0)
+            {
+                throw new IOException("Could not resolve the selected drive.", new Win32Exception(Marshal.GetLastWin32Error()));
+            }
+
+            var target = buffer.ToString();
+            if (target.StartsWith(@"\??\UNC\", StringComparison.OrdinalIgnoreCase))
+            {
+                return @"\\" + target[8..].TrimEnd('\\') + path[2..];
+            }
+
+            if (target.StartsWith(@"\??\", StringComparison.Ordinal) && target.Length > 6 && target[5] == ':')
+            {
+                path = target[4..].TrimEnd('\\') + path[2..];
+                continue;
+            }
+
+            if (target.StartsWith(@"\Device\LanmanRedirector\", StringComparison.OrdinalIgnoreCase)
+                || target.StartsWith(@"\Device\Mup\", StringComparison.OrdinalIgnoreCase))
+            {
+                var remainder = target[(target.IndexOf('\\', 8) + 1)..];
+                while (remainder.StartsWith(';'))
+                {
+                    var separator = remainder.IndexOf('\\', StringComparison.Ordinal);
+                    if (separator < 0)
+                    {
+                        throw new IOException("The selected network drive has no resolved share address.");
+                    }
+
+                    remainder = remainder[(separator + 1)..];
+                }
+
+                return @"\\" + remainder.TrimEnd('\\') + path[2..];
+            }
+
+            if (target.StartsWith(@"\Device\", StringComparison.OrdinalIgnoreCase) && target.IndexOf('\\', 8) >= 0)
+            {
+                // A raw NT alias with hidden path ancestors cannot be safely
+                // treated as a volume root. Ordinary SUBST/SMB aliases above are
+                // expanded so every physical ancestor is actually pinned.
+                throw new IOException("Unsupported device alias contains hidden path ancestors.");
+            }
+
+            break;
+        }
+
+        return path;
+    }
+
+    private static string StablePath(SafeFileHandle handle)
+    {
+        var buffer = new StringBuilder(32768);
+        // FILE_NAME_OPENED avoids normalization queries for every SMB component.
+        var length = GetFinalPathNameByHandle(handle, buffer, buffer.Capacity, 0x8 | 0x1);
+        if (length > 0 && length < buffer.Capacity)
+        {
+            return buffer.ToString();
+        }
+
+        // A network share has no volume GUID. Only accept an actual UNC result;
+        // never silently fall back to another mutable local drive letter.
+        buffer.Clear();
+        length = GetFinalPathNameByHandle(handle, buffer, buffer.Capacity, 0x8);
+        var result = buffer.ToString();
+        if (length > 0 && length < buffer.Capacity && result.StartsWith(@"\\?\UNC\", StringComparison.OrdinalIgnoreCase))
+        {
+            return @"\\" + result[8..];
+        }
+
+        throw new IOException("Could not obtain a stable read address for the selected root.", new Win32Exception(Marshal.GetLastWin32Error()));
+    }
+
+    [DllImport("kernel32.dll", EntryPoint = "QueryDosDeviceW", CharSet = CharSet.Unicode, SetLastError = true)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    private static extern uint QueryDosDevice(string device, StringBuilder target, int size);
+
+    [DllImport("kernel32.dll", EntryPoint = "GetFinalPathNameByHandleW", CharSet = CharSet.Unicode, SetLastError = true)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    private static extern uint GetFinalPathNameByHandle(SafeFileHandle handle, StringBuilder path, int size, uint flags);
 
     [LibraryImport("kernel32.dll", EntryPoint = "CreateFileW", StringMarshalling = StringMarshalling.Utf16, SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]

@@ -12,12 +12,13 @@ public sealed class PhysicalLiveDirectoryReader : ILiveDirectoryReader
     /// <inheritdoc />
     public LiveFileInfo Stat(string path)
     {
-        using var lease = LivePathLease.Acquire(Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(path)) ?? path);
-        CheckAncestors(path);
-        var attributes = File.GetAttributes(path);
+        var parent = Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(path));
+        using var lease = LivePathLease.Acquire(parent ?? path);
+        var readPath = parent is null ? lease.ReadPath : Path.Combine(lease.ReadPath, Path.GetFileName(Path.TrimEndingDirectorySeparator(path)));
+        var attributes = File.GetAttributes(readPath);
         FileSystemInfo info = (attributes & FileAttributes.Directory) != 0
-            ? new DirectoryInfo(path)
-            : new FileInfo(path);
+            ? new DirectoryInfo(readPath)
+            : new FileInfo(readPath);
         return ToEntry(info, path);
     }
 
@@ -25,11 +26,6 @@ public sealed class PhysicalLiveDirectoryReader : ILiveDirectoryReader
     public IEnumerable<LiveFileInfo> EnumerateDirectory(string path, CancellationToken cancellationToken)
     {
         using var lease = LivePathLease.Acquire(path);
-        CheckAncestors(path);
-        if ((File.GetAttributes(path) & FileAttributes.ReparsePoint) != 0)
-        {
-            throw new UnauthorizedAccessException("Link/reparse directories cannot be enumerated.");
-        }
 
         var options = new EnumerationOptions
         {
@@ -39,7 +35,7 @@ public sealed class PhysicalLiveDirectoryReader : ILiveDirectoryReader
             ReturnSpecialDirectories = false
         };
 
-        foreach (var info in new DirectoryInfo(path).EnumerateFileSystemInfos("*", options))
+        foreach (var info in new DirectoryInfo(lease.ReadPath).EnumerateFileSystemInfos("*", options))
         {
             cancellationToken.ThrowIfCancellationRequested();
             yield return ToEntry(info, Path.Combine(path, info.Name));
@@ -57,19 +53,4 @@ public sealed class PhysicalLiveDirectoryReader : ILiveDirectoryReader
         return new LiveFileInfo(logicalPath, directory, link, length, info.LastWriteTimeUtc);
     }
 
-    private static void CheckAncestors(string path)
-    {
-        // A configured root can itself look ordinary while an ancestor is a
-        // junction. Inspect attributes, never enumerate ancestors or descendants.
-        var parent = Path.GetDirectoryName(LiveDirectoryBrowser.NormalizeRootPath(path));
-        while (parent is not null)
-        {
-            if ((File.GetAttributes(parent) & FileAttributes.ReparsePoint) != 0)
-            {
-                throw new UnauthorizedAccessException("Paths beneath link/reparse directories cannot be opened.");
-            }
-
-            parent = Path.GetDirectoryName(parent);
-        }
-    }
 }

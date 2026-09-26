@@ -46,11 +46,14 @@ public sealed class LiveNativeReadLeaseTests
         {
             // Slow, finite native conversion, so an actual running process—not a
             // stale job record—proves the lease survives StartFfMpeg's return.
-            var command = OfflineMediaInput.Arguments + $"-re -stream_loop -1 -i \"file:{file.Path}\" -t 20 -vn -c:a pcm_s16le -f wav -y \"{output}\"";
+            var input = fixture.Services.GetRequiredService<IMediaEncoder>().GetInputArgument(file.Path, source);
+            var command = OfflineMediaInput.Arguments + $"-re -stream_loop -1 -i {input} -t 20 -vn -c:a pcm_s16le -f wav -y \"{output}\"";
             var job = await manager.StartFfMpeg(state, output, command, Guid.Empty, TranscodingJobType.Progressive, cancellation);
             Assert.NotNull(job.Process);
             Assert.False(job.Process.HasExited);
             Assert.NotNull(job.InputPathLease);
+            Assert.Contains(job.InputPathLease.ReadPath, job.Process.StartInfo.Arguments, StringComparison.Ordinal);
+            Assert.DoesNotContain(file.Path, job.Process.StartInfo.Arguments, StringComparison.Ordinal);
             Assert.ThrowsAny<IOException>(() => Directory.Move(directory, directory + "-moved"));
             Assert.ThrowsAny<IOException>(() => File.Move(file.Path, file.Path + ".moved"));
             await manager.KillTranscodingJobs(state.Request.DeviceId, state.Request.PlaySessionId, _ => true);

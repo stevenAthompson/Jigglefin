@@ -3,6 +3,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using System.IO;
 using System.Linq;
 using Jellyfin.Extensions;
 using MediaBrowser.Model.MediaInfo;
@@ -11,6 +12,22 @@ namespace MediaBrowser.MediaEncoding.Encoder
 {
     public static class EncodingUtils
     {
+        /// <summary>Rebinds exactly one generated file-input argument to its pinned read address.</summary>
+        public static string BindFileInput(string arguments, string logicalPath, string readPath)
+        {
+            var original = "-i " + GetInputArgument("file", logicalPath, MediaProtocol.File);
+            var index = arguments.IndexOf(original, StringComparison.Ordinal);
+            var end = index + original.Length;
+            if (index < 0 || (index > 0 && !char.IsWhiteSpace(arguments[index - 1]))
+                || (end < arguments.Length && !char.IsWhiteSpace(arguments[end]))
+                || arguments.IndexOf(original, end, StringComparison.Ordinal) >= 0)
+            {
+                throw new InvalidDataException("The native command must contain exactly one selected local-file input.");
+            }
+
+            return string.Concat(arguments.AsSpan(0, index), "-i " + GetInputArgument("file", readPath, MediaProtocol.File), arguments.AsSpan(end));
+        }
+
         public static string GetInputArgument(string inputPrefix, string inputFile, MediaProtocol protocol)
         {
             if (protocol != MediaProtocol.File)
