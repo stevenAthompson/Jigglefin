@@ -16,10 +16,11 @@ a destructive test fixture at a user's media tree or installed profile.
 | `LocalSidecarLibraryTests` | File/folder NFO, Emby XML and OPF; supported field projection; precedence; ambiguous shared metadata; editing/removal/cache eviction; no bookmark import from XML; malformed, external-entity, unknown-root and oversized sidecars; local artwork/photo routes. Folder decoration never changes identity or children. |
 | `LiveFolderQueryTests` | Nested resume scopes, same-prefix sibling exclusion, missing/completed/non-playable suppression, name/type/media filtering, paging and user-data options; favorite/played/liked/resumable filters and saved-state sorting on immediate listings. Locked media and no resume enumeration. |
 | `LiveFolderApiFilterTests` | Strict mocks prove authorization and empty catalog fallbacks do no filesystem work. Active-session resume exclusion is per user and occurs before path access. |
-| `LivePathLeaseTests`, `LiveReadResultTests` and live-reader/service regressions | Actual Windows handles reject junction/device/ADS escapes, prevent ancestor/file replacement while reading and release on failure or stream disposal. Directory enumeration and the selected probe retain their protection. Sibling creation still works; locks never trigger a scan. |
+| `LivePathLeaseTests`, `LiveReadResultTests` and live-reader/service regressions | Actual Windows handles reject junction/device/ADS escapes, prevent ancestor/file replacement while reading and release on failure or stream disposal. Ordinary paths beyond 300 characters remain readable without accepting device aliases. Directory enumeration and the selected probe retain their protection. Sibling creation still works; locks never trigger a scan. |
 | `LiveNativeReadLeaseTests` | Starts a real, slow finite FFmpeg conversion, checks the process is still alive after startup returns, verifies the input path remains pinned, stops the job and verifies release. Missing-input startup must clean up its job and handles. |
 | Existing live HTTP/playback/migration tests | Large unvisited trees, blocked legacy mutation/online endpoints, real direct/range/transcoded audio/video, subtitles, independent bookmarks across eviction/restart, native network traps and isolated legacy-profile import. |
 | `WebClientSmoke/live-folders.cjs` | Actual simplified UI, headless desktop/mobile, direct/HLS playback and seeking, subtitles, saved places, account isolation, cache clearing, enable/disable/removal, disconnected-root recovery and process restart. Records external browser attempts before denying them and requires zero attempts; fixture hashes/mtimes remain unchanged. |
+| `WebClientSmoke/live-upgrade.cjs` through `scripts/smoke-upgrade-package-win.ps1` | Extracts the actual older and replacement ZIPs into an owned fixture. The older binary creates real accounts, restricted/disabled/disconnected roots and separate audiobook bookmarks. The replacement upgrades a copied profile while all synthetic media content is locked. Checks unchanged legacy catalog/state, only saved-address import, surviving tokens/permissions, local metadata/range playback, disconnected bookmark recovery, cache eviction, fresh-browser resume and repeated restarts without overwriting newer progress. Original profile and media hashes/mtimes must stay identical. |
 
 `LiveFolderFixture` shares setup and assertions instead of duplicating many large
 scan fixtures. Every browse must enumerate exactly its requested directory and
@@ -57,3 +58,27 @@ own their child processes; they do not drive the user's browser or installed ser
 Green source tests do **not** prove a release upgrade, actual native-client behavior
 or a complete no-internet/path-race boundary. Those remain separate completion gates
 in the design document; the Apple-device UI check was explicitly deferred by the user.
+
+## Actual Windows ZIP checks
+
+The black-box package tests use Windows PowerShell 5.1, Node (tested with 25.8.1,
+including built-in `node:sqlite`) and the pinned Playwright dependency in
+`tests/WebClientSmoke`. They launch the packaged self-contained executable, not
+the source build. The upgrade harness verifies the older archive's SHA-256 before
+extracting it; its default checksum is for the audited `7d5e6d75` release.
+
+```powershell
+./scripts/smoke-live-package-win.ps1 -PackageDirectory publish/<new-package>
+./scripts/smoke-upgrade-package-win.ps1 `
+  -OldArchive publish/release-7d5e6d75/Jigglefin-win-x64.zip `
+  -NewArchive publish/<new-package>.zip
+```
+
+Each test retains its own `%TEMP%` fixture and screenshots. Successful runs write
+`web-smoke-report.json` or `upgrade-report.json`; the latter includes both ZIP
+checksums. Random loopback ports and verified child identities keep tests separate
+from the installed server. Never substitute a real profile or real media directory.
+The upgrade fixture's media lock is released before selection/playback; locked
+startup/resume is evidence of no content reads, not a claim that playback needs no
+file access. Synthetic profile upgrade is now covered by a real binary-to-binary
+test, but is not proof of every historical Jellyfin version or the user's profile.

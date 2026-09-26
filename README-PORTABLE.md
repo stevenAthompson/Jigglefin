@@ -4,9 +4,10 @@
 
 This is a development build of the live-folder replacement, not a finished release.
 It includes the .NET runtime, a simplified local folder-browser UI, and Jellyfin FFmpeg
-and FFprobe. Legacy-profile migration has isolated regression coverage, but an actual
-older-release ZIP upgrade and the complete offline/security and native-client release
-checks are still in progress. Use a separate test profile for now.
+and FFprobe. An actual older-release ZIP upgrade has passed with a copied synthetic
+profile, including accounts, folder permissions and saved audiobook positions. Complete
+offline/security and native-client release checks are still in progress. Use a separate
+test profile for now; this is not approval to upgrade your production installation.
 
 1. Extract the ZIP into a new folder.
 2. Run `Start-Jigglefin.ps1 -DataDir <new-test-profile-path>` from PowerShell.

@@ -63,6 +63,32 @@ public sealed class LivePathLeaseTests : IDisposable
     }
 
     [Fact]
+    public void DeepOrdinaryPath_IsReadableAndProtectedBeyondLegacyMaxPath()
+    {
+        var directoryPath = _fixture.FullName;
+        for (var index = 0; index < 6; index++)
+        {
+            directoryPath = Path.Combine(directoryPath, "Nested folder " + index + new string('x', 40));
+        }
+
+        Directory.CreateDirectory(directoryPath);
+        var path = Path.Combine(directoryPath, "Chapter 01.m4b");
+        Assert.True(path.Length > 300);
+        File.WriteAllText(path, "deep selected media");
+        using (var stream = LivePathLease.OpenRead(path))
+        using (var reader = new StreamReader(stream))
+        {
+            Assert.Equal("deep selected media", reader.ReadToEnd());
+            if (OperatingSystem.IsWindows())
+            {
+                Assert.ThrowsAny<IOException>(() => File.Move(path, path + ".moved"));
+            }
+        }
+
+        File.Move(path, path + ".moved");
+    }
+
+    [Fact]
     public void FailedAcquisition_ReleasesAlreadyOpenedAncestors()
     {
         var directory = Directory.CreateDirectory(Path.Combine(_fixture.FullName, "Media"));

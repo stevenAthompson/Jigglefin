@@ -284,6 +284,12 @@ main().catch(async error => {
   process.exitCode = 1;
 }).finally(async () => {
   await browser?.close(); await stopServer();
-  if (successful) console.log('PASS. Isolated fixture retained for visual review:', fixture);
+  if (successful) {
+    await fs.writeFile(path.join(fixture, 'web-smoke-report.json'), JSON.stringify({
+      pass: true, packageDirectory: packageDirectory || null, externalRequests, failures, violations,
+      checks: ['Minimal setup; live navigation without scans; direct/HLS audio and video; subtitles; per-account bookmarks; cache eviction; restart/resume; disconnected roots; unchanged media bytes and timestamps; clean server shutdown.']
+    }, null, 2) + '\n');
+    console.log('PASS. Isolated fixture retained for visual review:', fixture);
+  }
   else console.error('FAIL. Only the isolated fixture was retained for diagnosis:', fixture);
 });

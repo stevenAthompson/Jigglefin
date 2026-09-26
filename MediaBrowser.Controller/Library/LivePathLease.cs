@@ -99,7 +99,13 @@ public sealed partial class LivePathLease : IDisposable
             // FILE_FLAG_OPEN_REPARSE_POINT | FILE_FLAG_BACKUP_SEMANTICS.
             // Attribute-only handles do not enforce file sharing: requesting
             // read access is essential even though the lease never reads bytes.
-            var handle = CreateFile(path, 0x81, 1, IntPtr.Zero, 3, 0x02200000, IntPtr.Zero);
+            // Unlike managed File APIs, CreateFileW does not automatically enable
+            // long paths. Only add this prefix to our canonical, validated path;
+            // caller-supplied device/extended aliases remain forbidden.
+            var nativePath = path.StartsWith(@"\\", StringComparison.Ordinal)
+                ? @"\\?\UNC\" + path[2..]
+                : @"\\?\" + path;
+            var handle = CreateFile(nativePath, 0x81, 1, IntPtr.Zero, 3, 0x02200000, IntPtr.Zero);
             if (handle.IsInvalid)
             {
                 var error = Marshal.GetLastPInvokeError();

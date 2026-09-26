@@ -323,9 +323,51 @@ write-boundary or whole-product network audits. They assume a trusted OS/storage
 administrator; a remote storage server's own filesystem behavior is not proven by
 local NTFS tests. No release ZIP or installed profile was changed in this checkpoint.
 
-Still required before release: final query/authorization/path-open audits; complete
-native-helper/server/browser outbound verification; unmodified native-client
-regression; and actual older-release upgrade-profile Windows package validation. Clean-profile packaging
-and the simplified browser are now tested, but not substitutes for these gates.
-The installed server and previous release ZIP have not been replaced by this
-incomplete branch. No real Apple-device UI coverage has been added.
+### Actual ZIP upgrade and long-path checkpoint
+
+The actual archived `7d5e6d75` Windows release now creates a synthetic older profile
+through its own API. Its copied profile is upgraded by the new self-contained ZIP,
+not a test-host simulation. Accounts, tokens, disabled/restricted folder permissions,
+per-user positions and favorites survive. Startup/import succeeds with all fixture
+media content exclusively locked. The old catalog/state remain intact and only
+three saved addresses/ancestors are imported. An unavailable book retains its saved
+place and reappears after its location reconnects, without a refresh or scan.
+
+A fresh headless browser resumes the imported audiobook at 31 seconds, seeks past
+47 seconds and saves. Another server restart keeps that newer position rather than
+reimporting 31 seconds; the other account retains its independent 12-second place.
+Selection-time NFO, byte-range playback and cache clearing also pass. The original
+profile and media bytes/mtimes stay identical. These tests never use the installed
+profile or `Z:\Media`.
+
+This checkpoint also caught and fixed a Windows long-path regression in the read
+lease: the native open failed beyond `MAX_PATH` even though managed file access
+worked. Only already-validated canonical paths receive an internal extended-length
+prefix ([Microsoft long-path reference](https://learn.microsoft.com/en-us/windows/win32/fileio/maximum-file-path-limitation));
+caller-provided device/extended aliases are still rejected. Real >300-character
+audio/video paths now pass selection, artwork/subtitles, probing, direct/range and
+transcoded playback, cache eviction and restart/resume. The full integration suite
+passes **190 cases, 0 failures, 3 existing skips**, and all **224 controller cases**
+pass. The other complete suites pass too: API 201; implementations 1,014 (17 existing
+skips); server 63; media encoding 100 (1 existing skip). That is 1,792 passes,
+zero failures and 21 existing skips across these six suites. Test evidence is in
+`publish/test-results/live-upgrade`.
+
+Both clean-profile UI and copied-profile upgrade checks passed against the rebuilt
+`publish/Jigglefin-live-upgrade-check-20260926-r2.zip`. The own UI's clean-package run
+again covered direct/HLS audio/video, subtitles, accounts, disconnected roots and
+restart/resume, with zero external browser attempts, unchanged media and clean
+shutdown. Successful harnesses retain machine-readable reports and screenshots.
+
+- Older ZIP SHA-256: `B8380C4BF071690B7F87113D54D966DFE13EC87E2FD97E6A55791A78DCE7F630`.
+- Tested new ZIP SHA-256: `07EE1C2CA4FF6666FCEBD5F521DE7F622DC3B00DA828D004B98C7F9033055744`.
+- Clean UI fixture: `%TEMP%\jigglefin-folder-web-hXncsm`.
+- Upgrade fixture: `%TEMP%\jigglefin-zip-upgrade-fe66cebcb56e47edad206cb589e918f2`.
+
+Still required before release: final query/authorization/path-open and private-write
+audits (including drive/share mappings and private hardlinks); complete native-helper/
+server/browser outbound verification; unmodified native-client regression against
+this live implementation; and final distribution validation after those changes.
+The actual older ZIP migration gate is now covered, but not every historical Jellyfin
+version or the user's production profile. The installed server and previous release
+ZIP have not been replaced. No real Apple-device UI coverage has been added.

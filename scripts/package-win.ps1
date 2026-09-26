@@ -63,6 +63,7 @@ New-Item -ItemType Directory -Path $outputPath | Out-Null
     --runtime win-x64 `
     --self-contained true `
     --output $outputPath `
+    -m:1 `
     -p:RestoreLockedMode=true
 if ($LASTEXITCODE -ne 0) {
     throw "Server publish failed with exit code $LASTEXITCODE"

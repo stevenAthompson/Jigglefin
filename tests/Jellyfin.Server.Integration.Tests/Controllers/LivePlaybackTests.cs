@@ -31,9 +31,11 @@ namespace Jellyfin.Server.Integration.Tests.Controllers;
 public sealed class LivePlaybackTests
 {
     [Theory]
-    [InlineData("m4b", "Audio")]
-    [InlineData("mp4", "Videos")]
-    public async Task SelectedFile_PlaysAndRetainsResumeAfterCacheEvictionAndServerRestart(string extension, string streamRoute)
+    [InlineData("m4b", "Audio", false)]
+    [InlineData("mp4", "Videos", false)]
+    [InlineData("m4b", "Audio", true)]
+    [InlineData("mp4", "Videos", true)]
+    public async Task SelectedFile_PlaysAndRetainsResumeAfterCacheEvictionAndServerRestart(string extension, string streamRoute, bool deepPath)
     {
         var ffmpeg = Environment.GetEnvironmentVariable("JIGGLEFIN_TEST_FFMPEG");
         if (string.IsNullOrEmpty(ffmpeg))
@@ -44,7 +46,18 @@ public sealed class LivePlaybackTests
         var fixture = Directory.CreateTempSubdirectory("jigglefin-live-playback-");
         try
         {
-            var mediaRoot = Directory.CreateDirectory(Path.Combine(fixture.FullName, "Media"));
+            var mediaPath = Path.Combine(fixture.FullName, "Media");
+            if (deepPath)
+            {
+                for (var index = 0; index < 6; index++)
+                {
+                    mediaPath = Path.Combine(mediaPath, "Nested folder " + index + new string('x', 40));
+                }
+
+                Assert.True(mediaPath.Length > 300);
+            }
+
+            var mediaRoot = Directory.CreateDirectory(mediaPath);
             var profile = Path.Combine(fixture.FullName, "Profile");
             var source = await File.ReadAllBytesAsync(Path.Combine(AppContext.BaseDirectory, "Test Data", "JigglefinSample." + extension), TestContext.Current.CancellationToken);
             var media = Path.Combine(mediaRoot.FullName, "Chapter." + extension);
