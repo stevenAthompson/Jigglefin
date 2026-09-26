@@ -52,6 +52,13 @@ namespace MediaBrowser.Controller.Entities
         public long PlaybackPositionTicks { get; set; }
 
         /// <summary>
+        /// Gets or sets the last playback duration saved with live-folder state.
+        /// This keeps resume controls usable after disposable probe caches are cleared;
+        /// it is not authoritative for completing a file that has not been probed.
+        /// </summary>
+        public long? LastKnownRunTimeTicks { get; set; }
+
+        /// <summary>
         /// Gets or sets the play count.
         /// </summary>
         /// <value>The play count.</value>

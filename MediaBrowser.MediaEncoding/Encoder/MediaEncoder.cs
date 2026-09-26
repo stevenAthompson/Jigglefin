@@ -417,6 +417,11 @@ namespace MediaBrowser.MediaEncoding.Encoder
         /// <inheritdoc />
         public Task<MediaInfo> GetMediaInfo(MediaInfoRequest request, CancellationToken cancellationToken)
         {
+            if (request.MediaSource.Protocol != MediaProtocol.File || request.MediaSource.IsRemote)
+            {
+                throw new NotSupportedException("Jigglefin probes local media files only.");
+            }
+
             var extractChapters = request.ExtractChapters;
             var extraArgs = GetExtraArguments(request);
 
@@ -533,7 +538,7 @@ namespace MediaBrowser.MediaEncoding.Encoder
                     RedirectStandardOutput = true,
 
                     FileName = _ffprobePath,
-                    Arguments = args,
+                    Arguments = OfflineMediaInput.Arguments + args,
 
                     WindowStyle = ProcessWindowStyle.Hidden,
                     ErrorDialog = false,
@@ -787,7 +792,7 @@ namespace MediaBrowser.MediaEncoding.Encoder
                     CreateNoWindow = true,
                     UseShellExecute = false,
                     FileName = _ffmpegPath,
-                    Arguments = args,
+                    Arguments = OfflineMediaInput.Arguments + args,
                     WindowStyle = ProcessWindowStyle.Hidden,
                     ErrorDialog = false,
                 },
@@ -1047,7 +1052,7 @@ namespace MediaBrowser.MediaEncoding.Encoder
                     CreateNoWindow = true,
                     UseShellExecute = false,
                     FileName = _ffmpegPath,
-                    Arguments = args,
+                    Arguments = OfflineMediaInput.Arguments + args,
                     WindowStyle = ProcessWindowStyle.Hidden,
                     ErrorDialog = false,
                 },

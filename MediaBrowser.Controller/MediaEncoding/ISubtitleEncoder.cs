@@ -46,7 +46,7 @@ namespace MediaBrowser.Controller.MediaEncoding
         Task<string> GetSubtitleFileCharacterSet(MediaStream subtitleStream, string language, MediaSourceInfo mediaSource, CancellationToken cancellationToken);
 
         /// <summary>
-        /// Gets the path to a subtitle file.
+        /// Gets the path to a normalized, private ASS cache file for offline burn-in.
         /// </summary>
         /// <param name="subtitleStream">The subtitle stream.</param>
         /// <param name="mediaSource">The media source.</param>

@@ -35,16 +35,22 @@ public sealed class LiveFolderApiFilter : IActionFilter
     private readonly ILiveLibrary _library;
     private readonly IUserManager _users;
     private readonly IServerApplicationHost _host;
+    private readonly ILiveItemService _items;
+    private readonly ILiveUserDataStore _state;
 
     /// <summary>Initializes a new instance of the <see cref="LiveFolderApiFilter"/> class.</summary>
     /// <param name="library">The live filesystem library.</param>
     /// <param name="users">Existing Jellyfin users and permissions.</param>
     /// <param name="host">The server identity.</param>
-    public LiveFolderApiFilter(ILiveLibrary library, IUserManager users, IServerApplicationHost host)
+    /// <param name="items">Selected local metadata and playback items.</param>
+    /// <param name="state">Durable user bookmarks.</param>
+    public LiveFolderApiFilter(ILiveLibrary library, IUserManager users, IServerApplicationHost host, ILiveItemService items, ILiveUserDataStore state)
     {
         _library = library;
         _users = users;
         _host = host;
+        _items = items;
+        _state = state;
     }
 
     /// <inheritdoc />
@@ -98,7 +104,7 @@ public sealed class LiveFolderApiFilter : IActionFilter
             || controller == typeof(StudiosController) || controller == typeof(TvShowsController)
             || controller == typeof(TrailersController);
         var handled = catalog || controller == typeof(UserViewsController) || controller == typeof(SearchController)
-            || (controller == typeof(ItemsController) && method is "GetItems" or "GetItemsByUserIdLegacy")
+            || (controller == typeof(ItemsController) && method is "GetItems" or "GetItemsByUserIdLegacy" or "GetResumeItems" or "GetResumeItemsLegacy")
             || (controller == typeof(LibraryController) && method is "GetAncestors" or "GetSimilarItems" or "GetItemCollections" or "GetMediaFolders")
             || (controller == typeof(UserLibraryController) && method is "GetItem" or "GetItemLegacy" or "GetRootFolder" or "GetRootFolderLegacy"
                 or "GetLatestMedia" or "GetLatestMediaLegacy" or "GetIntros" or "GetIntrosLegacy" or "GetLocalTrailers" or "GetLocalTrailersLegacy" or "GetSpecialFeatures" or "GetSpecialFeaturesLegacy");
@@ -123,6 +129,9 @@ public sealed class LiveFolderApiFilter : IActionFilter
 
         switch (method)
         {
+            case "GetResumeItems":
+            case "GetResumeItemsLegacy":
+                return new OkObjectResult(ResumeItems(args, user));
             case "GetSearchHints":
                 return new OkObjectResult(new SearchHintResult([], 0));
             case "GetSimilarItems":
@@ -160,7 +169,7 @@ public sealed class LiveFolderApiFilter : IActionFilter
                 return new OkObjectResult(Folder(HomeId, "Folders"));
             case "GetItem":
             case "GetItemLegacy":
-                return new OkObjectResult(Item(Arg<Guid>(args, "itemId"), user));
+                return new OkObjectResult(Item(Arg<Guid>(args, "itemId"), user, details: true));
             default:
                 return new OkObjectResult(Items(context, user));
         }
@@ -238,7 +247,7 @@ public sealed class LiveFolderApiFilter : IActionFilter
             else
             {
                 var library = Authorize(parent, user);
-                items = _library.Browse(parent, context.HttpContext.RequestAborted).Select(entry => ToDto(entry, library));
+                items = _library.Browse(parent, context.HttpContext.RequestAborted).Select(entry => WithUserData(ToDto(entry, library), user));
             }
         }
 
@@ -265,7 +274,7 @@ public sealed class LiveFolderApiFilter : IActionFilter
         return new QueryResult<BaseItemDto>(start, all.Length, all.Skip(start).Take(limit).ToArray());
     }
 
-    private BaseItemDto Item(Guid id, User? user)
+    private BaseItemDto Item(Guid id, User? user, bool details = false)
     {
         if (id.Equals(Guid.Empty) || id.Equals(HomeId))
         {
@@ -273,12 +282,31 @@ public sealed class LiveFolderApiFilter : IActionFilter
         }
 
         var library = Authorize(id, user);
+        if (details)
+        {
+            var selected = _items.Resolve(id, user) ?? throw new FileNotFoundException();
+            _items.LoadLocalMetadata(selected);
+            var dto = selected.LiveContext.Entry is { } entry ? ToDto(entry, library) : Folder(id, library.Name, HomeId);
+            dto.Name = selected.Name;
+            dto.Overview = selected.Overview;
+            dto.OriginalTitle = selected.OriginalTitle;
+            dto.ProductionYear = selected.ProductionYear;
+            dto.Genres = selected.Genres;
+            dto.RunTimeTicks = selected.RunTimeTicks;
+            dto.Container = selected.Container;
+            dto.Chapters = selected.LiveContext.Chapters.ToList();
+            dto.MediaStreams = selected.LiveContext.Source?.MediaStreams.ToArray();
+            dto.ImageTags = selected.LiveContext.ImageTags.Where(image => image.Key != ImageType.Backdrop).ToDictionary();
+            dto.BackdropImageTags = selected.LiveContext.ImageTags.TryGetValue(ImageType.Backdrop, out var backdrop) ? [backdrop] : [];
+            return WithUserData(dto, user);
+        }
+
         if (library.Id.Equals(id))
         {
             return Folder(id, library.Name, HomeId);
         }
 
-        return ToDto(_library.GetEntry(id) ?? throw new FileNotFoundException(), library);
+        return WithUserData(ToDto(_library.GetEntry(id) ?? throw new FileNotFoundException(), library), user);
     }
 
     private LiveLibraryDefinition Authorize(Guid id, User? user)
@@ -288,25 +316,76 @@ public sealed class LiveFolderApiFilter : IActionFilter
     }
 
     private static bool CanAccess(User? user, LiveLibraryDefinition library)
+        => LiveLibraryAccess.CanAccess(user, library);
+
+    private BaseItemDto WithUserData(BaseItemDto dto, User? user)
     {
         if (user is null)
         {
-            return true; // Only authenticated API keys reach this branch.
+            return dto;
         }
 
-        // Unknown local ratings/tags cannot safely satisfy legacy metadata restrictions.
-        // Fail closed; administrators can replace those with explicit folder permissions.
-        if (user.MaxParentalRatingScore.HasValue || user.MaxParentalRatingSubScore.HasValue
-            || user.GetPreference(PreferenceKind.AllowedTags).Length > 0
-            || user.GetPreference(PreferenceKind.BlockedTags).Length > 0
-            || user.GetPreference(PreferenceKind.BlockUnratedItems).Length > 0)
+        var data = _state.Get(user.Id, dto.Id);
+        dto.RunTimeTicks ??= data.LastKnownRunTimeTicks;
+        dto.UserData = new UserItemDataDto
         {
-            return false;
+            Key = dto.Id.ToString("N"),
+            ItemId = dto.Id,
+            PlaybackPositionTicks = data.PlaybackPositionTicks,
+            PlayCount = data.PlayCount,
+            Played = data.Played,
+            IsFavorite = data.IsFavorite,
+            LastPlayedDate = data.LastPlayedDate,
+            Rating = data.Rating,
+            Likes = data.Likes,
+            PlayedPercentage = dto.RunTimeTicks is > 0 ? Math.Clamp(100d * data.PlaybackPositionTicks / dto.RunTimeTicks.Value, 0, 100) : null
+        };
+        return dto;
+    }
+
+    private QueryResult<BaseItemDto> ResumeItems(IDictionary<string, object?> args, User? user)
+    {
+        if (user is null)
+        {
+            return new QueryResult<BaseItemDto>();
         }
 
-        var blocked = user.GetPreferenceValues<Guid>(PreferenceKind.BlockedMediaFolders);
-        return !blocked.Contains(library.Id)
-            && (user.HasPermission(PermissionKind.EnableAllFolders) || user.GetPreferenceValues<Guid>(PreferenceKind.EnabledFolders).Contains(library.Id));
+        var list = new List<BaseItemDto>();
+        var mediaTypes = Arg<MediaType[]>(args, "mediaTypes") ?? [];
+        var parent = Arg<Guid?>(args, "parentId");
+        foreach (var saved in _state.GetSaved(user.Id))
+        {
+            if (saved.Data.PlaybackPositionTicks <= 0 || saved.Data.Played)
+            {
+                continue;
+            }
+
+            try
+            {
+                var library = Authorize(saved.ItemId, user);
+                if (parent.HasValue && !parent.Value.Equals(HomeId) && !parent.Value.Equals(Guid.Empty) && !parent.Value.Equals(library.Id))
+                {
+                    continue;
+                }
+
+                var item = Item(saved.ItemId, user);
+                if (mediaTypes.Length == 0 || mediaTypes.Contains(item.MediaType))
+                {
+                    list.Add(item);
+                }
+            }
+            catch (IOException)
+            {
+                // Keep the bookmark when media is unavailable, but don't advertise a stale file.
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+        }
+
+        var start = Math.Max(0, Arg<int?>(args, "startIndex") ?? 0);
+        var limit = Math.Max(0, Arg<int?>(args, "limit") ?? list.Count);
+        return new QueryResult<BaseItemDto>(start, list.Count, list.Skip(start).Take(limit).ToArray());
     }
 
     private BaseItemDto ToDto(LiveDirectoryEntry entry, LiveLibraryDefinition library)

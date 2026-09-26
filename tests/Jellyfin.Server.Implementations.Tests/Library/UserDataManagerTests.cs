@@ -45,7 +45,7 @@ public sealed class UserDataManagerTests : IDisposable
         var config = new Mock<IServerConfigurationManager>();
         config.SetupGet(c => c.Configuration).Returns(_configuration);
 
-        _userDataManager = new UserDataManager(config.Object, factory.Object);
+        _userDataManager = new UserDataManager(config.Object, factory.Object, Mock.Of<MediaBrowser.Controller.Library.ILiveUserDataStore>());
         _user = new User("user", "auth-provider", "reset-provider")
         {
             Id = Guid.NewGuid()

@@ -88,6 +88,30 @@ public sealed class LiveFolderBrowsingTests
                 Assert.Equal(HttpStatusCode.NoContent, refresh.StatusCode);
                 Assert.Equal(2, reader.Enumerations.Count);
                 Assert.Equal(initialCatalogCount, await database.BaseItems.CountAsync(TestContext.Current.CancellationToken));
+
+                var previousStats = reader.Stats.Count;
+                foreach (var target in new[] { $"Items/{mediaId}", $"Items/{mediaId}/Images/Primary", $"Videos/{mediaId}/Subtitles/0", $"Audio/{mediaId}/Lyrics" })
+                {
+                    using var denied = await client.DeleteAsync(target, TestContext.Current.CancellationToken);
+                    Assert.Equal(HttpStatusCode.BadRequest, denied.StatusCode);
+                }
+
+                foreach (var target in new[] { $"Items/{mediaId}/RemoteImages/Download?imageUrl=https%3A%2F%2Fexample.invalid%2Fimage.jpg&type=Primary", "Packages/Installed/Test", "Repositories" })
+                {
+                    using var denied = await client.PostAsJsonAsync(target, Array.Empty<object>(), TestContext.Current.CancellationToken);
+                    Assert.Equal(HttpStatusCode.BadRequest, denied.StatusCode);
+                }
+
+                using var itemRefresh = await client.PostAsync($"Items/{mediaId}/Refresh?replaceAllMetadata=true&replaceAllImages=true&recursive=true", null, TestContext.Current.CancellationToken);
+                Assert.Equal(HttpStatusCode.NoContent, itemRefresh.StatusCode);
+                using var plugins = await client.GetAsync("Plugins", TestContext.Current.CancellationToken);
+                Assert.Equal(HttpStatusCode.OK, plugins.StatusCode);
+                Assert.Equal("[]", await plugins.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+                using var subtitles = await client.GetAsync($"Items/{mediaId}/RemoteSearch/Subtitles/en", TestContext.Current.CancellationToken);
+                Assert.Equal(HttpStatusCode.OK, subtitles.StatusCode);
+                Assert.Equal("[]", await subtitles.Content.ReadAsStringAsync(TestContext.Current.CancellationToken));
+                Assert.Equal(previousStats, reader.Stats.Count);
+                Assert.Equal(2, reader.Enumerations.Count);
             }
 
             Assert.Equal(beforeMedia, (new FileInfo(media).Length, File.GetLastWriteTimeUtc(media)));

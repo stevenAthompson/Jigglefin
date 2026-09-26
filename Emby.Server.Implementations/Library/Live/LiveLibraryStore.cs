@@ -18,15 +18,18 @@ public sealed class LiveLibraryStore : ILiveLibrary
     private readonly object _gate = new();
     private readonly LiveDirectoryBrowser _browser;
     private readonly string _dataDirectory;
+    private readonly string[] _privateDirectories;
     private readonly string _connectionString;
 
     /// <summary>Initializes a new instance of the <see cref="LiveLibraryStore"/> class.</summary>
     /// <param name="browser">The bounded read-only filesystem browser.</param>
     /// <param name="dataDirectory">Private server state, outside all media roots.</param>
-    public LiveLibraryStore(LiveDirectoryBrowser browser, string dataDirectory)
+    /// <param name="privateDirectories">Other writable server paths which media roots must not overlap.</param>
+    public LiveLibraryStore(LiveDirectoryBrowser browser, string dataDirectory, IEnumerable<string>? privateDirectories = null)
     {
         _browser = browser;
         _dataDirectory = Path.GetFullPath(dataDirectory);
+        _privateDirectories = (privateDirectories ?? []).Append(_dataDirectory).Where(path => !string.IsNullOrEmpty(path)).Select(Path.GetFullPath).ToArray();
         Directory.CreateDirectory(_dataDirectory);
         _connectionString = new SqliteConnectionStringBuilder
         {
@@ -212,7 +215,7 @@ public sealed class LiveLibraryStore : ILiveLibrary
     private LiveMediaRoot Mount(IEnumerable<LiveLibraryDefinition> libraries, string path)
     {
         var root = _browser.Mount(Path.GetFileName(Path.TrimEndingDirectorySeparator(path)) is { Length: > 0 } name ? name : path, path);
-        if (ContainsPath(root.FullPath, _dataDirectory) || ContainsPath(_dataDirectory, root.FullPath))
+        if (_privateDirectories.Any(path => ContainsPath(root.FullPath, path) || ContainsPath(path, root.FullPath)))
         {
             throw new ArgumentException("Media roots and private server state must not overlap.", nameof(path));
         }

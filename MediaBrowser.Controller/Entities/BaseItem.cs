@@ -44,6 +44,10 @@ namespace MediaBrowser.Controller.Entities
     /// </summary>
     public abstract class BaseItem : IHasProviderIds, IHasLookupInfo<ItemLookupInfo>, IEquatable<BaseItem>
     {
+        /// <summary>Gets or sets transient live-file state; never serialized into the catalog.</summary>
+        [JsonIgnore]
+        public LiveItemContext LiveContext { get; set; }
+
         private BaseItemKind? _baseItemKind;
 
         public const string ThemeSongFileName = "theme";
@@ -187,10 +191,10 @@ namespace MediaBrowser.Controller.Entities
         public virtual bool SupportsPlayedStatus => false;
 
         [JsonIgnore]
-        public virtual bool SupportsPositionTicksResume => false;
+        public virtual bool SupportsPositionTicksResume => LiveContext is not null && MediaType is MediaType.Audio or MediaType.Video;
 
         [JsonIgnore]
-        public virtual bool SupportsRemoteImageDownloading => true;
+        public virtual bool SupportsRemoteImageDownloading => LiveContext is null;
 
         /// <summary>
         /// Gets or sets the name.
@@ -843,6 +847,11 @@ namespace MediaBrowser.Controller.Entities
 
         public virtual bool CanDelete()
         {
+            if (LiveContext is not null)
+            {
+                return false;
+            }
+
             if (SourceType == SourceType.Channel)
             {
                 return ChannelManager.CanDelete(this);
@@ -1142,6 +1151,11 @@ namespace MediaBrowser.Controller.Entities
 
         public virtual IReadOnlyList<MediaStream> GetMediaStreams()
         {
+            if (LiveContext is not null)
+            {
+                return LiveContext.Source?.MediaStreams ?? [];
+            }
+
             return MediaSourceManager.GetMediaStreams(new MediaStreamQuery
             {
                 ItemId = Id
@@ -1155,6 +1169,11 @@ namespace MediaBrowser.Controller.Entities
 
         public virtual IReadOnlyList<MediaSourceInfo> GetMediaSources(bool enablePathSubstitution)
         {
+            if (LiveContext is not null)
+            {
+                return LiveContext.Source is { } source ? [source] : [];
+            }
+
             if (SourceType == SourceType.Channel)
             {
                 var sources = ChannelManager.GetStaticMediaSources(this, CancellationToken.None)
@@ -1509,6 +1528,12 @@ namespace MediaBrowser.Controller.Entities
         /// <returns>true if a provider reports we changed.</returns>
         public async Task<ItemUpdateType> RefreshMetadata(MetadataRefreshOptions options, CancellationToken cancellationToken)
         {
+            if (LiveContext is not null)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                return ItemUpdateType.None;
+            }
+
             var requiresSave = false;
 
             if (SupportsOwnedItems)
@@ -2036,11 +2061,21 @@ namespace MediaBrowser.Controller.Entities
         {
             ArgumentNullException.ThrowIfNull(user);
 
+            if (LiveContext is not null)
+            {
+                return LiveLibraryAccess.CanAccess(user, LiveContext.Library);
+            }
+
             return IsParentalAllowed(user, skipAllowedTagsCheck);
         }
 
         public virtual bool IsVisibleStandalone(User user)
         {
+            if (LiveContext is not null)
+            {
+                return LiveLibraryAccess.CanAccess(user, LiveContext.Library);
+            }
+
             if (SourceType == SourceType.Channel)
             {
                 return IsVisibleStandaloneInternal(user, false) && Channel.IsChannelVisible(this, user);

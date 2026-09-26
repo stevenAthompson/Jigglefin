@@ -1960,6 +1960,12 @@ namespace MediaBrowser.Controller.Entities
             DateTime? datePlayed,
             bool resetPosition)
         {
+            if (LiveContext is not null)
+            {
+                base.MarkPlayed(user, datePlayed, resetPosition);
+                return;
+            }
+
             var query = new InternalItemsQuery
             {
                 User = user,
@@ -1998,6 +2004,12 @@ namespace MediaBrowser.Controller.Entities
         /// <param name="user">The user.</param>
         public override void MarkUnplayed(User user)
         {
+            if (LiveContext is not null)
+            {
+                base.MarkUnplayed(user);
+                return;
+            }
+
             var itemsResult = GetItemList(new InternalItemsQuery
             {
                 User = user,
@@ -2015,6 +2027,11 @@ namespace MediaBrowser.Controller.Entities
 
         public override bool IsPlayed(User user, UserItemData userItemData)
         {
+            if (LiveContext is not null)
+            {
+                return userItemData.Played;
+            }
+
             return ItemRepository.GetIsPlayed(user, Id, true);
         }
 

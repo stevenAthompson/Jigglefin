@@ -114,8 +114,56 @@ current and legacy browse routes, and observes additions/removals without refres
 Component tests also cover restart identity, removed roots, access checks,
 no-op refresh, directory links and HTTP transport denial.
 
-Still required before release: selected-item metadata/probing and playback
-integration, independent durable resume state, legacy root/bookmark migration,
-remaining API fallbacks/write protection/offline enforcement, simplified web UI,
-native-client regression and final packaging. The installed server and previous
-release ZIP have not been replaced by this incomplete branch.
+Selected-item playback is now implemented without catalog rows. Ordinary resolution
+reads attributes only. Explicit details parse bounded local NFO/XML and discover
+exact-name local artwork; playback probes only the chosen media and discovers its
+matching immediate text-subtitle siblings. Probe/NFO caches are bounded and disposable.
+Metadata edits/removal and subtitle edits are observed on subsequent selection.
+Artwork URLs and metadata URLs are never followed. Images use the upstream local
+image processor; subtitles can be delivered as WebVTT or burned into video.
+
+Resume/favorites live in `live-user-state.db`, independently of the old catalog and
+all disposable caches. Stable path IDs, per-user positions, stream preferences and
+last-known playback duration survive restart/cache eviction. Short audio chapters
+have no minimum-duration or percentage cutoff. Unknown duration does not mean
+completed; a missing position report does not erase progress. Renaming a library
+does not change file identity; moving/renaming the actual file still changes its ID.
+
+The API capability filter blocks legacy media deletes, sidecar/image/subtitle/lyric
+writes, metadata editing, online searches/downloads, plugin administration, raw
+configuration writes, remote playback commands and unknown feature families. Known
+catalog reads return their declared empty response shapes or the navigable folder
+fallback. Stale catalog IDs cannot enter exposed playback routes. Folder played-state
+updates apply to that folder only, never recursively visit descendants. Providers,
+savers, external source providers and plugins are not initialized. Only the four
+private-state housekeeping task types are instantiated. Media roots cannot overlap
+configured cache, log, metadata, configuration, transcode or private data paths.
+
+Native input arguments allow file transport and self-contained media demuxers only.
+Disguised HLS/concat inputs are rejected with NoCompatibleStream. Text subtitle
+burn-in uses a managed normalized ASS cache file with the libass-only filter: the
+generic subtitles filter's independent demuxer is not allowed to bypass input
+restrictions. This is additional defense, NOT completion of the whole-product
+offline/security audit. Path validation rejects existing root/ancestor reparse
+points, but atomic check-to-open/race protection still needs implementation.
+
+Authenticated HTTP tests now exercise real m4b/MP4 probing, direct bytes, byte
+ranges, MP3 transcoding, HLS segments with subtitle burn-in, local artwork and
+WebVTT. They verify bookmarks and durations after cache clearing and a complete
+host restart with the same profile, and unchanged source media/artwork/subtitles.
+Renamed playlist/concat media and a disguised subtitle cannot reach a local TCP
+trap. The no-scan test also exercises rejected write/download APIs and refresh
+notifications while media/NFO content is locked and descendant access is tracked.
+These are isolated synthetic fixtures, not the user's installed profile or Z:\Media.
+
+Validation at this checkpoint: API 196 passed; server implementations 1,007 passed
+and 17 skipped; controller 209 passed; server 29 passed; media encoding 100 passed
+and 1 skipped; the three live HTTP scenarios passed with real native helpers.
+
+Still required before release: legacy root/bookmark migration without tree walks;
+remaining query/filter compatibility and authorization/path-open audits; complete
+native-helper/server/browser outbound verification; simplified bundled web UI;
+updated end-to-end/native-client regression; and clean/upgrade Windows packaging.
+The old scan-oriented integration suite is not yet adapted or claimed passing.
+The installed server and previous release ZIP have not been replaced by this
+incomplete branch. No real Apple-device UI coverage has been added.

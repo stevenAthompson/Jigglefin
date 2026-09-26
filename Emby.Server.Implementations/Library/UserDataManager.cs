@@ -28,18 +28,22 @@ namespace Emby.Server.Implementations.Library
         private readonly IServerConfigurationManager _config;
         private readonly IDbContextFactory<JellyfinDbContext> _repository;
         private readonly FastConcurrentLru<string, UserItemData> _cache;
+        private readonly ILiveUserDataStore _liveState;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="UserDataManager"/> class.
         /// </summary>
         /// <param name="config">Instance of the <see cref="IServerConfigurationManager"/> interface.</param>
         /// <param name="repository">Instance of the <see cref="IDbContextFactory{JellyfinDbContext}"/> interface.</param>
+        /// <param name="liveState">Durable live-file bookmarks, independent of catalog/cache rows.</param>
         public UserDataManager(
             IServerConfigurationManager config,
-            IDbContextFactory<JellyfinDbContext> repository)
+            IDbContextFactory<JellyfinDbContext> repository,
+            ILiveUserDataStore liveState)
         {
             _config = config;
             _repository = repository;
+            _liveState = liveState;
             _cache = new FastConcurrentLru<string, UserItemData>(Environment.ProcessorCount, _config.Configuration.CacheSize, StringComparer.OrdinalIgnoreCase);
         }
 
@@ -54,6 +58,25 @@ namespace Emby.Server.Implementations.Library
             ArgumentNullException.ThrowIfNull(item);
 
             cancellationToken.ThrowIfCancellationRequested();
+
+            if (item.LiveContext is not null)
+            {
+                if (item.RunTimeTicks is > 0)
+                {
+                    userData.LastKnownRunTimeTicks = item.RunTimeTicks;
+                }
+
+                _liveState.Save(user.Id, item.Id, userData);
+                UserDataSaved?.Invoke(this, new UserDataSaveEventArgs
+                {
+                    Keys = [item.Id.ToString("N")],
+                    UserData = userData,
+                    SaveReason = reason,
+                    UserId = user.Id,
+                    Item = item
+                });
+                return;
+            }
 
             var keys = item.GetUserDataKeys();
 
@@ -185,6 +208,12 @@ namespace Emby.Server.Implementations.Library
 
             foreach (var item in items)
             {
+                if (item.LiveContext is not null)
+                {
+                    result[item.Id] = _liveState.Get(user.Id, item.Id);
+                    continue;
+                }
+
                 var cacheKey = GetCacheKey(user.InternalId, item.Id);
                 if (_cache.TryGet(cacheKey, out var cachedData))
                 {
@@ -264,7 +293,7 @@ namespace Emby.Server.Implementations.Library
             List<Guid>? localProbeIds = null;
             foreach (var item in items)
             {
-                if (item is not Video video || video.PrimaryVersionId.HasValue)
+                if (item.LiveContext is not null || item is not Video video || video.PrimaryVersionId.HasValue)
                 {
                     continue;
                 }
@@ -353,6 +382,11 @@ namespace Emby.Server.Implementations.Library
         public UserItemData? GetUserData(User user, BaseItem item)
         {
             ArgumentNullException.ThrowIfNull(user);
+            if (item.LiveContext is not null)
+            {
+                return _liveState.Get(user.Id, item.Id);
+            }
+
             var row = ResolveUserDataRow(item, item.UserData?.Where(e => e.UserId.Equals(user.Id)));
             return row is not null ? Map(row) : new UserItemData()
             {
@@ -402,6 +436,12 @@ namespace Emby.Server.Implementations.Library
 
             var dto = GetUserItemDataDto(userData, item.Id);
 
+            if (item.LiveContext is not null)
+            {
+                dto.PlayedPercentage = item.RunTimeTicks is > 0 ? Math.Clamp(100d * userData.PlaybackPositionTicks / item.RunTimeTicks.Value, 0, 100) : null;
+                return dto;
+            }
+
             item.FillUserDataDtoValues(dto, userData, itemDto, user, options);
 
             // For an item with alternate versions, surface the most recently played version's resume point.
@@ -438,6 +478,30 @@ namespace Emby.Server.Implementations.Library
         /// <inheritdoc />
         public bool UpdatePlayState(BaseItem item, UserItemData data, long? reportedPositionTicks)
         {
+            if (item.LiveContext is not null)
+            {
+                // Every audio/video file can resume, including short MP3 chapters and
+                // files whose disposable probe entry has been evicted or lost on restart.
+                if (reportedPositionTicks.HasValue)
+                {
+                    data.PlaybackPositionTicks = Math.Max(0, reportedPositionTicks.Value);
+                }
+
+                if (item.RunTimeTicks is > 0 && data.PlaybackPositionTicks >= item.RunTimeTicks.Value)
+                {
+                    data.Played = true;
+                    data.PlaybackPositionTicks = 0;
+                    return true;
+                }
+
+                if (data.PlaybackPositionTicks > 0)
+                {
+                    data.Played = false;
+                }
+
+                return false;
+            }
+
             var playedToCompletion = false;
 
             var runtimeTicks = item.GetRunTimeTicksForPlayState();
@@ -517,6 +581,15 @@ namespace Emby.Server.Implementations.Library
         {
             ArgumentNullException.ThrowIfNull(user);
             ArgumentNullException.ThrowIfNull(item);
+
+            if (item.LiveContext is not null)
+            {
+                var state = _liveState.Get(user.Id, item.Id);
+                state.AudioStreamIndex = null;
+                state.SubtitleStreamIndex = null;
+                _liveState.Save(user.Id, item.Id, state);
+                return;
+            }
 
             using var dbContext = _repository.CreateDbContext();
             var rows = dbContext.UserData

@@ -34,6 +34,7 @@ using Emby.Server.Implementations.Playlists;
 using Emby.Server.Implementations.Plugins;
 using Emby.Server.Implementations.QuickConnect;
 using Emby.Server.Implementations.ScheduledTasks;
+using Emby.Server.Implementations.ScheduledTasks.Tasks;
 using Emby.Server.Implementations.Serialization;
 using Emby.Server.Implementations.Session;
 using Emby.Server.Implementations.SyncPlay;
@@ -424,8 +425,10 @@ namespace Emby.Server.Implementations
 
             // Only private server-state housekeeping is permitted in the live filesystem build.
             // In particular, saved triggers must not revive scans, provider work, or plugin updates.
-            Resolve<ITaskManager>().AddTasks(GetExports<IScheduledTask>(false).Where(task => task.Key is
-                "DeleteCacheFiles" or "CleanLogFiles" or "DeleteTranscodeFiles" or "CleanActivityLog"));
+            Resolve<ITaskManager>().AddTasks(GetExportTypes<IScheduledTask>()
+                .Where(type => type == typeof(DeleteCacheFileTask) || type == typeof(DeleteLogFileTask)
+                    || type == typeof(DeleteTranscodeFileTask) || type == typeof(CleanActivityLogTask))
+                .Select(CreateInstanceSafe).OfType<IScheduledTask>());
 
             ConfigurationManager.ConfigurationUpdated += OnConfigurationUpdated;
             ConfigurationManager.NamedConfigurationUpdated += OnConfigurationUpdated;
@@ -584,7 +587,14 @@ namespace Emby.Server.Implementations
             serviceCollection.AddSingleton<ILiveDirectoryReader, PhysicalLiveDirectoryReader>();
             serviceCollection.AddSingleton<LiveDirectoryBrowser>();
             serviceCollection.AddSingleton<ILiveLibrary>(provider => new LiveLibraryStore(
-                provider.GetRequiredService<LiveDirectoryBrowser>(), Path.Combine(ApplicationPaths.DataPath, "live-folders")));
+                provider.GetRequiredService<LiveDirectoryBrowser>(),
+                Path.Combine(ApplicationPaths.DataPath, "live-folders"),
+                [ApplicationPaths.ProgramDataPath, ApplicationPaths.CachePath, ApplicationPaths.LogDirectoryPath,
+                    ApplicationPaths.ConfigurationDirectoryPath, ApplicationPaths.InternalMetadataPath,
+                    ConfigurationManager.GetEncodingOptions().TranscodingTempPath]));
+            serviceCollection.AddSingleton<ILiveItemService, LiveItemService>();
+            serviceCollection.AddTransient(provider => new Lazy<ILiveItemService>(provider.GetRequiredService<ILiveItemService>));
+            serviceCollection.AddSingleton<ILiveUserDataStore>(_ => new LiveUserDataStore(Path.Combine(ApplicationPaths.DataPath, "live-folders")));
             serviceCollection.AddSingleton<NamingOptions>();
             serviceCollection.AddSingleton<VideoListResolver>();
 
@@ -735,24 +745,22 @@ namespace Emby.Server.Implementations
                 ConfigurationManager.SaveConfiguration();
             }
 
-            _pluginManager.CreatePlugins();
-
             Resolve<ILibraryManager>().AddParts(
                 GetExports<IResolverIgnoreRule>(),
                 GetExports<IItemResolver>(),
-                GetExports<IIntroProvider>(),
+                [],
                 GetExports<IBaseItemComparer>(),
-                GetExports<ILibraryPostScanTask>());
+                []);
 
             Resolve<IProviderManager>().AddParts(
-                GetExports<IImageProvider>(),
-                GetExports<IMetadataService>(),
-                GetExports<IMetadataProvider>(),
-                GetExports<IMetadataSaver>(),
-                GetExports<IExternalId>(),
-                GetExports<IExternalUrlProvider>());
+                [],
+                [],
+                [],
+                [],
+                [],
+                []);
 
-            Resolve<IMediaSourceManager>().AddParts(GetExports<IMediaSourceProvider>());
+            Resolve<IMediaSourceManager>().AddParts([]);
 
             Resolve<ISimilarItemsManager>().AddParts(GetExports<ISimilarItemsProvider>());
             Resolve<ISearchManager>().AddParts(GetExports<ISearchProvider>());

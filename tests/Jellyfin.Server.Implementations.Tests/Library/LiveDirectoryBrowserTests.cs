@@ -6,6 +6,7 @@ using System.Threading;
 using Emby.Server.Implementations.Library.Live;
 using MediaBrowser.Controller.Library;
 using Xunit;
+using Xunit.Sdk;
 
 namespace Jellyfin.Server.Implementations.Tests.Library;
 
@@ -259,6 +260,40 @@ public sealed class LiveDirectoryBrowserTests
 
     private static LiveFileInfo DirectoryEntry(string relativePath)
         => new(Path.Combine(_rootPath, relativePath), true, false, null, DateTime.UnixEpoch);
+
+    [Fact]
+    public void PhysicalReader_RejectsRootBelowLinkedAncestor()
+    {
+        var fixture = Directory.CreateTempSubdirectory("jigglefin-link-root-");
+        var alias = Path.Combine(fixture.FullName, "Alias");
+        try
+        {
+            var target = Directory.CreateDirectory(Path.Combine(fixture.FullName, "Target"));
+            Directory.CreateDirectory(Path.Combine(target.FullName, "Sub"));
+            try
+            {
+                Directory.CreateSymbolicLink(alias, target.FullName);
+            }
+            catch (UnauthorizedAccessException)
+            {
+                throw SkipException.ForSkip("Creating the test link requires local symlink privileges.");
+            }
+
+            var reader = new PhysicalLiveDirectoryReader();
+            var browser = new LiveDirectoryBrowser(reader);
+            Assert.Throws<UnauthorizedAccessException>(() => browser.Mount("Unsafe", Path.Combine(alias, "Sub")));
+            Assert.Throws<UnauthorizedAccessException>(() => reader.EnumerateDirectory(alias, TestContext.Current.CancellationToken).ToArray());
+        }
+        finally
+        {
+            if (Directory.Exists(alias))
+            {
+                Directory.Delete(alias);
+            }
+
+            fixture.Delete(true);
+        }
+    }
 
     private static LiveFileInfo FileEntry(string relativePath)
         => new(Path.Combine(_rootPath, relativePath), false, false, 42, DateTime.UnixEpoch);

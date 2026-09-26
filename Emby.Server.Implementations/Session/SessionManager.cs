@@ -721,10 +721,16 @@ namespace Emby.Server.Implementations.Session
             var item = session.FullNowPlayingItem;
             if (item is not null && item.Id.Equals(itemId))
             {
+                var user = _userManager.GetUserById(session.UserId);
+                if (item.LiveContext is not null && (user is null || !LiveLibraryAccess.CanAccess(user, item.LiveContext.Library)))
+                {
+                    return null;
+                }
+
                 return item;
             }
 
-            item = _libraryManager.GetItemById(itemId);
+            item = _libraryManager.GetItemById<BaseItem>(itemId, session.UserId);
 
             session.FullNowPlayingItem = item;
 
@@ -741,6 +747,11 @@ namespace Emby.Server.Implementations.Session
         /// <returns>The item to track progress against.</returns>
         private BaseItem GetProgressItem(BaseItem libraryItem, string mediaSourceId)
         {
+            if (libraryItem?.LiveContext is not null)
+            {
+                return libraryItem;
+            }
+
             if (libraryItem is Video libraryVideo
                 && !string.IsNullOrEmpty(mediaSourceId)
                 && Guid.TryParse(mediaSourceId, out var mediaSourceItemId)

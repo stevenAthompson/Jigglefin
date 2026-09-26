@@ -41,6 +41,16 @@ public sealed class LiveLibraryStoreTests : IDisposable
     }
 
     [Fact]
+    public void MediaCannotOverlapWritableCacheLogOrTranscodePaths()
+    {
+        var store = new LiveLibraryStore(new LiveDirectoryBrowser(_reader), _state, [Path.Combine(_media, "Transcodes")]);
+        Assert.Throws<ArgumentException>(() => store.AddLibrary("Unsafe", [_media]));
+        Assert.Empty(store.GetLibraries());
+        Assert.Empty(_reader.EnumerationCalls);
+        Assert.False(Directory.Exists(Path.Combine(_media, "Transcodes")));
+    }
+
+    [Fact]
     public void MountAndBrowse_NeverDiscoverDescendantsUntilNavigation()
     {
         var nested = Directory.CreateDirectory(Path.Combine(_media, "Unvisited"));

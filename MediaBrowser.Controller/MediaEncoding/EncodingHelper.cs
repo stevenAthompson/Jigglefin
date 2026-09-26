@@ -1249,7 +1249,12 @@ namespace MediaBrowser.Controller.MediaEncoding
         /// <returns>Input arguments.</returns>
         public string GetInputArgument(EncodingJobInfo state, EncodingOptions options, string segmentContainer)
         {
-            var arg = new StringBuilder();
+            if (state.MediaSource.Protocol != MediaProtocol.File || state.MediaSource.IsRemote)
+            {
+                throw new NotSupportedException("Jigglefin transcodes local media files only.");
+            }
+
+            var arg = new StringBuilder(" " + OfflineMediaInput.Arguments);
             var inputVidHwaccelArgs = GetInputVideoHwaccelArgs(state, options);
 
             if (!string.IsNullOrEmpty(inputVidHwaccelArgs))
@@ -1323,7 +1328,7 @@ namespace MediaBrowser.Controller.MediaEncoding
                     arg.Append(canvasArgs);
                 }
 
-                arg.Append(" -i file:\"").Append(subtitlePath.EscapeProcessArgument()).Append('\"');
+                arg.Append(' ').Append(OfflineMediaInput.Arguments).Append("-i file:\"").Append(subtitlePath.EscapeProcessArgument()).Append('\"');
             }
 
             if (state.AudioStream is not null && state.AudioStream.IsExternal)
@@ -1335,7 +1340,7 @@ namespace MediaBrowser.Controller.MediaEncoding
                     arg.Append(' ').Append(seekAudioParam);
                 }
 
-                arg.Append(" -i \"").Append(state.AudioStream.Path.EscapeProcessArgument()).Append('"');
+                arg.Append(' ').Append(OfflineMediaInput.Arguments).Append("-i \"").Append(state.AudioStream.Path.EscapeProcessArgument()).Append('"');
             }
 
             // Disable auto inserted SW scaler for HW decoders in case of changed resolution.
@@ -1941,35 +1946,9 @@ namespace MediaBrowser.Controller.MediaEncoding
                     ":fontsdir='{0}'",
                     _mediaEncoder.EscapeSubtitleFilterPath(fontPath));
 
-            if (state.SubtitleStream.IsExternal)
-            {
-                var charsetParam = string.Empty;
-
-                if (!string.IsNullOrEmpty(state.SubtitleStream.Language))
-                {
-                    var charenc = _subtitleEncoder.GetSubtitleFileCharacterSet(
-                            state.SubtitleStream,
-                            state.SubtitleStream.Language,
-                            state.MediaSource,
-                            CancellationToken.None).GetAwaiter().GetResult();
-
-                    if (!string.IsNullOrEmpty(charenc))
-                    {
-                        charsetParam = ":charenc=" + charenc;
-                    }
-                }
-
-                return string.Format(
-                    CultureInfo.InvariantCulture,
-                    "subtitles=f='{0}'{1}{2}{3}{4}{5}",
-                    _mediaEncoder.EscapeSubtitleFilterPath(state.SubtitleStream.Path),
-                    charsetParam,
-                    alphaParam,
-                    sub2videoParam,
-                    fontParam,
-                    setPtsParam);
-            }
-
+            // The generic subtitles filter opens its own demuxer, outside the
+            // command-line input protocol whitelist. Burn in only a managed,
+            // normalized local ASS cache file via libass (no demuxer/URL access).
             var subtitlePath = _subtitleEncoder.GetSubtitleFilePath(
                     state.SubtitleStream,
                     state.MediaSource,
@@ -1977,7 +1956,7 @@ namespace MediaBrowser.Controller.MediaEncoding
 
             return string.Format(
                 CultureInfo.InvariantCulture,
-                "subtitles=f='{0}'{1}{2}{3}{4}",
+                "ass=f='{0}'{1}{2}{3}{4}",
                 _mediaEncoder.EscapeSubtitleFilterPath(subtitlePath),
                 alphaParam,
                 sub2videoParam,

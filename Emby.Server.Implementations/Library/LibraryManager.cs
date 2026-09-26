@@ -91,6 +91,7 @@ namespace Emby.Server.Implementations.Library
         private readonly DotIgnoreIgnoreRule _dotIgnoreIgnoreRule;
         private readonly IMediaStreamRepository _mediaStreamRepository;
         private readonly Lazy<IExternalDataManager> _externalDataManagerFactory;
+        private readonly Lazy<ILiveItemService> _liveItems;
 
         /// <summary>
         /// The _root folder sync lock.
@@ -135,6 +136,7 @@ namespace Emby.Server.Implementations.Library
         /// <param name="localization">The localization manager.</param>
         /// <param name="mediaStreamRepository">The media stream repository.</param>
         /// <param name="externalDataManagerFactory">The external data manager (lazy, to break the DI cycle through ChapterManager).</param>
+        /// <param name="liveItems">The selected live filesystem item adapter.</param>
         public LibraryManager(
             IServerApplicationHost appHost,
             ILoggerFactory loggerFactory,
@@ -159,7 +161,8 @@ namespace Emby.Server.Implementations.Library
             DotIgnoreIgnoreRule dotIgnoreIgnoreRule,
             ILocalizationManager localization,
             IMediaStreamRepository mediaStreamRepository,
-            Lazy<IExternalDataManager> externalDataManagerFactory)
+            Lazy<IExternalDataManager> externalDataManagerFactory,
+            Lazy<ILiveItemService> liveItems)
         {
             _appHost = appHost;
             _logger = loggerFactory.CreateLogger<LibraryManager>();
@@ -192,6 +195,7 @@ namespace Emby.Server.Implementations.Library
 
             _mediaStreamRepository = mediaStreamRepository;
             _externalDataManagerFactory = externalDataManagerFactory;
+            _liveItems = liveItems;
 
             RecordConfigurationValues(_configurationManager.Configuration);
         }
@@ -1655,6 +1659,11 @@ namespace Emby.Server.Implementations.Library
                 throw new ArgumentException("Guid can't be empty", nameof(id));
             }
 
+            if (_liveItems.Value.FindLibrary(id) is not null)
+            {
+                return _liveItems.Value.Resolve(id);
+            }
+
             if (_cache.TryGet(id, out var item))
             {
                 return item;
@@ -1695,6 +1704,11 @@ namespace Emby.Server.Implementations.Library
         public T? GetItemById<T>(Guid id, User? user)
             where T : BaseItem
         {
+            if (_liveItems.Value.FindLibrary(id) is not null)
+            {
+                return _liveItems.Value.Resolve(id, user) as T;
+            }
+
             var item = GetItemById<T>(id);
             return ItemIsVisible(item, user) ? item : null;
         }
@@ -2853,6 +2867,21 @@ namespace Emby.Server.Implementations.Library
 
         public LibraryOptions GetLibraryOptions(BaseItem item)
         {
+            if (item.LiveContext is not null)
+            {
+                return new LibraryOptions
+                {
+                    SaveLocalMetadata = false,
+                    SaveSubtitlesWithMedia = false,
+                    SaveLyricsWithMedia = false,
+                    SaveTrickplayWithMedia = false,
+                    EnableRealtimeMonitor = false,
+                    EnableAutomaticSeriesGrouping = false,
+                    MetadataSavers = [],
+                    SubtitleDownloadLanguages = []
+                };
+            }
+
             if (item is CollectionFolder collectionFolder)
             {
                 return collectionFolder.GetLibraryOptions();

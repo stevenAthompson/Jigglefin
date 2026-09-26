@@ -157,7 +157,6 @@ namespace Jellyfin.Server
             // Live-TV recording and NFO user-data saving can write into media roots.
             services.AddHostedService<LibraryChangedNotifier>();
             services.AddHostedService<UserDataChangeNotifier>();
-            services.AddHostedService<RecordingNotifier>();
             services.AddHostedService<DeviceAccessHost>();
         }
 

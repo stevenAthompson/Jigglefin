@@ -48,6 +48,9 @@ namespace Jellyfin.Server.Integration.Tests
         /// </summary>
         public string? FfmpegPath { get; init; }
 
+        /// <summary>Gets an explicit isolated profile path for actual stop/restart regression tests.</summary>
+        public string? TestProfilePath { get; init; }
+
         /// <inheritdoc/>
         protected override IHostBuilder CreateHostBuilder()
         {
@@ -62,7 +65,7 @@ namespace Jellyfin.Server.Integration.Tests
             var skipFfmpegValidation = FfmpegPath is null ? "true" : "false";
 
             // Use a temporary directory for the application paths
-            var webHostPathRoot = Path.Combine(_testPathRoot, "test-host-" + Path.GetFileNameWithoutExtension(Path.GetRandomFileName()));
+            var webHostPathRoot = TestProfilePath ?? Path.Combine(_testPathRoot, "test-host-" + Path.GetFileNameWithoutExtension(Path.GetRandomFileName()));
             Directory.CreateDirectory(Path.Combine(webHostPathRoot, "logs"));
             Directory.CreateDirectory(Path.Combine(webHostPathRoot, "config"));
             Directory.CreateDirectory(Path.Combine(webHostPathRoot, "cache"));

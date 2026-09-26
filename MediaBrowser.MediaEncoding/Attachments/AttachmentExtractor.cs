@@ -185,7 +185,7 @@ namespace MediaBrowser.MediaEncoding.Attachments
                 {
                     StartInfo = new ProcessStartInfo
                     {
-                        Arguments = processArgs,
+                        Arguments = OfflineMediaInput.Arguments + processArgs,
                         FileName = _mediaEncoder.EncoderPath,
                         UseShellExecute = false,
                         CreateNoWindow = true,
@@ -299,7 +299,7 @@ namespace MediaBrowser.MediaEncoding.Attachments
                 {
                     StartInfo = new ProcessStartInfo
                     {
-                        Arguments = processArgs,
+                        Arguments = OfflineMediaInput.Arguments + processArgs,
                         FileName = _mediaEncoder.EncoderPath,
                         UseShellExecute = false,
                         CreateNoWindow = true,
@@ -433,7 +433,7 @@ namespace MediaBrowser.MediaEncoding.Attachments
             {
                 StartInfo = new ProcessStartInfo
                 {
-                    Arguments = processArgs,
+                    Arguments = OfflineMediaInput.Arguments + processArgs,
                     FileName = _mediaEncoder.EncoderPath,
                     UseShellExecute = false,
                     CreateNoWindow = true,

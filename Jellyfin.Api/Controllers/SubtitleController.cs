@@ -16,6 +16,7 @@ using Jellyfin.Api.Helpers;
 using Jellyfin.Api.Models.SubtitleDtos;
 using MediaBrowser.Common.Api;
 using MediaBrowser.Common.Configuration;
+using MediaBrowser.Common.Extensions;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.Entities;
 using MediaBrowser.Controller.Library;
@@ -235,10 +236,14 @@ public class SubtitleController : BaseJellyfinApiController
 
         if (string.IsNullOrEmpty(format))
         {
-            var item = _libraryManager.GetItemById<Video>(itemId.Value);
+            var item = _libraryManager.GetItemById<Video>(itemId.Value, User.GetUserId());
+            if (item is null)
+            {
+                return NotFound();
+            }
 
             var idString = itemId.Value.ToString("N", CultureInfo.InvariantCulture);
-            var mediaSource = _mediaSourceManager.GetStaticMediaSources(item, false)
+            var mediaSource = (await _mediaSourceManager.GetPlaybackMediaSources(item, null, true, false, HttpContext.RequestAborted).ConfigureAwait(false))
                 .First(i => string.Equals(i.Id, mediaSourceId ?? idString, StringComparison.Ordinal));
 
             var subtitleStream = mediaSource.MediaStreams
@@ -476,7 +481,8 @@ public class SubtitleController : BaseJellyfinApiController
         long? endPositionTicks,
         bool copyTimestamps)
     {
-        var item = _libraryManager.GetItemById<BaseItem>(id);
+        var item = _libraryManager.GetItemById<BaseItem>(id, User.GetUserId())
+            ?? throw new ResourceNotFoundException("The selected file is unavailable.");
 
         return _subtitleEncoder.GetSubtitles(
             item,
@@ -486,7 +492,7 @@ public class SubtitleController : BaseJellyfinApiController
             startPositionTicks,
             endPositionTicks ?? 0,
             copyTimestamps,
-            CancellationToken.None);
+            HttpContext.RequestAborted);
     }
 
     /// <summary>

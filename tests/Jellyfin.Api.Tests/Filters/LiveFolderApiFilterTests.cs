@@ -204,7 +204,9 @@ public sealed class LiveFolderApiFilterTests
             MethodInfo = controller.GetMethod(method)!
         };
         var context = new ActionExecutingContext(new ActionContext(http, new RouteData(), descriptor), [], arguments ?? [], new object());
-        new LiveFolderApiFilter(_library.Object, _users.Object, _host.Object).OnActionExecuting(context);
+        var state = new Mock<ILiveUserDataStore>();
+        state.Setup(store => store.Get(It.IsAny<Guid>(), It.IsAny<Guid>())).Returns((Guid userId, Guid itemId) => new MediaBrowser.Controller.Entities.UserItemData { Key = itemId.ToString("N") });
+        new LiveFolderApiFilter(_library.Object, _users.Object, _host.Object, Mock.Of<ILiveItemService>(), state.Object).OnActionExecuting(context);
         return context.Result;
     }
 

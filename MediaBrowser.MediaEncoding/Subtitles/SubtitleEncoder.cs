@@ -8,6 +8,7 @@ using System.Globalization;
 using System.IO;
 using System.Linq;
 using System.Net.Http;
+using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -876,7 +877,7 @@ namespace MediaBrowser.MediaEncoding.Subtitles
                     RedirectStandardInput = true,
                     RedirectStandardError = true,
                     FileName = _mediaEncoder.EncoderPath,
-                    Arguments = "-nostdin " + arguments,
+                    Arguments = "-nostdin " + OfflineMediaInput.Arguments + arguments,
                     WindowStyle = ProcessWindowStyle.Hidden,
                     ErrorDialog = false
                 },
@@ -1031,9 +1032,33 @@ namespace MediaBrowser.MediaEncoding.Subtitles
 
         public async Task<string> GetSubtitleFilePath(MediaStream subtitleStream, MediaSourceInfo mediaSource, CancellationToken cancellationToken)
         {
-            var info = await GetReadableFile(mediaSource, subtitleStream, cancellationToken)
-                .ConfigureAwait(false);
-            return info.Path;
+            var (stream, info) = await GetSubtitleStream(mediaSource, subtitleStream, cancellationToken).ConfigureAwait(false);
+            await using (stream.ConfigureAwait(false))
+            {
+                using var converted = ConvertSubtitles(stream, info, SubtitleFormat.ASS, 0, 0, true);
+                var content = converted.ToArray();
+                var directory = Path.Combine(_serverConfigurationManager.ApplicationPaths.CachePath, "live-subtitles");
+                var output = Path.Combine(directory, Convert.ToHexStringLower(SHA256.HashData(content)) + ".ass");
+                using (await _semaphoreLocks.LockAsync(output, cancellationToken).ConfigureAwait(false))
+                {
+                    if (!File.Exists(output))
+                    {
+                        Directory.CreateDirectory(directory);
+                        var temporary = output + "." + Guid.NewGuid().ToString("N") + ".tmp";
+                        try
+                        {
+                            await File.WriteAllBytesAsync(temporary, content, cancellationToken).ConfigureAwait(false);
+                            File.Move(temporary, output);
+                        }
+                        finally
+                        {
+                            File.Delete(temporary);
+                        }
+                    }
+                }
+
+                return output;
+            }
         }
 
         /// <inheritdoc />

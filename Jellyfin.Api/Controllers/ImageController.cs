@@ -42,6 +42,7 @@ namespace Jellyfin.Api.Controllers;
 [Route("")]
 public class ImageController : BaseJellyfinApiController
 {
+    private readonly ILiveItemService _liveItems;
     private readonly IUserManager _userManager;
     private readonly ILibraryManager _libraryManager;
     private readonly IProviderManager _providerManager;
@@ -62,6 +63,7 @@ public class ImageController : BaseJellyfinApiController
     /// <param name="logger">Instance of the <see cref="ILogger{ImageController}"/> interface.</param>
     /// <param name="serverConfigurationManager">Instance of the <see cref="IServerConfigurationManager"/> interface.</param>
     /// <param name="appPaths">Instance of the <see cref="IApplicationPaths"/> interface.</param>
+    /// <param name="liveItems">Selected local artwork resolver.</param>
     public ImageController(
         IUserManager userManager,
         ILibraryManager libraryManager,
@@ -70,7 +72,8 @@ public class ImageController : BaseJellyfinApiController
         IFileSystem fileSystem,
         ILogger<ImageController> logger,
         IServerConfigurationManager serverConfigurationManager,
-        IApplicationPaths appPaths)
+        IApplicationPaths appPaths,
+        ILiveItemService liveItems)
     {
         _userManager = userManager;
         _libraryManager = libraryManager;
@@ -80,6 +83,7 @@ public class ImageController : BaseJellyfinApiController
         _logger = logger;
         _serverConfigurationManager = serverConfigurationManager;
         _appPaths = appPaths;
+        _liveItems = liveItems;
     }
 
     private static CryptoStream GetFromBase64Stream(Stream inputStream)
@@ -476,6 +480,11 @@ public class ImageController : BaseJellyfinApiController
             return NotFound();
         }
 
+        if (item.LiveContext is not null)
+        {
+            _liveItems.LoadLocalMetadata(item);
+        }
+
         var list = new List<ImageInfo>();
         var itemImages = item.ImageInfos;
 
@@ -485,7 +494,10 @@ public class ImageController : BaseJellyfinApiController
             return list;
         }
 
-        await _libraryManager.UpdateImagesAsync(item).ConfigureAwait(false); // this makes sure dimensions and hashes are correct
+        if (item.LiveContext is null)
+        {
+            await _libraryManager.UpdateImagesAsync(item).ConfigureAwait(false);
+        }
 
         foreach (var image in itemImages)
         {
@@ -1869,6 +1881,11 @@ public class ImageController : BaseJellyfinApiController
 
         if (imageInfo is null)
         {
+            if (item?.LiveContext is not null)
+            {
+                _liveItems.LoadLocalMetadata(item);
+            }
+
             imageInfo = item?.GetImageInfo(imageType, imageIndex ?? 0);
             if (imageInfo is null)
             {

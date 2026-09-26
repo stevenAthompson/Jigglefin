@@ -19,6 +19,7 @@ using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Database.Implementations.Enums;
 using Jellyfin.Extensions;
 using Jellyfin.Extensions.Json;
+using MediaBrowser.Common;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Extensions;
 using MediaBrowser.Controller;
@@ -58,6 +59,7 @@ namespace Emby.Server.Implementations.Library
         private readonly IDirectoryService _directoryService;
         private readonly IMediaStreamRepository _mediaStreamRepository;
         private readonly IMediaAttachmentRepository _mediaAttachmentRepository;
+        private readonly ILiveItemService _liveItems;
         private readonly ConcurrentDictionary<string, ILiveStream> _openStreams = new ConcurrentDictionary<string, ILiveStream>(StringComparer.OrdinalIgnoreCase);
         private readonly AsyncNonKeyedLocker _liveStreamLocker = new(1);
         private readonly JsonSerializerOptions _jsonOptions = JsonDefaults.Options;
@@ -77,7 +79,8 @@ namespace Emby.Server.Implementations.Library
             IMediaEncoder mediaEncoder,
             IDirectoryService directoryService,
             IMediaStreamRepository mediaStreamRepository,
-            IMediaAttachmentRepository mediaAttachmentRepository)
+            IMediaAttachmentRepository mediaAttachmentRepository,
+            ILiveItemService liveItems)
         {
             _appHost = appHost;
             _itemRepo = itemRepo;
@@ -92,6 +95,7 @@ namespace Emby.Server.Implementations.Library
             _directoryService = directoryService;
             _mediaStreamRepository = mediaStreamRepository;
             _mediaAttachmentRepository = mediaAttachmentRepository;
+            _liveItems = liveItems;
         }
 
         public void AddParts(IEnumerable<IMediaSourceProvider> providers)
@@ -176,6 +180,35 @@ namespace Emby.Server.Implementations.Library
 
         public async Task<IReadOnlyList<MediaSourceInfo>> GetPlaybackMediaSources(BaseItem item, User user, bool allowMediaProbe, bool enablePathSubstitution, CancellationToken cancellationToken)
         {
+            if (item.LiveContext is not null)
+            {
+                if (!LiveLibraryAccess.CanAccess(user, item.LiveContext.Library))
+                {
+                    throw new UnauthorizedAccessException();
+                }
+
+                // Direct stream requests can bypass PlaybackInfo; they still need the
+                // selected file prepared, even when the upstream caller passes false.
+                MediaSourceInfo source;
+                try
+                {
+                    source = await _liveItems.PreparePlayback(item, cancellationToken).ConfigureAwait(false);
+                }
+                catch (FfmpegException exception)
+                {
+                    _logger.LogDebug(exception, "Selected file cannot be decoded as self-contained local media");
+                    return [];
+                }
+                if (user is not null)
+                {
+                    SetDefaultAudioAndSubtitleStreamIndices(item, source, user);
+                    source.SupportsTranscoding = user.HasPermission(item.MediaType == MediaType.Audio ? PermissionKind.EnableAudioPlaybackTranscoding : PermissionKind.EnableVideoPlaybackTranscoding);
+                    source.SupportsDirectStream = item.MediaType == MediaType.Audio || user.HasPermission(PermissionKind.EnablePlaybackRemuxing);
+                }
+
+                return [source];
+            }
+
             var mediaSources = GetStaticMediaSources(item, enablePathSubstitution, user);
             ResolveSymlinkPaths(mediaSources, enablePathSubstitution);
 
