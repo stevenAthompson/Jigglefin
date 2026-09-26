@@ -198,14 +198,15 @@ async function main() {
   await page.goto(base + '/web/'); await page.getByRole('button', { name: 'Sign in', exact: true }).waitFor();
   await page.getByLabel('Username', { exact: true }).fill(username); await page.getByLabel('Password', { exact: true }).fill(password);
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-  await page.getByRole('link', { name: 'Continue listening & watching' }).click();
+  await page.getByRole('link', { name: 'Continue' }).click();
   await page.getByRole('button', { name: 'Select file Chapter 01.m4b', exact: true }).click();
   await page.getByRole('button', { name: /Resume at 0:31/ }).click();
   await page.waitForFunction(() => { const player = document.querySelector('#player'); return player.currentTime >= 31 && player.currentTime < 45 && !player.paused && player.readyState >= 3 && !player.error; });
   report.browserResumeSeconds = await page.locator('#player').evaluate(player => player.currentTime);
   await page.locator('#player').evaluate(player => { player.currentTime = 47; });
   await page.waitForFunction(() => { const player = document.querySelector('#player'); return player.currentTime >= 47.2 && !player.paused && !player.error; });
-  await page.getByRole('button', { name: 'Stop & save place', exact: true }).click();
+  await page.getByRole('button', { name: 'Stop', exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('#stop-button').getAttribute('aria-busy') !== 'true');
   const newPosition = (await api(`Items/${selected.Id}`)).UserData.PlaybackPositionTicks; assert.ok(newPosition >= 47e7);
   report.updatedPositionTicks = newPosition;
   await page.screenshot({ path: path.join(fixture, 'upgraded-folder-ui.png'), fullPage: true });

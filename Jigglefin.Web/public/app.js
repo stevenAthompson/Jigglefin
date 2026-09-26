@@ -15,6 +15,7 @@ let token = localStorage.getItem(storageKey + 'token');
 let me, setup = false, roots = [], configuredRoots = [], accounts = [], currentItems = [], selected;
 let routeVersion = 0, selectionVersion = 0, playVersion = 0, playback = null;
 let reportQueue = Promise.resolve();
+let currentFolder = null, playlistItems = [], playlistVersion = 0, queue = null, pickerPath = null, pickerVersion = 0;
 const player = $('player');
 player.disableRemotePlayback = true;
 
@@ -59,9 +60,10 @@ function on(id, event, handler) {
   $(id).addEventListener(event, async e => {
     if (event === 'submit') e.preventDefault();
     const button = event === 'submit' ? e.target.querySelector('button[type=submit]') : e.currentTarget.tagName === 'BUTTON' ? e.currentTarget : null;
-    if (button) button.disabled = true;
+    if (button?.getAttribute('aria-busy') === 'true') return;
+    if (button) button.setAttribute('aria-busy', 'true');
     try { await handler(e); } catch (error) { notice(error.message, true); }
-    finally { if (button) button.disabled = false; }
+    finally { if (button) button.removeAttribute('aria-busy'); }
   });
 }
 function time(seconds) {
@@ -71,6 +73,9 @@ function time(seconds) {
 }
 function kind(item) { return item.LocationType === 'Offline' ? 'Unavailable folder' : item.IsFolder ? 'Folder' : item.MediaType === 'Audio' ? (item.Type === 'AudioBook' ? 'Audiobook' : 'Audio') : item.MediaType === 'Video' ? 'Video' : item.MediaType === 'Photo' ? 'Image' : 'File'; }
 function playable(item) { return !item.IsFolder && ['Audio', 'Video'].includes(item.MediaType); }
+function isPlaylist(item) { return !item.IsFolder && /\.(m3u8?|pls)$/i.test(item.FileName || item.Name); }
+function sameId(a, b) { return a?.replaceAll('-', '') === b?.replaceAll('-', ''); }
+function size(value) { if (value == null) return ''; const units = ['B', 'KB', 'MB', 'GB', 'TB']; let unit = 0; while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit++; } return `${value.toFixed(unit ? 1 : 0)} ${units[unit]}`; }
 function setToken(value) { token = value; if (value) localStorage.setItem(storageKey + 'token', value); else localStorage.removeItem(storageKey + 'token'); }
 function showAuth(firstTime) {
   setup = firstTime; $('auth').hidden = false; $('workspace').hidden = true; $('account-nav').hidden = true;
@@ -96,10 +101,15 @@ async function route() {
   if (!me) return;
   const version = ++routeVersion;
   ++selectionVersion; selected = null; $('details').hidden = true;
-  const [page, id] = currentRoute();
-  $('settings-view').hidden = page !== 'settings'; $('browser-view').hidden = page === 'settings';
+  const [page, id, focusId] = currentRoute();
+  const settingsPage = page === 'settings' || page === 'setup';
+  $('settings-view').hidden = !settingsPage; $('browser-view').hidden = settingsPage;
   for (const anchor of document.querySelectorAll('.sidebar a')) { if (anchor.hash === (location.hash || '#/')) anchor.setAttribute('aria-current', 'page'); else anchor.removeAttribute('aria-current'); }
-  if (page === 'settings') { await showSettings(version); return; }
+  if (settingsPage) { await showSettings(version); return; }
+  ++playlistVersion; currentFolder = null; playlistItems = [];
+  $('folder-play').disabled = $('folder-shuffle').disabled = false; $('playlist-note').textContent = '';
+  $('playlist-label').hidden = true; $('folder-controls').hidden = true;
+  $('folder-favorite').hidden = true; $('clear-continue').hidden = page !== 'resume';
   $('file-search').value = ''; $('folder-description').hidden = true;
   $('file-list').replaceChildren(); $('empty-message').hidden = true; $('file-count').textContent = 'Reading…';
   let items, title, ancestors = [];
@@ -108,10 +118,15 @@ async function route() {
     const [folder, listing, parents] = await Promise.all([api(`Items/${encodeURIComponent(id)}`), api(`Items?parentId=${encodeURIComponent(id)}`), api(`Items/${encodeURIComponent(id)}/Ancestors`)]);
     if (version !== routeVersion) return;
     title = folder.Name; items = listing.Items || []; ancestors = [...parents].reverse().filter(parent => parent.Id.replaceAll('-', '') !== '530b1635c4cd4a01a68bcdd43c1c0f92');
+    currentFolder = folder;
+    $('folder-favorite').hidden = false; $('folder-favorite').textContent = folder.UserData?.IsFavorite ? 'Unfavorite' : 'Favorite';
     $('folder-description').textContent = folder.Overview || ''; $('folder-description').hidden = !folder.Overview;
   } else if (page === 'resume') {
     const result = await api('UserItems/Resume'); if (version !== routeVersion) return;
-    title = 'Pick up where you left off'; items = result.Items || [];
+    title = 'Continue'; items = result.Items || [];
+  } else if (page === 'favorites') {
+    const result = await api('Items?isFavorite=true&recursive=true'); if (version !== routeVersion) return;
+    title = 'Favorites'; items = result.Items || [];
   } else {
     await loadRoots(); if (version !== routeVersion) return;
     title = 'Your folders'; items = roots;
@@ -123,11 +138,35 @@ async function route() {
   for (const parent of ancestors) crumbs.push(node('span', '/'), link(parent.Name, `#/folder/${parent.Id}`));
   if (page) crumbs.push(node('span', '/'), node('span', title));
   $('breadcrumbs').replaceChildren(...crumbs); renderList();
+  const playlists = items.filter(isPlaylist).toSorted((a, b) => a.Name.localeCompare(b.Name, undefined, { numeric: true }));
+  if (page === 'folder' && playlists.length) {
+    $('playlist-label').hidden = false;
+    $('playlist-select').replaceChildren(...playlists.map(item => { const option = node('option', item.Name); option.value = item.Id; return option; }));
+    await loadPlaylist();
+  }
+  if (version !== routeVersion) return;
+  if (focusId) { const file = items.find(item => sameId(item.Id, focusId)); if (file) await select(file); }
+}
+function orderedItems() {
+  const search = $('file-search').value.toLocaleLowerCase();
+  const sort = $('file-sort').value;
+  const rank = new Map(); playlistItems.forEach((item, index) => { if (!rank.has(item.Id)) rank.set(item.Id, index); });
+  const numeric = (a, b, key, descending) => a[key] == null ? (b[key] == null ? 0 : 1) : b[key] == null ? -1 : (descending ? -1 : 1) * (key === 'DateModified' ? Date.parse(a[key]) - Date.parse(b[key]) : a[key] - b[key]);
+  return currentItems.filter(item => item.Name.toLocaleLowerCase().includes(search)).toSorted((a, b) => {
+    let order = Number(Boolean(b.IsFolder)) - Number(Boolean(a.IsFolder));
+    if (order) return order;
+    if (sort === 'playlist') order = (rank.get(a.Id) ?? Number.MAX_SAFE_INTEGER) - (rank.get(b.Id) ?? Number.MAX_SAFE_INTEGER);
+    else if (sort === 'newest' || sort === 'oldest') order = numeric(a, b, 'DateModified', sort === 'newest');
+    else if (sort === 'largest' || sort === 'smallest') order = numeric(a, b, 'FileSize', sort === 'largest');
+    else if (sort === 'type') order = a.Name.split('.').at(-1).localeCompare(b.Name.split('.').at(-1));
+    return order || (sort === 'desc' ? -1 : 1) * a.Name.localeCompare(b.Name, undefined, { numeric: true, sensitivity: 'base' });
+  });
 }
 function renderList() {
-  const search = $('file-search').value.toLocaleLowerCase();
-  const descending = $('file-sort').value === 'desc' ? -1 : 1;
-  const items = currentItems.filter(item => item.Name.toLocaleLowerCase().includes(search)).toSorted((a, b) => Number(Boolean(b.IsFolder)) - Number(Boolean(a.IsFolder)) || descending * a.Name.localeCompare(b.Name, undefined, { numeric: true, sensitivity: 'base' }));
+  const search = $('file-search').value, items = orderedItems();
+  $('play-from-here').disabled = $('folder-play').disabled;
+  $('folder-controls').hidden = !currentFolder || !folderQueue().length;
+  $('clear-continue').disabled = !currentItems.length;
   $('file-list').replaceChildren(...items.map(item => {
     const button = node('button', undefined, `file-row${item.IsFolder ? ' folder' : ''}`);
     button.setAttribute('aria-label', `${item.IsFolder ? 'Open folder' : 'Select file'} ${item.Name}`);
@@ -135,31 +174,111 @@ function renderList() {
     const icon = node('span', item.IsFolder ? 'DIR' : kind(item).slice(0, 3).toUpperCase(), 'file-icon'); icon.setAttribute('aria-hidden', 'true');
     const label = node('span', undefined, 'file-label'); label.append(node('span', item.Name, 'file-name'));
     const position = item.UserData?.PlaybackPositionTicks || 0;
-    label.append(node('span', `${kind(item)}${position ? ` · Resume at ${time(position / ticksPerSecond)}` : ''}${item.UserData?.IsFavorite ? ' · Favorite' : ''}`, 'file-extra'));
+    label.append(node('span', `${kind(item)}${item.FileSize != null ? ` · ${size(item.FileSize)}` : ''}${item.DateModified ? ` · ${new Date(item.DateModified).toLocaleDateString()}` : ''}${position ? ` · Resume at ${time(position / ticksPerSecond)}` : ''}${item.UserData?.IsFavorite ? ' · Favorite' : ''}`, 'file-extra'));
     button.append(icon, label, node('span', item.IsFolder ? '›' : '···', 'file-arrow'));
-    button.addEventListener('click', () => item.IsFolder ? (location.hash = `#/folder/${item.Id}`) : select(item).catch(error => notice(error.message, true)));
-    const row = document.createElement('div'); row.setAttribute('role', 'listitem'); row.append(button); return row;
+    button.addEventListener('click', () => item.IsFolder ? (location.hash = `#/folder/${item.Id}`) : currentRoute()[0] === 'favorites' && item.ParentId ? (location.hash = `#/folder/${item.ParentId}/${item.Id}`) : select(item).catch(error => notice(error.message, true)));
+    const row = node('div', undefined, 'file-entry'); row.setAttribute('role', 'listitem'); row.append(button);
+    const actions = node('div', undefined, 'row-actions');
+    const favorite = node('button', item.UserData?.IsFavorite ? '★' : '☆'); favorite.setAttribute('aria-label', `${item.UserData?.IsFavorite ? 'Unfavorite' : 'Favorite'} ${item.Name}`); favorite.setAttribute('aria-pressed', String(Boolean(item.UserData?.IsFavorite)));
+    favorite.addEventListener('click', () => toggleFavorite(item).catch(error => notice(error.message, true))); actions.append(favorite);
+    if (currentRoute()[0] === 'resume') {
+      const remove = node('button', '×'); remove.setAttribute('aria-label', `Remove ${item.Name} from Continue`);
+      remove.addEventListener('click', () => dismissContinue(item.Id).catch(error => notice(error.message, true))); actions.append(remove);
+    }
+    row.append(actions); return row;
   }));
   $('file-count').textContent = `${items.length} ${items.length === 1 ? 'entry' : 'entries'}`;
   $('empty-message').hidden = items.length !== 0;
-  $('empty-message').textContent = search ? 'No matching filenames in this folder.' : currentRoute()[0] === 'resume' ? 'Nothing unfinished yet. Your place will appear here after playback.' : currentRoute()[0] !== 'folder' ? (me.Policy.IsAdministrator ? 'No folders yet. Add a folder group in Settings.' : 'No folders are available to this account. Ask the administrator for folder access.') : 'This folder is empty.';
+  $('empty-message').textContent = search ? 'No matching filenames in this folder.' : currentRoute()[0] === 'favorites' ? 'No favorites yet. Use a star beside any file or folder to add a shortcut.' : currentRoute()[0] === 'resume' ? 'Nothing unfinished yet. Your place will appear here after playback.' : currentRoute()[0] !== 'folder' ? (me.Policy.IsAdministrator ? 'No folders yet. Add a folder group in Settings.' : 'No folders are available to this account. Ask the administrator for folder access.') : 'This folder is empty.';
 }
 async function select(file) {
   const version = ++selectionVersion;
+  selected = null; $('details').hidden = true; renderList();
   const details = await api(`Items/${encodeURIComponent(file.Id)}`); if (version !== selectionVersion) return;
   selected = { ...details, FileName: file.FileName || file.Name };
+  for (const item of currentItems) if (sameId(item.Id, selected.Id)) item.UserData = selected.UserData;
   $('details').hidden = false; $('detail-kind').textContent = kind(selected); $('detail-title').textContent = selected.Name;
   $('detail-filename').textContent = selected.Name !== selected.FileName ? selected.FileName : '';
   $('detail-overview').textContent = selected.Overview || '';
   const position = selected.UserData?.PlaybackPositionTicks || 0;
   $('detail-progress').textContent = position ? `Saved place: ${time(position / ticksPerSecond)}${selected.RunTimeTicks ? ` of ${time(selected.RunTimeTicks / ticksPerSecond)}` : ''}` : selected.UserData?.Played ? 'Finished' : 'Not started';
-  $('play-button').hidden = !playable(selected); $('play-button').textContent = position ? `Resume at ${time(position / ticksPerSecond)}` : 'Play';
+  $('play-button').hidden = !playable(selected) && !isPlaylist(selected); $('play-button').textContent = position ? `Resume at ${time(position / ticksPerSecond)}` : 'Play';
+  $('play-from-here').hidden = !playable(selected) || !currentFolder;
+  $('open-parent').hidden = !selected.ParentId;
   $('restart-button').hidden = !playable(selected) || !position;
-  $('unsupported-note').hidden = playable(selected) || selected.MediaType === 'Photo';
+  $('unsupported-note').hidden = playable(selected) || isPlaylist(selected) || selected.MediaType === 'Photo' || selected.IsFolder;
   $('favorite-button').textContent = selected.UserData?.IsFavorite ? 'Remove favorite' : 'Favorite';
   const art = $('detail-art'); art.hidden = !selected.ImageTags?.Primary;
   if (!art.hidden) art.src = assetUrl(`Items/${selected.Id}/Images/Primary?maxWidth=500&tag=${encodeURIComponent(selected.ImageTags.Primary)}`); else art.removeAttribute('src');
   renderList();
+}
+async function toggleFavorite(item) {
+  const data = await api(`UserFavoriteItems/${item.Id}`, { method: item.UserData?.IsFavorite ? 'DELETE' : 'POST' });
+  item.UserData = data;
+  for (const entry of currentItems) if (sameId(entry.Id, item.Id)) entry.UserData = data;
+  if (selected && sameId(selected.Id, item.Id)) { selected.UserData = data; $('favorite-button').textContent = data.IsFavorite ? 'Remove favorite' : 'Favorite'; }
+  if (currentFolder && sameId(currentFolder.Id, item.Id)) { currentFolder.UserData = data; $('folder-favorite').textContent = data.IsFavorite ? 'Unfavorite' : 'Favorite'; }
+  if (currentRoute()[0] === 'favorites') currentItems = currentItems.filter(entry => entry.UserData?.IsFavorite);
+  renderList();
+}
+async function dismissContinue(id) {
+  if (!id && !confirm('Clear Continue? Saved positions and favorites are kept. No files will be changed.')) return;
+  if (playback && (!id || sameId(playback.item.Id, id))) { ++playVersion; queue = null; renderQueue(); await stop(); }
+  await api(`Jigglefin/Continue${id ? `?itemId=${id}` : ''}`, { method: 'DELETE' });
+  await route(); notice('Removed from Continue. Saved positions are kept; playing an item adds it again.');
+}
+async function loadPlaylist() {
+  const version = ++playlistVersion, routeAtStart = routeVersion;
+  playlistItems = []; $('playlist-note').textContent = '';
+  if ($('playlist-label').hidden) { renderList(); return; }
+  $('folder-play').disabled = $('folder-shuffle').disabled = true;
+  try {
+    const result = await api(`Jigglefin/Playlists/${$('playlist-select').value}`);
+    if (version !== playlistVersion || routeAtStart !== routeVersion) return;
+    playlistItems = result.Items || [];
+    $('playlist-note').textContent = `${result.Name}: ${playlistItems.length} tracks${result.IgnoredEntries ? `; ${result.IgnoredEntries} unavailable or nonlocal entries ignored` : ''}. Choose Playlist sort to use this order; unlisted files follow.`;
+  } catch (error) { if (version === playlistVersion) $('playlist-note').textContent = `Playlist unavailable: ${error.message}`; }
+  finally { if (version === playlistVersion) { $('folder-play').disabled = $('folder-shuffle').disabled = false; renderList(); } }
+}
+function folderQueue() {
+  const visible = orderedItems().filter(playable);
+  if ($('file-sort').value !== 'playlist' || !playlistItems.length) return visible;
+  const filter = $('file-search').value.toLocaleLowerCase();
+  const entries = playlistItems.filter(item => !filter || item.Name.toLocaleLowerCase().includes(filter));
+  const ids = new Set(entries.map(item => item.Id));
+  return [...entries, ...visible.filter(item => !ids.has(item.Id))];
+}
+function shuffleRemaining(entries, start) {
+  for (let index = entries.length - 1; index > start; index--) { const other = start + Math.floor(Math.random() * (index - start + 1)); [entries[index], entries[other]] = [entries[other], entries[index]]; }
+}
+function renderQueue() {
+  $('queue-status').textContent = queue ? `${queue.index + 1} / ${queue.entries.length}${queue.shuffled ? ' · Shuffled' : ''}` : '';
+  $('previous-button').disabled = !queue || (queue.index === 0 && $('repeat-mode').value !== 'all');
+  $('next-button').disabled = !queue || (queue.index === queue.entries.length - 1 && $('repeat-mode').value !== 'all');
+  $('shuffle-button').setAttribute('aria-pressed', String(Boolean(queue?.shuffled)));
+  $('queue-list').replaceChildren(...(queue?.entries || []).map((entry, index) => { const li = node('li'); const button = node('button', entry.Name); if (index === queue.index) button.setAttribute('aria-current', 'true'); button.addEventListener('click', () => { queue.index = index; play(entry).catch(error => notice(error.message, true)); }); li.append(button); return li; }));
+}
+async function startQueue(items, { from = 0, shuffled = false, fromBeginning = false } = {}) {
+  if (!items.length) throw new Error('There are no playable files in this selection.');
+  const original = items.slice(from).map((item, index) => ({ ...item, queueKey: index }));
+  queue = { original, entries: [...original], index: 0, shuffled };
+  if (shuffled) shuffleRemaining(queue.entries, 0);
+  await play(queue.entries[0], { fromBeginning });
+}
+async function nextTrack(direction = 1, ended = false) {
+  const current = queue; if (!current) return;
+  const repeat = $('repeat-mode').value;
+  let index = current.index + (ended && repeat === 'one' ? 0 : direction);
+  if (index < 0 || index >= current.entries.length) index = repeat === 'all' ? (index + current.entries.length) % current.entries.length : -1;
+  const version = ++playVersion; await stop({ ended, refresh: index < 0 });
+  if (current !== queue || version !== playVersion) return;
+  if (index < 0) { queue = null; renderQueue(); return; }
+  current.index = index; await play(current.entries[index], { fromBeginning: true });
+}
+async function selectedPlay(fromBeginning = false) {
+  const item = selected;
+  const entries = isPlaylist(item) ? (await api(`Jigglefin/Playlists/${item.Id}`)).Items : [item];
+  await startQueue(entries, { fromBeginning });
 }
 function browserProfile(compatible = false) {
   const audio = document.createElement('audio'), video = document.createElement('video');
@@ -212,6 +331,8 @@ async function play(file, { fromBeginning = false, compatible = false, position,
     if (!url.includes('.m3u8')) throw new Error('This browser requires a local HLS playback stream.');
   }
   playback = context; $('playing-title').textContent = item.Name; $('play-method').textContent = direct ? 'Direct playback' : 'Compatible playback · local conversion';
+  renderQueue(); $('compatible-play-button').textContent = compatible ? 'Direct' : 'Convert';
+  $('compatible-play-button').setAttribute('aria-pressed', String(compatible));
   $('player-panel').hidden = false; $('player-panel').classList.toggle('audio', item.MediaType === 'Audio');
   $('save-status').textContent = 'Loading your saved place…';
   player.playbackRate = Number($('playback-rate').value); player.replaceChildren();
@@ -249,14 +370,20 @@ async function play(file, { fromBeginning = false, compatible = false, position,
   context.interval = setInterval(() => { if (playback === context && context.ready && !player.paused && !player.seeking) report(context, 'Progress').catch(() => {}); }, 5000);
 }
 player.addEventListener('timeupdate', () => { if (playback?.ready && !player.seeking && Number.isFinite(player.currentTime)) playback.position = player.currentTime; });
-player.addEventListener('pause', () => { if (playback?.ready && !player.ended) report(playback, 'Progress').catch(() => {}); });
+player.addEventListener('pause', () => { $('pause-button').textContent = 'Play'; if (playback?.ready && !player.ended) report(playback, 'Progress').catch(() => {}); });
+player.addEventListener('play', () => { $('pause-button').textContent = 'Pause'; });
 player.addEventListener('seeked', () => { if (playback?.ready) { playback.position = player.currentTime; report(playback, 'Progress').catch(() => {}); } });
-player.addEventListener('error', () => { if (playback) notice('The browser could not play this stream. Try “Use compatible playback”; your saved place is kept.', true); });
-player.addEventListener('ended', async () => { try { await stop({ ended: true, refresh: true }); } catch (error) { notice(error.message, true); } });
+player.addEventListener('error', () => { if (playback) notice('The browser could not play this stream. Try Convert for a browser-friendly local stream; your saved place is kept.', true); });
+player.addEventListener('ended', () => { if (playback?.ready) nextTrack(1, true).catch(error => notice(error.message, true)); });
 document.addEventListener('visibilitychange', () => { if (document.hidden && playback?.ready) report(playback, 'Progress', { keepalive: true }).catch(() => {}); });
 window.addEventListener('pagehide', () => { if (playback?.ready) report(playback, 'Progress', { keepalive: true }).catch(() => {}); });
 
 async function showSettings(version = routeVersion) {
+  const onboarding = currentRoute()[0] === 'setup';
+  $('settings-title').textContent = onboarding ? 'Choose your folders' : 'Settings';
+  $('settings-kind').textContent = onboarding ? 'SETUP · 2 OF 2' : 'JUST THE ESSENTIALS';
+  $('setup-next').hidden = !onboarding;
+  for (const id of ['account-settings', 'access-settings', 'cache-settings']) $(id).hidden = onboarding;
   $('admin-settings').hidden = !me.Policy.IsAdministrator;
   if (!me.Policy.IsAdministrator) return;
   [configuredRoots, accounts] = await Promise.all([api('Library/VirtualFolders'), api('Users')]); if (version !== routeVersion) return;
@@ -287,8 +414,51 @@ function renderAccess() {
 function folderPolicy(policy, all, enabled) {
   return { ...policy, EnableAllFolders: all, EnabledFolders: enabled, BlockedMediaFolders: [], MaxParentalRating: null, MaxParentalSubRating: null, BlockUnratedItems: [], BlockedTags: [], AllowedTags: [], EnableContentDeletion: false, EnableContentDeletionFromFolders: [], EnableSubtitleManagement: false, EnableCollectionManagement: false };
 }
+async function browseFolders(path = null) {
+  const version = ++pickerVersion;
+  pickerPath = null; $('picker-select').disabled = true; $('picker-up').disabled = true;
+  $('picker-error').textContent = ''; $('picker-path').textContent = path || 'Choose a drive on the server';
+  $('picker-list').replaceChildren(node('p', 'Reading folders…', 'muted'));
+  try {
+    const entries = await api(path ? `Environment/DirectoryContents?path=${encodeURIComponent(path)}&includeDirectories=true&includeFiles=false` : 'Environment/Drives');
+    if (version !== pickerVersion) return;
+    pickerPath = path; $('picker-select').disabled = !path; $('picker-up').disabled = !path;
+    $('picker-list').replaceChildren(...entries.map(entry => {
+      const button = node('button', entry.Name, 'picker-folder'); button.setAttribute('aria-label', `Browse ${entry.Name}`);
+      button.addEventListener('click', () => browseFolders(entry.Path)); return button;
+    }));
+    if (!entries.length) $('picker-list').append(node('p', path ? 'No subfolders. You can select this folder.' : 'No drives available to this server account.', 'muted'));
+  } catch (error) {
+    if (version !== pickerVersion) return;
+    $('picker-list').replaceChildren(); $('picker-error').textContent = error.message;
+    // A disconnected or inaccessible location must not strand the picker.
+    $('picker-up').disabled = !path;
+  }
+}
+on('browse-folders', 'click', async () => { $('folder-picker').showModal(); await browseFolders(); });
+on('picker-drives', 'click', () => browseFolders());
+on('picker-up', 'click', async () => {
+  const path = pickerPath || $('picker-path').textContent, version = pickerVersion;
+  const parent = await api(`Environment/ParentPath?path=${encodeURIComponent(path)}`);
+  if (version === pickerVersion) await browseFolders(parent || null);
+});
+on('picker-select', 'click', () => {
+  if (!pickerPath) return;
+  const paths = $('root-paths').value.split(/\r?\n/).map(path => path.trim()).filter(Boolean);
+  if (!paths.some(path => path.toLowerCase() === pickerPath.toLowerCase())) paths.push(pickerPath);
+  $('root-paths').value = paths.join('\n');
+  if (!$('root-name').value.trim()) $('root-name').value = pickerPath.replace(/[\\/]+$/, '').split(/[\\/]/).at(-1) || 'Media';
+  $('folder-picker').close();
+});
+on('picker-cancel', 'click', () => $('folder-picker').close());
+$('folder-picker').addEventListener('close', () => { ++pickerVersion; });
+on('setup-done', 'click', () => {
+  if (!configuredRoots.length && !confirm('Finish without adding a folder? You can add folders in Settings later.')) return;
+  localStorage.removeItem(storageKey + 'setup-folders'); location.hash = '#/';
+});
 on('auth-form', 'submit', async () => {
   notice(''); const name = $('username').value.trim(), password = $('password').value;
+  const firstTime = setup;
   if (setup) {
     await api('Startup/User');
     await api('Startup/User', { method: 'POST', body: { Name: name, Password: password } });
@@ -296,23 +466,40 @@ on('auth-form', 'submit', async () => {
     await api('Startup/Complete', { method: 'POST' }); setup = false;
   }
   const login = await api('Users/AuthenticateByName', { method: 'POST', body: { Username: name, Pw: password }, accessToken: null });
+  if (firstTime) localStorage.setItem(storageKey + 'setup-folders', '1');
+  if (localStorage.getItem(storageKey + 'setup-folders')) location.hash = '#/setup';
   setToken(login.AccessToken); await enter();
 });
 on('signout-button', 'click', async () => {
-  ++playVersion; await stop(); await api('Sessions/Logout', { method: 'POST' }); setToken(null); me = null; selected = null; currentItems = [];
+  ++playVersion; queue = null; renderQueue(); await stop(); await api('Sessions/Logout', { method: 'POST' }); setToken(null); me = null; selected = null; currentItems = [];
   $('username').value = ''; notice(''); showAuth(false);
 });
 on('settings-button', 'click', () => { location.hash = '#/settings'; });
 on('reload-button', 'click', () => route());
 on('file-search', 'input', () => renderList()); on('file-sort', 'change', () => renderList());
 on('close-details', 'click', () => { ++selectionVersion; selected = null; $('details').hidden = true; renderList(); });
-on('play-button', 'click', () => play(selected)); on('restart-button', 'click', () => play(selected, { fromBeginning: true }));
-on('favorite-button', 'click', async () => { const item = selected; await api(`UserFavoriteItems/${item.Id}`, { method: item.UserData?.IsFavorite ? 'DELETE' : 'POST' }); await select(item); const listing = currentItems.find(entry => entry.Id === item.Id); if (listing) listing.UserData = selected.UserData; renderList(); });
-on('stop-button', 'click', async () => { ++playVersion; await stop({ refresh: true }); });
+on('play-button', 'click', () => selectedPlay()); on('restart-button', 'click', () => selectedPlay(true));
+on('play-from-here', 'click', () => { const items = folderQueue(), index = items.findIndex(item => sameId(item.Id, selected.Id)); if (index < 0) throw new Error('The selected file is not in the displayed order.'); return startQueue(items, { from: index }); });
+on('folder-play', 'click', () => startQueue(folderQueue())); on('folder-shuffle', 'click', () => startQueue(folderQueue(), { shuffled: true }));
+on('playlist-select', 'change', () => loadPlaylist());
+on('favorite-button', 'click', () => toggleFavorite(selected)); on('folder-favorite', 'click', () => toggleFavorite(currentFolder));
+on('open-parent', 'click', () => { location.hash = `#/folder/${selected.ParentId}/${selected.Id}`; });
+on('clear-continue', 'click', () => dismissContinue());
+on('stop-button', 'click', async () => { ++playVersion; queue = null; renderQueue(); await stop({ refresh: true }); });
+on('pause-button', 'click', async () => { if (!playback?.ready) return; if (player.paused) await player.play(); else player.pause(); });
+on('previous-button', 'click', () => nextTrack(-1)); on('next-button', 'click', () => nextTrack());
+on('repeat-mode', 'change', () => renderQueue());
+on('shuffle-button', 'click', () => {
+  if (!queue) return;
+  const playing = queue.entries[queue.index]; queue.shuffled = !queue.shuffled;
+  if (queue.shuffled) shuffleRemaining(queue.entries, queue.index + 1);
+  else { queue.entries = [...queue.original]; queue.index = queue.entries.findIndex(item => item.queueKey === playing.queueKey); }
+  renderQueue();
+});
 on('back-button', 'click', () => { if (playback?.ready) player.currentTime = Math.max(0, player.currentTime - 30); });
 on('forward-button', 'click', () => { if (playback?.ready) player.currentTime = Math.min(Number.isFinite(player.duration) ? player.duration : Number.MAX_SAFE_INTEGER, player.currentTime + 30); });
 on('playback-rate', 'change', () => { player.defaultPlaybackRate = player.playbackRate = Number($('playback-rate').value); });
-on('compatible-play-button', 'click', () => { if (playback) return play(playback.item, { compatible: true, position: playback.position, audioIndex: playback.audioIndex }); });
+on('compatible-play-button', 'click', () => { if (playback) return play(playback.item, { compatible: !playback.compatible, position: playback.position }); });
 on('audio-select', 'change', () => { if (playback) return play(playback.item, { compatible: true, position: playback.position, audioIndex: Number($('audio-select').value) }); });
 on('subtitle-select', 'change', () => {
   if (!playback) return; playback.subtitleIndex = Number($('subtitle-select').value);
@@ -320,7 +507,7 @@ on('subtitle-select', 'change', () => {
 });
 on('root-form', 'submit', async () => {
   const paths = $('root-paths').value.split(/\r?\n/).map(path => path.trim()).filter(Boolean);
-  if (!paths.length) throw new Error('Enter at least one folder location.');
+  if (!paths.length) throw new Error('Choose at least one folder with Browse, or paste its location.');
   await api(`Library/VirtualFolders?name=${encodeURIComponent($('root-name').value.trim())}`, { method: 'POST', body: { LibraryOptions: { PathInfos: paths.map(Path => ({ Path })) } } });
   $('root-form').reset(); await loadRoots(); await showSettings(); notice('Folder group added. Nothing was scanned or written to the media folders.');
 });
@@ -351,7 +538,7 @@ if (typeof window.NativeInterface?.exitApp === 'function') {
   window.NavigationHelper = {
     goBack() {
       (async () => {
-        if (playback) { ++playVersion; await stop({ refresh: true }); }
+        if (playback) { ++playVersion; queue = null; renderQueue(); await stop({ refresh: true }); }
         else if (selected) { ++selectionVersion; selected = null; $('details').hidden = true; renderList(); }
         else if (currentRoute().length) {
           location.hash = currentRoute()[0] === 'folder' ? [...$('breadcrumbs').querySelectorAll('a')].at(-1)?.hash || '#/' : '#/';

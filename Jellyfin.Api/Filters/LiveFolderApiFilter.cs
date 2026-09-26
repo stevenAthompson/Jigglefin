@@ -243,6 +243,12 @@ public sealed class LiveFolderApiFilter : IActionFilter
         {
             items = ids.Select(id => Item(id, user));
         }
+        else if (Arg<Guid?>(args, "parentId") is null && (Arg<bool?>(args, "isFavorite") == true
+            || (Arg<ItemFilter[]>(args, "filters") ?? []).Contains(ItemFilter.IsFavorite)))
+        {
+            // Saved shortcuts only: never walk configured roots to find favorites.
+            items = FavoriteItems(user);
+        }
         else
         {
             var parent = Arg<Guid?>(args, "parentId") ?? HomeId;
@@ -436,7 +442,7 @@ public sealed class LiveFolderApiFilter : IActionFilter
             : [];
         foreach (var saved in _state.GetSaved(user.Id))
         {
-            if (saved.Data.PlaybackPositionTicks <= 0 || saved.Data.Played || active.Contains(saved.ItemId))
+            if (saved.Data.PlaybackPositionTicks <= 0 || saved.Data.Played || saved.Data.HideFromResume || active.Contains(saved.ItemId))
             {
                 continue;
             }
@@ -468,6 +474,32 @@ public sealed class LiveFolderApiFilter : IActionFilter
         return Page(FilterItems(list, args), args);
     }
 
+    private IEnumerable<BaseItemDto> FavoriteItems(User? user)
+    {
+        if (user is null)
+        {
+            return [];
+        }
+
+        var result = new List<BaseItemDto>();
+        foreach (var saved in _state.GetSaved(user.Id).Where(saved => saved.Data.IsFavorite))
+        {
+            try
+            {
+                result.Add(Item(saved.ItemId, user));
+            }
+            catch (IOException)
+            {
+                // Keep unavailable shortcuts in durable state for reconnection.
+            }
+            catch (UnauthorizedAccessException)
+            {
+            }
+        }
+
+        return result;
+    }
+
     private BaseItemDto ToDto(LiveDirectoryEntry entry, LiveLibraryDefinition library)
     {
         var parent = entry.ParentId;
@@ -478,6 +510,8 @@ public sealed class LiveFolderApiFilter : IActionFilter
 
         var dto = Folder(entry.Id, entry.Name, parent);
         dto.Path = entry.File.FullPath;
+        dto.DateModified = entry.IsUnavailable ? null : entry.File.LastWriteTimeUtc;
+        dto.FileSize = entry.File.Length;
         dto.IsFolder = entry.File.IsDirectory;
         dto.LocationType = entry.IsUnavailable ? LocationType.Offline : LocationType.FileSystem;
         if (entry.IsUnavailable)

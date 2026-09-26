@@ -6,6 +6,7 @@ using System.Linq;
 using Jellyfin.Api.Models.EnvironmentDtos;
 using MediaBrowser.Common.Api;
 using MediaBrowser.Common.Extensions;
+using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.IO;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
@@ -58,12 +59,13 @@ public class EnvironmentController : BaseJellyfinApiController
             return Array.Empty<FileSystemEntryInfo>();
         }
 
-        var entries =
-            _fileSystem.GetFileSystemEntries(path)
-                .Where(i => (i.IsDirectory && includeDirectories) || (!i.IsDirectory && includeFiles))
-                .OrderBy(i => i.FullName);
-
-        return entries.Select(f => new FileSystemEntryInfo(f.Name, f.FullName, f.IsDirectory ? FileSystemEntryType.Directory : FileSystemEntryType.File));
+        using var lease = LivePathLease.Acquire(path);
+        return new DirectoryInfo(lease.ReadPath).EnumerateFileSystemInfos()
+            .Where(entry => (entry.Attributes & FileAttributes.ReparsePoint) == 0)
+            .Where(entry => (entry is DirectoryInfo && includeDirectories) || (entry is FileInfo && includeFiles))
+            .OrderBy(entry => entry.Name, StringComparer.OrdinalIgnoreCase)
+            .Select(entry => new FileSystemEntryInfo(entry.Name, Path.Combine(path, entry.Name), entry is DirectoryInfo ? FileSystemEntryType.Directory : FileSystemEntryType.File))
+            .ToArray();
     }
 
     /// <summary>
@@ -136,7 +138,9 @@ public class EnvironmentController : BaseJellyfinApiController
     [ProducesResponseType(StatusCodes.Status200OK)]
     public IEnumerable<FileSystemEntryInfo> GetDrives()
     {
-        return _fileSystem.GetDrives().Select(d => new FileSystemEntryInfo(d.Name, d.FullName, FileSystemEntryType.Directory));
+        // Listing choices must not probe disconnected mappings, optical media or
+        // network drive readiness. Only opening a chosen directory accesses it.
+        return Environment.GetLogicalDrives().Select(path => new FileSystemEntryInfo(path, path, FileSystemEntryType.Directory));
     }
 
     /// <summary>

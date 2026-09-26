@@ -141,7 +141,7 @@ public sealed class LiveFolderQueryTests
                 Assert.Equal(3, page.TotalRecordCount);
                 Assert.Equal(b.Id, Assert.Single(page.Items).Id);
                 Assert.Null(page.Items[0].UserData);
-                Assert.Equal(group.Id, Assert.Single((await fixture.Query($"{route}?isFavorite=true")).Items).Id);
+                Assert.Equal(new[] { group.Id, a.Id }.Order(), (await fixture.Query($"{route}?isFavorite=true")).Items.Select(item => item.Id).Order());
             }
         }
 

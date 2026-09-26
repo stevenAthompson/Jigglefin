@@ -59,6 +59,24 @@ public sealed class LiveUserDataTests : IDisposable
     }
 
     [Fact]
+    public void ContinueDismissal_SurvivesRestartAndOnlyPlaybackStartClearsIt()
+    {
+        var item = Item("book");
+        var data = new UserItemData { Key = item.Id.ToString("N"), HideFromResume = true, IsFavorite = true, PlaybackPositionTicks = 123456 };
+        _state.Save(_user.Id, item.Id, data);
+        var restarted = new LiveUserDataStore(_fixture.FullName).Get(_user.Id, item.Id);
+        Assert.True(restarted.HideFromResume);
+        Assert.True(restarted.IsFavorite);
+        Assert.Equal(123456, restarted.PlaybackPositionTicks);
+        _manager.SaveUserData(_user, item, restarted, UserDataSaveReason.PlaybackProgress, TestContext.Current.CancellationToken);
+        Assert.True(_state.Get(_user.Id, item.Id).HideFromResume);
+        _manager.SaveUserData(_user, item, restarted, UserDataSaveReason.PlaybackStart, TestContext.Current.CancellationToken);
+        Assert.False(_state.Get(_user.Id, item.Id).HideFromResume);
+        Assert.Equal(123456, _state.Get(_user.Id, item.Id).PlaybackPositionTicks);
+        _catalog.VerifyNoOtherCalls();
+    }
+
+    [Fact]
     public void LegacyImport_RetryDoesNotOverwriteAnExistingLiveBookmarkOrFavorite()
     {
         var item = Item("book");

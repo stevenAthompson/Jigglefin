@@ -136,6 +136,10 @@ async function login(page, name = username, accountPassword = password) {
 async function playing(page, minimum = .1) {
   await page.waitForFunction(min => { const video = document.querySelector('#player'); return video && video.currentTime > min && !video.paused && video.readyState >= 3 && !video.error; }, minimum, { timeout: 30000 });
 }
+async function stopped(page) {
+  await page.locator('#stop-button').click();
+  await page.waitForFunction(() => document.querySelector('#player-panel').hidden && document.querySelector('#stop-button').getAttribute('aria-busy') !== 'true');
+}
 async function main() {
   fixture = await fs.mkdtemp(path.join(os.tmpdir(), 'jigglefin-folder-web-'));
   profile = path.join(fixture, 'Server profile');
@@ -151,6 +155,14 @@ async function main() {
   await fs.writeFile(path.join(films, 'Film.nfo'), '<movie><title>The local film</title><plot>Local film description.</plot></movie>');
   await fs.writeFile(path.join(films, 'Film.en.srt'), '1\n00:00:00,000 --> 00:00:15,000\nOffline subtitle\n');
   await fs.copyFile(path.join(root, 'branding/jigglefin-256.png'), path.join(books, 'folder.png'));
+  const tracks = path.join(media, 'Queue'); await fs.mkdir(tracks);
+  for (const [index, name] of ['A', 'B', 'C'].entries()) {
+    const file = path.join(tracks, name + '.m4b');
+    await command(ffmpeg, ['-hide_banner', '-loglevel', 'error', '-i', path.join(books, 'Chapter 01.m4b'), '-t', String(12 + index * 4), '-c', 'copy', file]);
+    await fs.utimes(file, new Date(`202${index}-01-01T00:00:00Z`), new Date(`202${index}-01-01T00:00:00Z`));
+  }
+  await fs.writeFile(path.join(tracks, 'Order.m3u'), '#EXTM3U\nB.m4b\nA.m4b\nB.m4b\nhttps://never-resolve.invalid/remote.mp3\n');
+  await fs.writeFile(path.join(tracks, 'Second.pls'), '[playlist]\nFile2=C.m4b\nFile1=A.m4b\nNumberOfEntries=2\n');
   await fs.writeFile(path.join(media, 'notes.txt'), 'Visible but not media.');
   if (networkAudit) closeNativeTrap = await networkAudit.fixtureTrap(media);
   const before = await snapshot(media);
@@ -173,9 +185,26 @@ async function main() {
   await page.getByRole('heading', { name: 'Make yourself at home.' }).waitFor();
   await page.getByLabel('Username', { exact: true }).fill(username); await page.getByLabel('Password', { exact: true }).fill(password);
   await page.getByRole('button', { name: 'Create local server' }).click();
+  await page.getByRole('heading', { name: 'Choose your folders', exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Browse', exact: true }).click();
+  const drive = path.parse(media).root;
+  await page.getByRole('button', { name: `Browse ${drive}`, exact: true }).click();
+  for (const part of media.slice(drive.length).split(path.sep)) await page.getByRole('button', { name: `Browse ${part}`, exact: true }).click();
+  await page.locator('#picker-up').click();
+  await page.getByRole('button', { name: 'Browse Media', exact: true }).click();
+  await page.getByRole('button', { name: 'Browse Books', exact: true }).waitFor();
+  await page.screenshot({ path: path.join(fixture, 'setup-picker.png'), fullPage: true });
+  await page.locator('#picker-select').click();
+  assert.equal(await page.locator('#root-paths').inputValue(), media, 'Setup picker should choose a path without typing it.');
+  await page.getByLabel('Folder group name').fill('Test Media');
+  const requestsBeforeMount = requests.length;
+  await page.getByRole('button', { name: 'Add folder group' }).click();
+  await page.getByText('Folder group added. Nothing was scanned or written to the media folders.').waitFor();
+  assert.ok(!requests.slice(requestsBeforeMount).some(url => /PlaybackInfo|\/Items\//.test(url)), 'Mounting must not select or probe media.');
+  await page.getByRole('button', { name: 'Done', exact: true }).click();
   await page.getByRole('heading', { name: 'Your folders', exact: true }).waitFor();
   token = (await api('Users/AuthenticateByName', 'POST', { Username: username, Pw: password }, null)).AccessToken;
-  console.log('Minimal setup passed.');
+  console.log('Setup with server folder picker passed without typing a path or scanning media.');
   // Query only the local share table to reject aliases of private storage.
   // In the native audit even an attempted lookup/open of the .invalid host fails.
   for (const host of ['localhost', 'jigglefin-share-alias.invalid']) for (const suffix of ['', '\\MISSING~1']) {
@@ -206,78 +235,160 @@ async function main() {
   await fs.rmdir(disconnectedMount); // Only this test's own empty directory.
   await page.getByRole('link', { name: 'Mount recovery', exact: true }).click();
   const unavailableMount = page.getByRole('button', { name: 'Open folder Disconnected location', exact: true });
-  await unavailableMount.getByText('Unavailable folder', { exact: true }).waitFor();
+  await unavailableMount.getByText(/^Unavailable folder/).waitFor();
   await page.getByRole('button', { name: 'Open folder Available location', exact: true }).click();
   await page.getByRole('button', { name: 'Select file Available.txt', exact: true }).waitFor();
   await page.locator('#breadcrumbs').getByRole('link', { name: 'Mount recovery', exact: true }).click();
-  await unavailableMount.getByText('Unavailable folder', { exact: true }).waitFor();
+  await unavailableMount.getByText(/^Unavailable folder/).waitFor();
   await fs.mkdir(disconnectedMount); await fs.writeFile(path.join(disconnectedMount, 'Returned.txt'), 'Now available');
-  await page.getByRole('button', { name: 'Reload folder', exact: true }).click();
-  await unavailableMount.getByText('Unavailable folder', { exact: true }).waitFor({ state: 'detached' });
+  await page.getByRole('button', { name: 'Reload', exact: true }).click();
+  await unavailableMount.getByText(/^Unavailable folder/).waitFor({ state: 'detached' });
   await unavailableMount.click(); await page.getByRole('button', { name: 'Select file Returned.txt', exact: true }).waitFor();
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await page.getByRole('button', { name: 'Remove folder group Mount recovery', exact: true }).click();
   await page.getByText('Folder group removed. Its files were not changed.', { exact: true }).waitFor();
   console.log('Disconnected multi-root location remained visible; other roots worked and reconnection needed no scan.');
-  await page.getByLabel('Folder group name').fill('Test Media'); await page.getByLabel('Folder locations, one per line').fill(media);
-  const requestsBeforeMount = requests.length;
-  await page.getByRole('button', { name: 'Add folder group' }).click(); await page.getByText('Folder group added. Nothing was scanned or written to the media folders.').waitFor();
-  assert.ok(!requests.slice(requestsBeforeMount).some(url => /PlaybackInfo|\/Items\//.test(url)), 'Mounting must not select or probe media.');
-  await page.getByRole('link', { name: 'Test Media', exact: true }).click();
+  await page.locator('.sidebar').getByRole('link', { name: 'Test Media', exact: true }).click();
   await page.getByRole('button', { name: 'Open folder Books', exact: true }).waitFor();
   assert.ok(!requests.some(url => /PlaybackInfo/.test(url)), 'Browsing must not probe media.');
   await page.getByRole('button', { name: 'Select file notes.txt', exact: true }).waitFor();
   await page.getByRole('button', { name: 'Open folder Empty', exact: true }).click(); await page.getByText('This folder is empty.', { exact: true }).waitFor();
   await page.locator('#breadcrumbs').getByRole('link', { name: 'Test Media' }).click();
   const added = path.join(media, 'Added while browsing.txt'); await fs.writeFile(added, 'fresh');
-  await page.getByRole('button', { name: 'Reload folder', exact: true }).click(); await page.getByRole('button', { name: 'Select file Added while browsing.txt', exact: true }).waitFor();
-  await fs.unlink(added); await page.getByRole('button', { name: 'Reload folder', exact: true }).click();
+  await page.getByRole('button', { name: 'Reload', exact: true }).click(); await page.getByRole('button', { name: 'Select file Added while browsing.txt', exact: true }).waitFor();
+  await fs.unlink(added); await page.getByRole('button', { name: 'Reload', exact: true }).click();
   await page.getByRole('button', { name: 'Select file Added while browsing.txt', exact: true }).waitFor({ state: 'detached' });
   await page.getByRole('button', { name: 'Open folder Books', exact: true }).click();
   await page.getByRole('button', { name: 'Select file Chapter 01.m4b', exact: true }).waitFor();
-  await page.getByLabel('Find in this folder').fill('.m4b');
-  assert.equal(await page.locator('#file-list button').count(), 1);
-  await page.getByLabel('Find in this folder').fill('');
+  await page.getByLabel('Find', { exact: true }).fill('.m4b');
+  assert.equal(await page.locator('#file-list .file-row').count(), 1);
+  await page.getByLabel('Find', { exact: true }).fill('');
   await page.getByRole('button', { name: 'Select file Chapter 01.m4b', exact: true }).click();
   await page.getByRole('heading', { name: 'The local audiobook', exact: true }).waitFor();
   await page.locator('#detail-art').waitFor({ state: 'visible' });
   await page.waitForFunction(() => document.querySelector('#detail-art').naturalWidth > 0);
   assert.match(await page.locator('#detail-overview').innerText(), /<img src=/);
   await page.screenshot({ path: path.join(fixture, 'folder-desktop.png'), fullPage: true });
-  await page.getByRole('button', { name: 'Play', exact: true }).click(); await playing(page);
+  await page.locator('#play-button').click(); await playing(page);
   await page.locator('#player').evaluate(video => { video.currentTime = 31; }); await playing(page, 31);
-  await page.getByRole('button', { name: 'Stop & save place', exact: true }).click(); await page.getByRole('button', { name: /Resume at 0:3/ }).waitFor();
+  await page.getByRole('button', { name: 'Forward 30 seconds', exact: true }).click(); await playing(page, 61);
+  await page.getByRole('button', { name: 'Back 30 seconds', exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('#player').currentTime < 40); await playing(page, 31);
+  await stopped(page); await page.getByRole('button', { name: /Resume at 0:3/ }).waitFor();
   const bookId = (await api('UserItems/Resume')).Items.find(item => item.Name === 'Chapter 01.m4b').Id;
   if (networkAudit) {
     await networkAudit.legacyEndpoints(base, token, bookId);
     console.log('Legacy online/refresh endpoints and hostile Host header exercised under native observation.');
   }
-  await page.getByRole('button', { name: 'Favorite', exact: true }).click(); await page.getByRole('button', { name: 'Remove favorite', exact: true }).waitFor();
+  await page.locator('#favorite-button').click(); await page.getByRole('button', { name: 'Remove favorite', exact: true }).waitFor();
   let saved = (await api('Items/' + bookId)).UserData.PlaybackPositionTicks;
   assert.ok(saved >= 31e7 && saved < 40e7, `Unexpected saved position: ${saved}`);
   await page.getByRole('button', { name: 'Settings', exact: true }).click(); await page.getByRole('button', { name: 'Clear selection cache' }).click();
   await page.getByText('Selection cache cleared. Saved places and favorites are kept.').waitFor();
-  await page.getByRole('link', { name: 'Continue listening & watching' }).click(); await page.getByRole('button', { name: 'Select file Chapter 01.m4b', exact: true }).click();
+  await page.getByRole('link', { name: 'Continue' }).click(); await page.getByRole('button', { name: 'Select file Chapter 01.m4b', exact: true }).click();
   await page.getByRole('button', { name: 'Remove favorite', exact: true }).waitFor();
   await page.getByRole('button', { name: /Resume at 0:3/ }).click(); await playing(page, 31);
   await page.getByRole('combobox', { name: 'Playback speed', exact: true }).selectOption('1.5');
   assert.equal(await page.locator('#player').evaluate(video => video.playbackRate), 1.5);
-  await page.getByRole('button', { name: 'Use compatible playback', exact: true }).click(); await playing(page, 31);
+  await page.getByRole('button', { name: 'Convert', exact: true }).click(); await playing(page, 31);
   assert.equal(await page.locator('#player').evaluate(video => video.playbackRate), 1.5);
   assert.match(await page.locator('#play-method').innerText(), /Compatible/);
   await page.locator('#player').evaluate(video => { video.currentTime = 63; }); await playing(page, 63);
-  await page.getByRole('button', { name: 'Stop & save place', exact: true }).click();
+  await stopped(page);
   saved = (await api('Items/' + bookId)).UserData.PlaybackPositionTicks; assert.ok(saved >= 63e7 && saved < 75e7, `HLS position drift: ${saved}`);
   console.log('Audio direct/compatible playback, seeking, cache clear and resume passed.');
-  await page.getByRole('link', { name: 'Test Media', exact: true }).click(); await page.getByRole('button', { name: 'Open folder Films', exact: true }).click();
+  await page.getByRole('link', { name: 'Favorites', exact: true }).click();
+  await page.getByRole('button', { name: 'Select file Chapter 01.m4b', exact: true }).click();
+  await page.getByRole('heading', { name: 'Books', exact: true }).waitFor();
+  await page.getByRole('heading', { name: 'The local audiobook', exact: true }).waitFor();
+  await page.locator('#folder-favorite').click();
+  await page.getByRole('link', { name: 'Favorites', exact: true }).click();
+  await page.getByRole('button', { name: 'Open folder Books', exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Select file Chapter 01.m4b', exact: true }).waitFor();
+  await page.getByRole('link', { name: 'Continue', exact: true }).click();
+  await page.getByRole('button', { name: 'Remove Chapter 01.m4b from Continue', exact: true }).click();
+  await page.getByRole('button', { name: 'Select file Chapter 01.m4b', exact: true }).waitFor({ state: 'detached' });
+  assert.equal((await api('Items/' + bookId)).UserData.PlaybackPositionTicks, saved, 'Dismissal must preserve the bookmark.');
+  console.log('Folder/file Favorites shortcuts and individual Continue dismissal passed.');
+  await page.locator('.sidebar').getByRole('link', { name: 'Test Media', exact: true }).click(); await page.getByRole('button', { name: 'Open folder Films', exact: true }).click();
   await page.getByRole('button', { name: 'Select file Film.mp4', exact: true }).click(); await page.getByRole('heading', { name: 'The local film', exact: true }).waitFor();
-  await page.getByRole('button', { name: 'Play', exact: true }).click(); await playing(page);
+  await page.locator('#play-button').click(); await playing(page);
   await page.locator('#subtitle-select').selectOption({ index: 1 });
   await page.waitForFunction(() => document.querySelector('#player').textTracks[0]?.cues?.length > 0);
   assert.match(await page.locator('#player').evaluate(video => video.textTracks[0].cues[0].text), /Offline subtitle/);
-  await page.getByRole('button', { name: 'Use compatible playback', exact: true }).click(); await playing(page);
-  await page.getByRole('button', { name: 'Stop & save place', exact: true }).click();
+  await page.getByRole('button', { name: 'Convert', exact: true }).click(); await playing(page);
+  await stopped(page);
   console.log('Video direct/compatible playback and local WebVTT passed.');
+  await page.locator('.sidebar').getByRole('link', { name: 'Test Media', exact: true }).click();
+  await page.getByRole('button', { name: 'Open folder Queue', exact: true }).click();
+  await page.getByText(/Order.m3u: 3 tracks; 1 unavailable/).waitFor();
+  const displayedTracks = () => page.locator('#file-list .file-name').allTextContents().then(names => names.filter(name => name.endsWith('.m4b')));
+  assert.deepEqual(await displayedTracks(), ['B.m4b', 'A.m4b', 'C.m4b']);
+  for (const sort of ['newest', 'largest', 'desc']) {
+    await page.locator('#file-sort').selectOption(sort); assert.deepEqual(await displayedTracks(), ['C.m4b', 'B.m4b', 'A.m4b']);
+  }
+  for (const sort of ['oldest', 'smallest', 'asc']) {
+    await page.locator('#file-sort').selectOption(sort); assert.deepEqual(await displayedTracks(), ['A.m4b', 'B.m4b', 'C.m4b']);
+  }
+  await page.getByRole('button', { name: 'Select file B.m4b', exact: true }).click();
+  await page.getByRole('button', { name: 'Play from here', exact: true }).click(); await playing(page);
+  assert.deepEqual(await page.locator('#queue-list button').allTextContents(), ['B.m4b', 'C.m4b']);
+  await page.locator('#pause-button').click(); assert.ok(await page.locator('#player').evaluate(video => video.paused));
+  await page.locator('#pause-button').click(); await playing(page);
+  await page.getByRole('button', { name: 'Next track', exact: true }).click();
+  await page.getByText('C.m4b', { exact: true }).filter({ visible: true }).first().waitFor();
+  await page.waitForFunction(() => document.querySelector('#playing-title').textContent === 'C.m4b'); await playing(page);
+  assert.ok(await page.locator('#next-button').isDisabled());
+  await page.getByRole('button', { name: 'Previous track', exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('#playing-title').textContent === 'B.m4b'); await playing(page);
+  // Hold the old stop report until the next queue is already visible. Its late
+  // completion must not clear the new queue or replace the current selection.
+  let releaseStop, sawStop;
+  const heldStop = new Promise(resolve => { releaseStop = resolve; });
+  const stopReached = new Promise(resolve => { sawStop = resolve; });
+  await page.route('**/Sessions/Playing/Stopped', async route => { sawStop(); await heldStop; await route.continue(); }, { times: 1 });
+  await page.locator('#stop-button').click(); await stopReached;
+  await page.locator('#file-sort').selectOption('playlist');
+  await page.locator('#folder-play').click();
+  await page.waitForFunction(() => document.querySelectorAll('#queue-list button').length === 4 && !document.querySelector('#player-panel').hidden);
+  releaseStop(); await playing(page);
+  assert.deepEqual(await page.locator('#queue-list button').allTextContents(), ['B.m4b', 'A.m4b', 'B.m4b', 'C.m4b']);
+  await page.locator('#queue-details summary').click();
+  await page.screenshot({ path: path.join(fixture, 'folder-queue.png'), fullPage: true });
+  await page.locator('#repeat-mode').selectOption('one');
+  await page.locator('#player').evaluate(video => { video.currentTime = video.duration - .15; });
+  await page.waitForFunction(() => document.querySelector('#player').currentTime < 2 && !document.querySelector('#player').paused);
+  assert.equal(await page.locator('#playing-title').textContent(), 'B.m4b');
+  await page.locator('#repeat-mode').selectOption('off');
+  await page.locator('#player').evaluate(video => { video.currentTime = video.duration - .15; });
+  await page.waitForFunction(() => document.querySelector('#playing-title').textContent === 'A.m4b'); await playing(page);
+  await page.locator('#shuffle-button').click(); assert.equal(await page.locator('#shuffle-button').getAttribute('aria-pressed'), 'true');
+  assert.equal(await page.locator('#queue-list button').count(), 4);
+  await page.locator('#shuffle-button').click(); assert.deepEqual(await page.locator('#queue-list button').allTextContents(), ['B.m4b', 'A.m4b', 'B.m4b', 'C.m4b']);
+  await stopped(page);
+  await page.locator('#playlist-select').selectOption({ label: 'Second.pls' });
+  await page.getByText(/Second.pls: 2 tracks/).waitFor();
+  await page.locator('#folder-shuffle').click(); await playing(page);
+  assert.deepEqual((await page.locator('#queue-list button').allTextContents()).sort(), ['A.m4b', 'B.m4b', 'C.m4b']);
+  await stopped(page);
+  await page.getByRole('button', { name: 'Select file Second.pls', exact: true }).click();
+  await page.locator('#play-button').click(); await playing(page);
+  assert.deepEqual(await page.locator('#queue-list button').allTextContents(), ['A.m4b', 'C.m4b']);
+  await page.locator('#repeat-mode').selectOption('all');
+  await page.locator('#previous-button').click();
+  await page.waitForFunction(() => document.querySelector('#playing-title').textContent === 'C.m4b'); await playing(page);
+  await page.locator('#next-button').click();
+  await page.waitForFunction(() => document.querySelector('#playing-title').textContent === 'A.m4b'); await playing(page);
+  await page.locator('#repeat-mode').selectOption('off'); await stopped(page);
+  await page.getByRole('link', { name: 'Continue', exact: true }).click();
+  await page.locator('#clear-continue').click(); await page.getByText('Nothing unfinished yet. Your place will appear here after playback.', { exact: true }).waitFor();
+  assert.equal((await api('Items/' + bookId)).UserData.PlaybackPositionTicks, saved);
+  assert.ok((await api('Items/' + bookId)).UserData.IsFavorite);
+  await page.getByRole('link', { name: 'Favorites', exact: true }).click();
+  await page.getByRole('button', { name: 'Select file Chapter 01.m4b', exact: true }).click();
+  await page.locator('#play-button').click(); await playing(page, 63); await stopped(page);
+  assert.ok((await api('UserItems/Resume')).Items.some(item => item.Id === bookId), 'Playing restores a dismissed Continue entry.');
+  console.log('Date/size/name sorting, playlist order/duplicates, Play from here, queues, pause/next/previous/shuffle/repeat/Stop and Clear Continue passed.');
   await page.getByRole('button', { name: 'Settings', exact: true }).click(); await page.getByText('Add an account', { exact: true }).click();
   await page.getByLabel('New username', { exact: true }).fill('LimitedReader'); await page.getByLabel('Initial password', { exact: true }).fill(password);
   await page.getByRole('button', { name: 'Create account', exact: true }).click(); await page.getByText('Account created with no folder access. Choose the folders it may open.').waitFor();
@@ -289,9 +400,9 @@ async function main() {
   }), 403);
   assert.equal((await fetch(base + '/Jigglefin/Cache/Clear', { method: 'POST' })).status, 401);
   await page.locator('#access-roots').getByLabel('Test Media', { exact: true }).check(); await page.getByRole('button', { name: 'Save folder access' }).click(); await page.getByText('Folder access saved.').waitFor();
-  await restricted.getByRole('button', { name: 'Reload folder', exact: true }).click(); await restricted.getByRole('button', { name: 'Open folder Test Media', exact: true }).click();
+  await restricted.getByRole('button', { name: 'Reload', exact: true }).click(); await restricted.getByRole('button', { name: 'Open folder Test Media', exact: true }).click();
   await restricted.getByRole('button', { name: 'Open folder Books', exact: true }).click(); await restricted.getByRole('button', { name: 'Select file Chapter 01.m4b', exact: true }).click();
-  await restricted.getByRole('button', { name: 'Play', exact: true }).waitFor();
+  await restricted.locator('#play-button').waitFor();
   assert.equal(await restricted.getByRole('button', { name: /Resume at/ }).count(), 0, 'Bookmarks must be per account.');
   await restricted.screenshot({ path: path.join(fixture, 'folder-mobile.png'), fullPage: true });
   await restricted.getByRole('button', { name: 'Settings', exact: true }).click(); assert.ok(await restricted.locator('#admin-settings').isHidden());
@@ -309,7 +420,7 @@ async function main() {
   page = await newPage(context); await page.goto(base + '/web/#/resume');
   await page.getByRole('button', { name: 'Select file Chapter 01.m4b', exact: true }).click();
   await page.getByRole('button', { name: /Resume at 1:0/ }).click(); await playing(page, 63);
-  await page.getByRole('button', { name: 'Stop & save place', exact: true }).click();
+  await stopped(page);
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   await page.getByRole('button', { name: 'Disable folder group Test Media', exact: true }).click();
   await page.getByText('Folder group disabled. Files and saved places are unchanged.', { exact: true }).waitFor();
@@ -343,7 +454,7 @@ main().catch(async error => {
   if (successful) {
     await fs.writeFile(path.join(fixture, 'web-smoke-report.json'), JSON.stringify({
       pass: true, packageDirectory: packageDirectory || null, externalRequests, failures, violations, nativeResults,
-      checks: ['Minimal setup; live navigation without scans; direct/HLS audio and video; subtitles; per-account bookmarks; cache eviction; restart/resume; disconnected roots; unchanged media bytes and timestamps; clean server shutdown.']
+      checks: ['Picker-based setup without typed paths; live navigation without scans; Favorites shortcuts; Continue single/all dismissal; playlist/date/size/name sorting; M3U/PLS queues and duplicates; Play from here; pause/stop/next/previous/skip/shuffle/repeat/automatic advance; delayed Stop/new queue race; direct/HLS audio and video; subtitles; per-account bookmarks; cache eviction; restart/resume; disconnected roots; unchanged media bytes and timestamps; clean server shutdown.']
     }, null, 2) + '\n');
     console.log('PASS. Isolated fixture retained for visual review:', fixture);
   }

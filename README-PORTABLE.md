@@ -10,17 +10,32 @@ audiobook positions; back up your own profile before any later migration.
 
 1. Extract the ZIP into a new folder.
 2. Run `Start-Jigglefin.ps1 -DataDir <new-test-profile-path>` from PowerShell.
-3. Open `http://localhost:8096/web/`, create a local account, then add folder locations
-   under Settings. Standard Jellyfin apps connect to the same server address.
+3. Open `http://localhost:8096/web/`, create a local account, then use Browse in setup
+   to select server folders. You can change them in Settings later. Standard Jellyfin
+   apps connect to the same server address.
 
 Folders are read when opened; there is no scan or catalog rebuild. Selecting a file reads
 its local NFO/artwork, and playing it probes only that file. New files appear when you reopen
-or reload the folder. Only filename sorting/filtering is offered. Unsupported file formats
+or reload the folder. Sorting includes playlist order, name, modified date, size and type. Unsupported file formats
 are still visible. There are no online metadata, plugin-download or update controls.
 
 Saved positions and favorites are per account and separate from the selection cache.
 Clearing that cache does not clear bookmarks. Actual file moves/renames currently change
 item identity. Standard clients may expose unsupported catalog menus; use their Folder View.
+
+The web UI has Folders, Continue and Favorites. Stars create file/folder shortcuts.
+Remove or Clear in Continue hides entries without erasing their saved positions; playing
+one brings it back. Stop saves automatically. Folder Play/Shuffle and Play from here
+create a queue with pause, next/previous, ±30 seconds and repeat controls. Convert requests
+a browser-friendly stream using local conversion when needed; it may use more CPU.
+
+Local UTF-8 M3U/M3U8/PLS playlists can supply the default order. Relative child paths and
+duplicate tracks are honored; unlisted files follow. Selecting a playlist and pressing
+Play plays only that playlist. Non-playlist sort modes follow the displayed files instead.
+Remote URLs, absolute paths, `..` references, missing files and links are ignored. No
+recursive media discovery or Internet access occurs. The queue is session-local; saved
+positions and favorites remain durable.
+
 Stock Android mobile audiobook resume and Android TV video resume have passed emulator
 checks. Android TV's folder audio player restarts at zero on reopen despite the server's
 saved position. Physical-device/background playback is not fully verified, and

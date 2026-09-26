@@ -64,6 +64,12 @@ namespace MediaBrowser.Model.Dto
         /// <value>The date created.</value>
         public DateTime? DateCreated { get; set; }
 
+        /// <summary>Gets or sets the filesystem modification time without metadata hydration.</summary>
+        public DateTime? DateModified { get; set; }
+
+        /// <summary>Gets or sets the file length; null for folders. Never a recursive folder size.</summary>
+        public long? FileSize { get; set; }
+
         public DateTime? DateLastMediaAdded { get; set; }
 
         public ExtraType? ExtraType { get; set; }

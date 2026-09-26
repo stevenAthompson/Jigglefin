@@ -51,6 +51,9 @@ namespace MediaBrowser.Controller.Entities
         /// <value>The playback position ticks.</value>
         public long PlaybackPositionTicks { get; set; }
 
+        /// <summary>Gets or sets whether Continue is dismissed until the next playback start; the bookmark is retained.</summary>
+        public bool HideFromResume { get; set; }
+
         /// <summary>
         /// Gets or sets the last playback duration saved with live-folder state.
         /// This keeps resume controls usable after disposable probe caches are cleared;

@@ -866,3 +866,63 @@ Implementation, API fallback, playback authorization, local source verification,
 portable packaging, offline observation and synthetic-profile upgrade gates are
 complete for this preview. The default branch/running installation need not be
 replaced to evaluate it; use the live branch and a separate test profile first.
+
+### Folder-player usability pass — 2026-09-26
+
+Setup now includes a server-side drive/folder picker. Listing drive choices does not
+probe readiness or contact disconnected mappings. Only opening a selected directory
+reads it; the picker excludes links/reparse points and is setup/admin-only.
+
+The web navigation is Folders, Continue and Favorites. Global favorites are resolved
+from personal saved IDs, not discovered by traversing roots. Single/all Continue
+dismissal stores `HideFromResume` alongside the bookmark; cache clears, favorite edits,
+progress reports and server restarts keep it, while playback start clears it. No file
+deletion, completed flag or zeroed bookmark is used to hide a shortcut.
+
+Immediate listing DTOs include optional filesystem modification time and byte size;
+no folder-size traversal or duration probing is added. The client sorts by playlist,
+name, modified date, size or extension. Play handles one selected file; Play from here
+starts a session-local queue at the selected entry in the current order. Folder
+Play/Shuffle, pause, next/previous, ±30 seconds, repeat-track/repeat-queue and a clickable
+queue are available. Stop saves automatically. Convert forces browser-friendly local
+delivery; Direct returns to normal negotiation. Neither modifies source media.
+
+Local UTF-8 M3U/M3U8/PLS support is a bounded, on-demand read, not a catalog playlist.
+Opening a folder with playlists selects the first alphabetically and offers a selector.
+The controller authorizes ownership before reading and resolves only explicitly named
+relative files/child folders, caching directory listings for that request. Limits are
+1 MiB, 2,000 entries, 16 path components and 128 named directories. Remote URLs,
+absolute paths, parent references, links, missing files and non-playable entries are
+ignored. Duplicate tracks retain their order. Playlist sorting places referenced
+immediate files first, then unlisted files; explicit child references and duplicates
+appear in the playback queue. Other sort modes queue only displayed playable files.
+Playing a selected playlist uses only its entries. No media is probed until played.
+
+Regression coverage adds API/store tests and headless UI checks for these behaviors,
+including delayed Stop completion while a new queue is opening. The picker and queue
+do not load upstream metadata/cast/update plugins or change standard client playback
+routes. Third-party clients keep their own controls; these UI changes apply to the
+bundled folder client.
+
+Verification for this pass:
+
+- Portable ZIP: `publish/Jigglefin-folder-controls-20260926.zip`, SHA-256
+  `6A9378EBE0F41E33B9E4AFCCEA0E83299B45CE4A28ACD6CBD437239AB2BD64B5`.
+- Full Release solution: 4,321 passed, 21 existing skips, 17 suites, zero failures;
+  real FFmpeg and local SMB tests enabled. A final empty-user authorization guard
+  adds one test: the subsequent full API suite (214 tests) and focused folder HTTP
+  suite (10 tests) pass. Android shell syntax/bootstrap tests also pass.
+- Packaged headless/native run: `%TEMP%\jigglefin-folder-web-T3uXxW`, two server
+  starts and 58 media helpers, zero attempted outbound connections, browser errors,
+  external browser requests or CSP violations. Positive controls passed. Synthetic
+  media hashes and modification times remained identical; clean shutdowns passed.
+- Actual older-ZIP upgrade: `%TEMP%\jigglefin-zip-upgrade-88393f4b22b04064b0d34d4e2fda1a0a`.
+  Accounts/access/bookmarks survived, a fresh browser resumed at 31 seconds, and
+  the newer stopped position survived restart. Original profile/media stayed unchanged.
+- Durable local reports/screenshots: `publish/test-results/folder-controls/package`,
+  full-suite TRX files in `release-final`, final guard tests in `final-guard`.
+  The earlier `release-solution` attempt omitted the FFmpeg environment setting;
+  its failure/skips are retained as diagnostic evidence, not a release pass.
+
+No installed profile, production server, user drive mapping or `Z:\Media` content
+was changed. The ZIP is a separate portable build, not an automatic installation.

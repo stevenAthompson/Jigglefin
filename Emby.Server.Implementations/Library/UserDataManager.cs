@@ -61,6 +61,11 @@ namespace Emby.Server.Implementations.Library
 
             if (item.LiveContext is not null)
             {
+                if (reason == UserDataSaveReason.PlaybackStart)
+                {
+                    userData.HideFromResume = false;
+                }
+
                 if (item.RunTimeTicks is > 0)
                 {
                     userData.LastKnownRunTimeTicks = item.RunTimeTicks;

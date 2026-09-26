@@ -33,7 +33,8 @@ your own profile before any later migration. No installer replaces your running 
   shares and incoming client connections remain supported.
 
 The bundled web UI is a small folder browser, not Jellyfin Web. It includes local
-accounts, folder access, filename sorting/filtering, playback and cache controls.
+accounts, a setup folder picker, folder access, Continue/Favorites, local playlist queues,
+name/date/size sorting, playback and cache controls.
 Native Jellyfin apps may still display their own catalog-oriented menus. Unsupported
 APIs return compatible empty results or a navigable **Use Folder View** fallback;
 they never trigger a recursive scan to imitate a catalog.
@@ -45,8 +46,8 @@ Jellyfin FFmpeg/FFprobe. It does not require a separate runtime or encoder insta
 
 1. Extract the ZIP into a new directory.
 2. Run `Start-Jigglefin.ps1 -DataDir <new-test-profile-path>` in PowerShell.
-3. Open `http://localhost:8096/web/`, create a local account, and add folder
-   locations under Settings.
+3. Open `http://localhost:8096/web/`, create a local account, and select folder
+   locations with Browse during setup (or later in Settings).
 4. Connect standard Jellyfin clients to the same server address and use Folder View.
 
 See [README-PORTABLE.md](README-PORTABLE.md) for launcher details. Without `-DataDir`,
