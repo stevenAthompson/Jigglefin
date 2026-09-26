@@ -26,6 +26,11 @@ public interface ILiveLibrary
     /// <param name="newName">The new name.</param>
     void RenameLibrary(string name, string newName);
 
+    /// <summary>Enables or disables a configured group without accessing its locations.</summary>
+    /// <param name="id">The stable group/permission identity.</param>
+    /// <param name="enabled">Whether users may access the group.</param>
+    void SetEnabled(Guid id, bool enabled);
+
     /// <summary>Removes configuration only, never media files.</summary>
     /// <param name="name">The configured group name.</param>
     void RemoveLibrary(string name);

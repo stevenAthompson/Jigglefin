@@ -586,15 +586,18 @@ namespace Emby.Server.Implementations
             serviceCollection.AddSingleton<ILibraryManager, LibraryManager>();
             serviceCollection.AddSingleton<ILiveDirectoryReader, PhysicalLiveDirectoryReader>();
             serviceCollection.AddSingleton<LiveDirectoryBrowser>();
-            serviceCollection.AddSingleton<ILiveLibrary>(provider => new LiveLibraryStore(
+            serviceCollection.AddSingleton(provider => new LiveLibraryStore(
                 provider.GetRequiredService<LiveDirectoryBrowser>(),
                 Path.Combine(ApplicationPaths.DataPath, "live-folders"),
                 [ApplicationPaths.ProgramDataPath, ApplicationPaths.CachePath, ApplicationPaths.LogDirectoryPath,
                     ApplicationPaths.ConfigurationDirectoryPath, ApplicationPaths.InternalMetadataPath,
+                    ApplicationPaths.TempDirectory,
                     ConfigurationManager.GetEncodingOptions().TranscodingTempPath]));
+            serviceCollection.AddSingleton<ILiveLibrary>(provider => provider.GetRequiredService<LiveLibraryStore>());
             serviceCollection.AddSingleton<ILiveItemService, LiveItemService>();
             serviceCollection.AddTransient(provider => new Lazy<ILiveItemService>(provider.GetRequiredService<ILiveItemService>));
-            serviceCollection.AddSingleton<ILiveUserDataStore>(_ => new LiveUserDataStore(Path.Combine(ApplicationPaths.DataPath, "live-folders")));
+            serviceCollection.AddSingleton(_ => new LiveUserDataStore(Path.Combine(ApplicationPaths.DataPath, "live-folders")));
+            serviceCollection.AddSingleton<ILiveUserDataStore>(provider => provider.GetRequiredService<LiveUserDataStore>());
             serviceCollection.AddSingleton<NamingOptions>();
             serviceCollection.AddSingleton<VideoListResolver>();
 

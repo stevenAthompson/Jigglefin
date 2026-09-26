@@ -8,6 +8,7 @@ using System.Runtime.Versioning;
 using System.Text;
 using System.Threading.Tasks;
 using Emby.Server.Implementations;
+using Emby.Server.Implementations.Library.Live;
 using Jellyfin.Server.ServerSetupApp;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Extensions;
@@ -130,6 +131,8 @@ public static class StartupHelpers
         configDir = Path.GetFullPath(configDir);
         cacheDir = Path.GetFullPath(cacheDir);
         webDir = Path.GetFullPath(webDir);
+
+        LiveStorageGuard.Validate(dataDir, configDir, cacheDir, logDir);
 
         // Ensure the main folders exist before we continue
         try

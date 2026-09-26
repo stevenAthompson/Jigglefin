@@ -260,9 +260,13 @@ async function showSettings(version = routeVersion) {
   [configuredRoots, accounts] = await Promise.all([api('Library/VirtualFolders'), api('Users')]); if (version !== routeVersion) return;
   $('configured-roots').replaceChildren(...configuredRoots.map(root => {
     const row = node('div', undefined, 'root-setting'), description = node('div'); description.append(node('strong', root.Name), node('p', (root.Locations || []).join('\n'), 'muted'));
+    const enabled = root.LibraryOptions?.Enabled !== false;
+    if (!enabled) description.append(node('p', 'Disabled · files and saved places are kept.', 'muted'));
+    const toggle = node('button', enabled ? 'Disable' : 'Enable'); toggle.setAttribute('aria-label', `${enabled ? 'Disable' : 'Enable'} folder group ${root.Name}`);
+    toggle.addEventListener('click', async () => { try { await api(`Jigglefin/Folders/${root.ItemId}/Enabled?enabled=${!enabled}`, { method: 'POST' }); await loadRoots(); await showSettings(); notice(`Folder group ${enabled ? 'disabled' : 'enabled'}. Files and saved places are unchanged.`); } catch (error) { notice(error.message, true); } });
     const remove = node('button', 'Remove'); remove.setAttribute('aria-label', `Remove folder group ${root.Name}`);
     remove.addEventListener('click', async () => { if (!confirm(`Remove “${root.Name}” from Jigglefin? Your files will not be deleted.`)) return; try { await api(`Library/VirtualFolders?name=${encodeURIComponent(root.Name)}`, { method: 'DELETE' }); await loadRoots(); await showSettings(); notice('Folder group removed. Its files were not changed.'); } catch (error) { notice(error.message, true); } });
-    row.append(description, remove); return row;
+    const controls = node('div', undefined, 'action-row'); controls.append(toggle, remove); row.append(description, controls); return row;
   }));
   const active = $('user-select').value;
   $('user-select').replaceChildren(...accounts.map(user => { const option = node('option', user.Name + (user.Policy.IsAdministrator ? ' · administrator' : '')); option.value = user.Id; return option; }));

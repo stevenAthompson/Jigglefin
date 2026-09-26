@@ -32,7 +32,27 @@ public sealed class LiveDirectoryBrowser
     /// <returns>A stable root descriptor.</returns>
     public LiveMediaRoot Mount(string name, string path)
     {
+        var root = DescribeRoot(name, path);
+        RequireDirectory(_reader.Stat(root.FullPath));
+        return root;
+    }
+
+    /// <summary>Creates a root identity from configuration alone, without accessing even an offline drive.</summary>
+    /// <param name="name">The configured display name.</param>
+    /// <param name="path">The fully qualified configured path.</param>
+    /// <returns>The root address. Normal navigation still revalidates its attributes.</returns>
+    public static LiveMediaRoot DescribeRoot(string name, string path)
+    {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
+        var fullPath = NormalizeRootPath(path);
+        return new LiveMediaRoot(CreateId("root", CanonicalIdentityPath(fullPath)), name, fullPath);
+    }
+
+    /// <summary>Normalizes a configured path without accepting Windows device/ADS/trailing-dot aliases.</summary>
+    /// <param name="path">An explicit absolute directory location.</param>
+    /// <returns>The canonical lexical path, without filesystem access.</returns>
+    public static string NormalizeRootPath(string path)
+    {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
         if (!Path.IsPathFullyQualified(path))
         {
@@ -40,8 +60,25 @@ public sealed class LiveDirectoryBrowser
         }
 
         var fullPath = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
-        RequireDirectory(_reader.Stat(fullPath));
-        return new LiveMediaRoot(CreateId("root", CanonicalIdentityPath(fullPath)), name, fullPath);
+        if (OperatingSystem.IsWindows())
+        {
+            var syntax = path.Replace('/', '\\');
+            if (syntax.StartsWith(@"\\?\", StringComparison.Ordinal) || syntax.StartsWith(@"\\.\", StringComparison.Ordinal))
+            {
+                throw new ArgumentException("Device/extended path aliases are not supported for configured locations.", nameof(path));
+            }
+
+            var components = syntax[(Path.GetPathRoot(syntax)?.Length ?? 0)..].Split(Path.DirectorySeparatorChar, StringSplitOptions.RemoveEmptyEntries);
+            foreach (var component in components)
+            {
+                if (component is not ("." or "..") && (component.EndsWith('.') || component.EndsWith(' ') || component.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0))
+                {
+                    throw new ArgumentException("Configured locations cannot contain ambiguous Windows path components.", nameof(path));
+                }
+            }
+        }
+
+        return fullPath;
     }
 
     /// <summary>Reads one entry's current attributes, without loading metadata.</summary>
@@ -165,8 +202,16 @@ public sealed class LiveDirectoryBrowser
         return new LiveDirectoryEntry(EntryId(root, relativePath), root.Id, parentId, Path.GetFileName(info.FullPath), relativePath, info);
     }
 
-    private static Guid EntryId(LiveMediaRoot root, string relativePath)
-        => CreateId(root.Id.ToString("N"), CanonicalIdentityPath(relativePath));
+    /// <summary>Computes a saved path's identity without loading or trusting its filesystem contents.</summary>
+    /// <param name="root">The configured root.</param>
+    /// <param name="relativePath">A validated relative path.</param>
+    /// <returns>The stable entry ID.</returns>
+    public static Guid EntryId(LiveMediaRoot root, string relativePath)
+    {
+        var path = ResolveWithinRoot(root, relativePath);
+        var relative = Path.GetRelativePath(root.FullPath, path);
+        return relative == "." ? root.Id : CreateId(root.Id.ToString("N"), CanonicalIdentityPath(relative));
+    }
 
     private static string CanonicalIdentityPath(string path)
         => OperatingSystem.IsWindows() ? path.Replace('\\', '/').ToUpperInvariant() : path;

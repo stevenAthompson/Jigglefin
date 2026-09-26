@@ -233,6 +233,12 @@ async function main() {
   await page.getByRole('button', { name: /Resume at 1:0/ }).click(); await playing(page, 63);
   await page.getByRole('button', { name: 'Stop & save place', exact: true }).click();
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  await page.getByRole('button', { name: 'Disable folder group Test Media', exact: true }).click();
+  await page.getByText('Folder group disabled. Files and saved places are unchanged.', { exact: true }).waitFor();
+  assert.deepEqual((await api('UserViews')).Items, []);
+  await page.getByRole('button', { name: 'Enable folder group Test Media', exact: true }).click();
+  await page.getByText('Folder group enabled. Files and saved places are unchanged.', { exact: true }).waitFor();
+  assert.equal((await api('UserItems/Resume')).Items.find(item => item.Id === bookId).Id, bookId);
   await page.getByRole('button', { name: 'Remove folder group Test Media', exact: true }).click();
   await page.getByText('Folder group removed. Its files were not changed.', { exact: true }).waitFor();
   assert.deepEqual((await api('UserViews')).Items, []);

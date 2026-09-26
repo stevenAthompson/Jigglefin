@@ -2,8 +2,9 @@
 
 This is Jigglefin's bundled, offline web UI, not a fork of the full Jellyfin Web dashboard.
 It uses standard Jellyfin authentication, live folder/item DTOs, playback negotiation,
-stream/subtitle endpoints and playback reports. `Jigglefin/Cache/Clear` is the one small
-Jigglefin-specific administrative operation. Native Jellyfin clients do not need it.
+stream/subtitle endpoints and playback reports. Cache clearing and enabling/disabling a
+folder group are small Jigglefin-specific administrative operations. Native Jellyfin
+clients do not need them.
 
 ## Build and test
 
@@ -48,7 +49,7 @@ any attempt. This is browser evidence, not proof of the complete server/helper o
 - Direct browser playback and local HLS conversion, local text subtitles, audio-track choice,
   playback speed, seek controls, and durable resume after cache clear and restart.
 - Accounts with explicit folder access; new accounts start with no accessible media.
-- Only administrative users can add/remove roots, change folder permissions or clear caches.
+- Only administrative users can add/remove/disable roots, change folder permissions or clear caches.
 
 No recursive search, catalog categories, metadata editing, scanning, plugin management or
 internet settings are offered. Unknown files are visible but not executable/playable. The

@@ -7,4 +7,8 @@ namespace MediaBrowser.Controller.Library;
 /// <param name="Id">The stable configuration and permission identifier.</param>
 /// <param name="Name">The display name.</param>
 /// <param name="Roots">Explicitly configured filesystem roots.</param>
-public sealed record LiveLibraryDefinition(Guid Id, string Name, IReadOnlyList<LiveMediaRoot> Roots);
+public sealed record LiveLibraryDefinition(Guid Id, string Name, IReadOnlyList<LiveMediaRoot> Roots)
+{
+    /// <summary>Gets whether this group is enabled. Disabled legacy groups stay inaccessible.</summary>
+    public bool Enabled { get; init; } = true;
+}

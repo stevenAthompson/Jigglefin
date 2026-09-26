@@ -91,7 +91,9 @@ The live reader, root configuration, and opaque ID address book are implemented.
 The address book stores only `Id`, `RootId`, and `RelativePath` for encountered
 entries. It has no membership, metadata, search, or child-query API; listings
 always enumerate the selected directory. No address-book rows are created by
-mounting or startup. Group configuration is independent of media content.
+mounting or normal startup. A one-time legacy migration restores addresses only for
+saved user state and their parent paths, without visiting media. Group configuration
+is independent of media content.
 
 The authenticated Jellyfin folder routes now use this path. Generic catalog
 lists return valid empty results, and individual catalog objects can redirect to
@@ -199,8 +201,35 @@ interactions with the capability boundary. Each still needs triage and appropria
 replacement coverage; the full CI suite is explicitly NOT green. No tests were
 disabled to hide these failures.
 
-Still required before release: legacy root/bookmark migration without tree walks;
-remaining query/filter compatibility and authorization/path-open audits; complete
+Legacy upgrade now reads only private folder configuration and existing saved user
+state. Library permission IDs, enabled/disabled groups, offline paths, per-user
+bookmarks/favorites/play counts/stream preferences and known durations are preserved.
+Only saved paths and their ancestors enter the address book; the old catalog is
+left intact, not copied into a new folder-shaped index. Retry imports never overwrite
+new live playback state. Conflicting/overlapping configurations fail explicitly.
+Cached legacy file IDs need fresh navigation once; they cannot open old catalog paths.
+Disabled groups can be enabled from the minimal settings UI without touching media.
+
+Startup code migrations are allowlisted for private account/database work. Legacy
+metadata, playlist, trickplay and other media-processing routines are not constructed
+or executed. An early storage guard checks legacy/live root configuration before
+startup creates private directories, marker files or logs, and rejects overlapping
+cache/log/metadata/transcode paths and existing private-path reparse points. These
+are lexical/static protections, not a claim of complete atomic path-race protection.
+
+An isolated profile-upgrade HTTP test seeds legacy settings/catalog/user state,
+including 1,000 unrelated entries, restricted accounts and disconnected roots. It
+starts with media locked and every media stat/enumeration forbidden, preserves
+permissions/bookmarks, imports only three saved-path addresses, plays the selected
+file through real helpers after restart and retains a newer bookmark on another
+restart. Old configuration/media bytes and mtimes remain unchanged. This is a
+current-schema simulated legacy profile, NOT yet an actual older release ZIP upgrade.
+Latest checks: server 63 passed; implementations 1,010 passed/17 skipped; four live
+HTTP scenarios passed with real helpers; headless UI direct/HLS playback, access,
+cache eviction, enable/disable and restart/resume passed with zero external browser
+requests and unchanged fixture media. Full legacy integration failures remain open.
+
+Still required before release: remaining query/filter compatibility and authorization/path-open audits; complete
 native-helper/server/browser outbound verification; updated integration/native-client
 regression; and upgrade-profile Windows package validation. Clean-profile packaging
 and the simplified browser are now tested, but not substitutes for these gates.

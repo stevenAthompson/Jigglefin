@@ -38,16 +38,24 @@ public sealed class LiveUserDataStore : ILiveUserDataStore
 
     /// <inheritdoc />
     public void Save(Guid userId, Guid itemId, UserItemData data)
+        => Write(userId, itemId, data, false);
+
+    /// <summary>Imports legacy state once; a retry must never overwrite a newer live bookmark.</summary>
+    /// <param name="userId">The existing account.</param>
+    /// <param name="itemId">The live path identity.</param>
+    /// <param name="data">Existing durable state, not media metadata.</param>
+    public void Import(Guid userId, Guid itemId, UserItemData data)
+        => Write(userId, itemId, data, true);
+
+    private void Write(Guid userId, Guid itemId, UserItemData data, bool import)
     {
         ArgumentNullException.ThrowIfNull(data);
         data.Key = itemId.ToString("N");
         data.PlaybackPositionTicks = Math.Max(0, data.PlaybackPositionTicks);
         using var connection = Open();
         using var command = connection.CreateCommand();
-        command.CommandText = """
-            INSERT INTO UserState(UserId, ItemId, Data, LastPlayed) VALUES($user, $item, $data, $played)
-            ON CONFLICT(UserId, ItemId) DO UPDATE SET Data = excluded.Data, LastPlayed = excluded.LastPlayed
-            """;
+        command.CommandText = "INSERT INTO UserState(UserId, ItemId, Data, LastPlayed) VALUES($user, $item, $data, $played) ON CONFLICT(UserId, ItemId) "
+            + (import ? "DO NOTHING" : "DO UPDATE SET Data = excluded.Data, LastPlayed = excluded.LastPlayed");
         command.Parameters.AddWithValue("$user", userId.ToString("N"));
         command.Parameters.AddWithValue("$item", itemId.ToString("N"));
         command.Parameters.AddWithValue("$data", JsonSerializer.Serialize(data));

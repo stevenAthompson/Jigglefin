@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using Emby.Server.Implementations.Library.Live;
 using Jellyfin.Extensions;
 using MediaBrowser.Common.Configuration;
 
@@ -28,6 +29,7 @@ namespace Emby.Server.Implementations.AppBase
             string cacheDirectoryPath,
             string webDirectoryPath)
         {
+            LiveStorageGuard.Validate(programDataPath, configurationDirectoryPath, cacheDirectoryPath, logDirectoryPath);
             ProgramDataPath = programDataPath;
             LogDirectoryPath = logDirectoryPath;
             ConfigurationDirectoryPath = configurationDirectoryPath;

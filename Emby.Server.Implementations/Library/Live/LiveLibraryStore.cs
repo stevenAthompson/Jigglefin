@@ -98,6 +98,111 @@ public sealed class LiveLibraryStore : ILiveLibrary
         }
     }
 
+    /// <summary>Imports explicit legacy configuration atomically, without filesystem access or replacing live settings.</summary>
+    /// <param name="libraries">Legacy group identities, names, enabled state and root locations only.</param>
+    public void ImportConfiguration(IReadOnlyList<LiveLibraryDefinition> libraries)
+    {
+        lock (_gate)
+        {
+            var existing = GetLibraries().ToList();
+            var additions = new List<LiveLibraryDefinition>();
+            foreach (var library in libraries)
+            {
+                var previous = existing.FirstOrDefault(candidate => candidate.Id.Equals(library.Id));
+                if (previous is not null)
+                {
+                    if (previous.Name != library.Name || previous.Enabled != library.Enabled || !previous.Roots.SequenceEqual(library.Roots))
+                    {
+                        throw new InvalidDataException($"Legacy folder group '{library.Name}' conflicts with existing live configuration. No settings were overwritten.");
+                    }
+
+                    continue;
+                }
+
+                ArgumentException.ThrowIfNullOrWhiteSpace(library.Name);
+                if (library.Id.Equals(Guid.Empty))
+                {
+                    throw new InvalidDataException("A legacy folder group has an empty identity.");
+                }
+
+                EnsureUniqueName(existing, library.Name);
+                var checkedRoots = new List<LiveMediaRoot>();
+                foreach (var root in library.Roots)
+                {
+                    if (!root.Equals(LiveDirectoryBrowser.DescribeRoot(root.Name, root.FullPath)))
+                    {
+                        throw new InvalidDataException("A legacy root has an invalid path identity.");
+                    }
+
+                    ValidateLocation(existing.SelectMany(item => item.Roots).Concat(checkedRoots), root);
+                    checkedRoots.Add(root);
+                }
+
+                additions.Add(library);
+                existing.Add(library);
+            }
+
+            using var connection = Open();
+            using var transaction = connection.BeginTransaction();
+            foreach (var library in additions)
+            {
+                using var command = connection.CreateCommand();
+                command.Transaction = transaction;
+                command.CommandText = "INSERT INTO Libraries(Id, Definition) VALUES($id, $definition)";
+                command.Parameters.AddWithValue("$id", library.Id.ToString("N"));
+                command.Parameters.AddWithValue("$definition", JsonSerializer.Serialize(library));
+                command.ExecuteNonQuery();
+            }
+
+            transaction.Commit();
+        }
+    }
+
+    /// <summary>Remembers only a legacy saved-state address and its ancestors, never directory membership.</summary>
+    /// <param name="fullPath">An absolute path from an existing bookmark/favorite.</param>
+    /// <returns>The live identity, or null if outside configured roots.</returns>
+    public Guid? ImportSavedAddress(string fullPath)
+    {
+        if (!Path.IsPathFullyQualified(fullPath))
+        {
+            return null;
+        }
+
+        lock (_gate)
+        {
+            var path = Path.TrimEndingDirectorySeparator(Path.GetFullPath(fullPath));
+            var root = GetLibraries().SelectMany(library => library.Roots).SingleOrDefault(root => ContainsPath(root.FullPath, path));
+            if (root is null)
+            {
+                return null;
+            }
+
+            var relative = Path.GetRelativePath(root.FullPath, path);
+            if (relative == ".")
+            {
+                return root.Id;
+            }
+
+            var id = LiveDirectoryBrowser.EntryId(root, relative);
+            using var connection = Open();
+            using var transaction = connection.BeginTransaction();
+            while (!string.IsNullOrEmpty(relative))
+            {
+                using var command = connection.CreateCommand();
+                command.Transaction = transaction;
+                command.CommandText = "INSERT INTO Addresses(Id, RootId, RelativePath) VALUES($id, $root, $path) ON CONFLICT(Id) DO NOTHING";
+                command.Parameters.AddWithValue("$id", LiveDirectoryBrowser.EntryId(root, relative).ToString("N"));
+                command.Parameters.AddWithValue("$root", root.Id.ToString("N"));
+                command.Parameters.AddWithValue("$path", relative);
+                command.ExecuteNonQuery();
+                relative = Path.GetDirectoryName(relative);
+            }
+
+            transaction.Commit();
+            return id;
+        }
+    }
+
     /// <inheritdoc />
     public void RenameLibrary(string name, string newName)
     {
@@ -107,6 +212,17 @@ public sealed class LiveLibraryStore : ILiveLibrary
             var library = FindByName(name);
             EnsureUniqueName(GetLibraries().Where(item => !item.Id.Equals(library.Id)), newName);
             Save(library with { Name = newName });
+        }
+    }
+
+    /// <inheritdoc />
+    public void SetEnabled(Guid id, bool enabled)
+    {
+        lock (_gate)
+        {
+            var library = GetLibraries().SingleOrDefault(group => group.Id.Equals(id))
+                ?? throw new DirectoryNotFoundException("The folder group is not configured.");
+            Save(library with { Enabled = enabled });
         }
     }
 
@@ -215,17 +331,21 @@ public sealed class LiveLibraryStore : ILiveLibrary
     private LiveMediaRoot Mount(IEnumerable<LiveLibraryDefinition> libraries, string path)
     {
         var root = _browser.Mount(Path.GetFileName(Path.TrimEndingDirectorySeparator(path)) is { Length: > 0 } name ? name : path, path);
+        ValidateLocation(libraries.SelectMany(item => item.Roots), root);
+        return root;
+    }
+
+    private void ValidateLocation(IEnumerable<LiveMediaRoot> roots, LiveMediaRoot root)
+    {
         if (_privateDirectories.Any(path => ContainsPath(root.FullPath, path) || ContainsPath(path, root.FullPath)))
         {
-            throw new ArgumentException("Media roots and private server state must not overlap.", nameof(path));
+            throw new ArgumentException("Media roots and private server state must not overlap.", nameof(root));
         }
 
-        if (libraries.SelectMany(item => item.Roots).Any(item => ContainsPath(item.FullPath, root.FullPath) || ContainsPath(root.FullPath, item.FullPath)))
+        if (roots.Any(item => ContainsPath(item.FullPath, root.FullPath) || ContainsPath(root.FullPath, item.FullPath)))
         {
-            throw new ArgumentException("This path overlaps an existing media root.", nameof(path));
+            throw new ArgumentException("This path overlaps an existing media root.", nameof(root));
         }
-
-        return root;
     }
 
     private static bool PathsEqual(string first, string second)

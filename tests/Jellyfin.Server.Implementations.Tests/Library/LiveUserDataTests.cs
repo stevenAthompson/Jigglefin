@@ -59,6 +59,21 @@ public sealed class LiveUserDataTests : IDisposable
     }
 
     [Fact]
+    public void LegacyImport_RetryDoesNotOverwriteAnExistingLiveBookmarkOrFavorite()
+    {
+        var item = Item("book");
+        _state.Import(_user.Id, item.Id, new UserItemData { Key = "legacy", PlaybackPositionTicks = 100, IsFavorite = true, LastKnownRunTimeTicks = 1000 });
+        Assert.Equal(100, _state.Get(_user.Id, item.Id).PlaybackPositionTicks);
+        _state.Save(_user.Id, item.Id, new UserItemData { Key = "live", PlaybackPositionTicks = 600, IsFavorite = false, LastKnownRunTimeTicks = 1500 });
+        _state.Import(_user.Id, item.Id, new UserItemData { Key = "legacy", PlaybackPositionTicks = 100, IsFavorite = true, LastKnownRunTimeTicks = 1000 });
+        var saved = new LiveUserDataStore(_fixture.FullName).Get(_user.Id, item.Id);
+        Assert.Equal(600, saved.PlaybackPositionTicks);
+        Assert.Equal(1500, saved.LastKnownRunTimeTicks);
+        Assert.False(saved.IsFavorite);
+        _catalog.VerifyNoOtherCalls();
+    }
+
+    [Fact]
     public void UnknownDuration_DoesNotEraseProgressOrDeclareCompletion()
     {
         var item = Item("book");

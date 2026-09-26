@@ -70,7 +70,7 @@ internal class JellyfinMigrationService
                 foreach (var item in f)
                 {
                     JellyfinMigrationBackupAttribute? backupMetadata = null;
-                    if (item.Backup?.Any() == true)
+                    if (LiveMigrationPolicy.ShouldRun(item.Type) && item.Backup?.Any() == true)
                     {
                         backupMetadata = item.Backup.Aggregate(MergeBackupAttributes);
                     }
@@ -465,7 +465,14 @@ internal class JellyfinMigrationService
 
         public async Task PerformAsync(IStartupLogger logger)
         {
-            await _codeMigration.Perform(_serviceProvider, logger, CancellationToken.None).ConfigureAwait(false);
+            if (LiveMigrationPolicy.ShouldRun(_codeMigration.MigrationType))
+            {
+                await _codeMigration.Perform(_serviceProvider, logger, CancellationToken.None).ConfigureAwait(false);
+            }
+            else
+            {
+                logger.LogInformation("Skipping unsupported catalog/online migration {Migration} in live-folder mode", _codeMigration.Metadata.Name);
+            }
 
             var historyRepository = _dbContext.GetService<IHistoryRepository>();
             var createScript = historyRepository.GetInsertScript(new HistoryRow(_codeMigration.BuildCodeMigrationId(), GetJellyfinVersion()));

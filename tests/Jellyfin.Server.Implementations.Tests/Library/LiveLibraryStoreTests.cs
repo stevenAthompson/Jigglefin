@@ -25,6 +25,45 @@ public sealed class LiveLibraryStoreTests : IDisposable
     }
 
     [Fact]
+    public void Migration_ImportsOfflineRootsAndOnlySavedAddressesWithoutAnyMediaAccess()
+    {
+        var offline = LiveDirectoryBrowser.DescribeRoot("Offline", Path.Combine(_fixture.FullName, "Disconnected"));
+        var group = new LiveLibraryDefinition(Guid.NewGuid(), "Books", [offline]) { Enabled = false };
+        _store.ImportConfiguration([group]);
+        _store.ImportConfiguration([group]);
+        var saved = _store.ImportSavedAddress(Path.Combine(offline.FullPath, "Book", "Chapter.mp3"));
+        Assert.Equal(LiveDirectoryBrowser.EntryId(offline, Path.Combine("Book", "Chapter.mp3")), saved);
+        Assert.Equal(group.Id, _store.FindLibrary(saved!.Value)!.Id);
+        Assert.Equal(group.Id, _store.FindLibrary(LiveDirectoryBrowser.EntryId(offline, "Book"))!.Id);
+        Assert.False(Assert.Single(_store.GetLibraries()).Enabled);
+        Assert.False(LiveLibraryAccess.CanAccess(null, Assert.Single(_store.GetLibraries())));
+        _store.SetEnabled(group.Id, true);
+        Assert.True(LiveLibraryAccess.CanAccess(null, Assert.Single(_store.GetLibraries())));
+        Assert.Equal(group.Id, _store.FindLibrary(saved.Value)!.Id);
+        Assert.Null(_store.ImportSavedAddress(Path.Combine(_fixture.FullName, "Other", "Chapter.mp3")));
+        Assert.Empty(_reader.StatCalls);
+        Assert.Empty(_reader.EnumerationCalls);
+        Assert.False(Directory.Exists(offline.FullPath));
+    }
+
+    [Fact]
+    public void Migration_ConflictsDoNotOverwriteExistingSettingsOrPartiallyImportRoots()
+    {
+        var root = LiveDirectoryBrowser.DescribeRoot("Media", _media);
+        var first = new LiveLibraryDefinition(Guid.NewGuid(), "First", [root]);
+        var overlapping = new LiveLibraryDefinition(Guid.NewGuid(), "Second", [root]);
+        Assert.Throws<ArgumentException>(() => _store.ImportConfiguration([first, overlapping]));
+        Assert.Empty(_store.GetLibraries());
+        _store.ImportConfiguration([first]);
+        Assert.Throws<InvalidDataException>(() => _store.ImportConfiguration([first with { Name = "Changed" }]));
+        Assert.Equal("First", Assert.Single(_store.GetLibraries()).Name);
+        var unsafeRoot = LiveDirectoryBrowser.DescribeRoot("Private", _state);
+        Assert.Throws<ArgumentException>(() => _store.ImportConfiguration([new LiveLibraryDefinition(Guid.NewGuid(), "Unsafe", [unsafeRoot])]));
+        Assert.Empty(_reader.StatCalls);
+        Assert.Empty(_reader.EnumerationCalls);
+    }
+
+    [Fact]
     public void StartupAndConfigurationQueries_DoNotAccessMedia()
     {
         Assert.Empty(_store.GetLibraries());

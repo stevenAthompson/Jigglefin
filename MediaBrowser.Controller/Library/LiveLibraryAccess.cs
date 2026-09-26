@@ -13,6 +13,11 @@ public static class LiveLibraryAccess
     /// <returns>Whether access is allowed.</returns>
     public static bool CanAccess(User? user, LiveLibraryDefinition library)
     {
+        if (!library.Enabled)
+        {
+            return false;
+        }
+
         if (user is null)
         {
             return true;

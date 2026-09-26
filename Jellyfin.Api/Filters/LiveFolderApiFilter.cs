@@ -188,6 +188,7 @@ public sealed class LiveFolderApiFilter : IActionFilter
                     CollectionType = null,
                     LibraryOptions = new LibraryOptions
                     {
+                        Enabled = library.Enabled,
                         PathInfos = library.Roots.Select(root => new MediaPathInfo(root.FullPath)).ToArray(),
                         SaveLocalMetadata = false,
                         SaveSubtitlesWithMedia = false,
