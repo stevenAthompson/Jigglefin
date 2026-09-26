@@ -6,6 +6,7 @@ using Jellyfin.Api.Controllers;
 using Jellyfin.Api.Extensions;
 using Jellyfin.Api.Helpers;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.MediaEncoding;
 using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.Querying;
 using MediaBrowser.Model.Session;
@@ -24,14 +25,17 @@ public sealed class LiveCapabilityFilter : IActionFilter, IOrderedFilter
 {
     private readonly ILiveLibrary _library;
     private readonly IUserManager _users;
+    private readonly ITranscodeManager _transcodes;
 
     /// <summary>Initializes a new instance of the <see cref="LiveCapabilityFilter"/> class.</summary>
     /// <param name="library">Ownership lookup; no filesystem access.</param>
     /// <param name="users">The authenticated users.</param>
-    public LiveCapabilityFilter(ILiveLibrary library, IUserManager users)
+    /// <param name="transcodes">Server-owned playback jobs.</param>
+    public LiveCapabilityFilter(ILiveLibrary library, IUserManager users, ITranscodeManager transcodes)
     {
         _library = library;
         _users = users;
+        _transcodes = transcodes;
     }
 
     /// <inheritdoc />
@@ -76,12 +80,19 @@ public sealed class LiveCapabilityFilter : IActionFilter, IOrderedFilter
         if (controller is nameof(AudioController) or nameof(VideosController) or nameof(UniversalAudioController)
             or nameof(DynamicHlsController) or nameof(MediaInfoController) or nameof(SubtitleController)
             or nameof(PlaystateController) or nameof(UserLibraryController) or nameof(ItemsController)
+            or nameof(HlsSegmentController)
             || (controller == nameof(ImageController) && method.StartsWith("GetItem", StringComparison.Ordinal)))
         {
             // Reject stale catalog IDs before any upstream resolution can reach the old
             // database. Authorization precedes stat/probe. Playback report DTOs supplied
             // by clients are not accepted as media source descriptions.
             var id = GetItemId(context);
+            if (controller == nameof(HlsSegmentController) && method != "StopEncodingProcess" && (id is null || id == Guid.Empty))
+            {
+                context.Result = new NotFoundResult();
+                return;
+            }
+
             if (id.HasValue && !id.Value.Equals(Guid.Empty) && !id.Value.Equals(LiveFolderApiFilter.HomeId))
             {
                 var userId = RequestHelpers.GetUserId(context.HttpContext.User, null);
@@ -90,7 +101,17 @@ public sealed class LiveCapabilityFilter : IActionFilter, IOrderedFilter
                 if (library is null || (user is null && !context.HttpContext.User.GetIsApiKey()) || !LiveLibraryAccess.CanAccess(user, library))
                 {
                     context.Result = new NotFoundResult();
+                    return;
                 }
+            }
+
+            var sessionId = context.ActionArguments.Values.OfType<PlaybackProgressInfo>().FirstOrDefault()?.PlaySessionId
+                ?? context.ActionArguments.Values.OfType<PlaybackStopInfo>().FirstOrDefault()?.PlaySessionId
+                ?? (context.ActionArguments.TryGetValue("playSessionId", out var value) ? value as string : null);
+            if (!string.IsNullOrWhiteSpace(sessionId) && _transcodes.GetTranscodingJob(sessionId) is { } job
+                && !LiveTranscodeAccess.CanUse(job, context.HttpContext.User, id == Guid.Empty ? null : id))
+            {
+                context.Result = new NotFoundResult();
             }
         }
     }
@@ -120,9 +141,17 @@ public sealed class LiveCapabilityFilter : IActionFilter, IOrderedFilter
         // Older subtitle routes accept a query override; validate the effective ID.
         foreach (var key in new[] { "itemId", "routeItemId" })
         {
-            if (context.ActionArguments.TryGetValue(key, out var value) && value is Guid id)
+            if (context.ActionArguments.TryGetValue(key, out var value))
             {
-                return id;
+                if (value is Guid id)
+                {
+                    return id;
+                }
+
+                if (value is string text && Guid.TryParse(text, out id))
+                {
+                    return id;
+                }
             }
         }
 

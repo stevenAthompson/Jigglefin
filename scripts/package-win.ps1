@@ -76,6 +76,7 @@ foreach ($webFile in $webFiles + @('jigglefin-web.manifest.json')) {
 }
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'start-win.ps1') -Destination (Join-Path $outputPath 'Start-Jigglefin.ps1')
 Copy-Item -LiteralPath (Join-Path $repositoryRoot 'README-PORTABLE.md') -Destination (Join-Path $outputPath 'README-PORTABLE.md')
+Copy-Item -LiteralPath (Join-Path $repositoryRoot 'JIGGLEFIN-LIVE-DESIGN.md') -Destination (Join-Path $outputPath 'JIGGLEFIN-LIVE-DESIGN.md')
 Copy-Item -LiteralPath (Join-Path $repositoryRoot 'branding/jigglefin-256.png') -Destination (Join-Path $outputPath 'Jigglefin-logo.png')
 Copy-Item -LiteralPath (Join-Path $repositoryRoot 'LICENSE') -Destination (Join-Path $outputPath 'JIGGLEFIN-LICENSE')
 Copy-Item -LiteralPath (Join-Path $webDist 'HLS-LICENSE') -Destination (Join-Path $outputPath 'HLS-LICENSE')

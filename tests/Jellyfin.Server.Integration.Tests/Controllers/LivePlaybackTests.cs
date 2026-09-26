@@ -1,4 +1,5 @@
 using System;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
 using System.Net;
@@ -371,6 +372,7 @@ public sealed class LivePlaybackTests
 
     [DllImport("kernel32.dll", EntryPoint = "GetShortPathNameW", CharSet = CharSet.Unicode, SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    [SuppressMessage("Performance", "CA1838", Justification = "One bounded call per Windows short-path fixture.")]
     private static extern uint GetShortPathName(string path, StringBuilder shortPath, int size);
 
     private static async Task<T> Get<T>(HttpClient client, string url)

@@ -30,8 +30,9 @@ public interface ITranscodeManager
     /// </summary>
     /// <param name="playSessionId">Play session id.</param>
     /// <param name="isUserPaused">Is user paused.</param>
+    /// <param name="userId">Limit selection to this owner; null is for trusted internal/admin calls.</param>
     /// <exception cref="ArgumentNullException">Play session id is null.</exception>
-    public void PingTranscodingJob(string playSessionId, bool? isUserPaused);
+    public void PingTranscodingJob(string playSessionId, bool? isUserPaused, Guid? userId = null);
 
     /// <summary>
     /// Kills the single transcoding job.
@@ -39,8 +40,9 @@ public interface ITranscodeManager
     /// <param name="deviceId">The device id.</param>
     /// <param name="playSessionId">The play session identifier.</param>
     /// <param name="deleteFiles">The delete files.</param>
+    /// <param name="userId">Limit selection to this owner; null is for trusted internal/admin calls.</param>
     /// <returns>Task.</returns>
-    public Task KillTranscodingJobs(string deviceId, string? playSessionId, Func<string, bool> deleteFiles);
+    public Task KillTranscodingJobs(string deviceId, string? playSessionId, Func<string, bool> deleteFiles, Guid? userId = null);
 
     /// <summary>
     /// Report the transcoding progress to the session manager.

@@ -116,7 +116,7 @@ public sealed class TranscodeManager : ITranscodeManager, IDisposable
     }
 
     /// <inheritdoc />
-    public void PingTranscodingJob(string playSessionId, bool? isUserPaused)
+    public void PingTranscodingJob(string playSessionId, bool? isUserPaused, Guid? userId = null)
     {
         ArgumentException.ThrowIfNullOrEmpty(playSessionId);
 
@@ -128,7 +128,8 @@ public sealed class TranscodeManager : ITranscodeManager, IDisposable
         {
             // This is really only needed for HLS.
             // Progressive streams can stop on their own reliably.
-            jobs = _activeTranscodingJobs.Where(j => string.Equals(playSessionId, j.PlaySessionId, StringComparison.OrdinalIgnoreCase)).ToList();
+            jobs = _activeTranscodingJobs.Where(j => (!userId.HasValue || j.UserId == userId.Value)
+                && string.Equals(playSessionId, j.PlaySessionId, StringComparison.OrdinalIgnoreCase)).ToList();
         }
 
         foreach (var job in jobs)
@@ -192,7 +193,7 @@ public sealed class TranscodeManager : ITranscodeManager, IDisposable
     }
 
     /// <inheritdoc />
-    public Task KillTranscodingJobs(string deviceId, string? playSessionId, Func<string, bool> deleteFiles)
+    public Task KillTranscodingJobs(string deviceId, string? playSessionId, Func<string, bool> deleteFiles, Guid? userId = null)
     {
         var jobs = new List<TranscodingJob>();
 
@@ -200,9 +201,11 @@ public sealed class TranscodeManager : ITranscodeManager, IDisposable
         {
             // This is really only needed for HLS.
             // Progressive streams can stop on their own reliably.
-            jobs.AddRange(_activeTranscodingJobs.Where(j => string.IsNullOrWhiteSpace(playSessionId)
+            // Bind selection under the same lock as registration. A session ID
+            // recycled after the HTTP access check cannot target a new owner.
+            jobs.AddRange(_activeTranscodingJobs.Where(j => (!userId.HasValue || j.UserId == userId.Value) && (string.IsNullOrWhiteSpace(playSessionId)
                 ? string.Equals(deviceId, j.DeviceId, StringComparison.OrdinalIgnoreCase)
-                : string.Equals(playSessionId, j.PlaySessionId, StringComparison.OrdinalIgnoreCase)));
+                : string.Equals(playSessionId, j.PlaySessionId, StringComparison.OrdinalIgnoreCase))));
         }
 
         return Task.WhenAll(GetKillJobs());
@@ -436,16 +439,29 @@ public sealed class TranscodeManager : ITranscodeManager, IDisposable
             EnableRaisingEvents = true
         };
 
-        var transcodingJob = OnTranscodeBeginning(
-            outputPath,
-            state.Request.PlaySessionId,
-            state.MediaSource.LiveStreamId,
-            Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture),
-            transcodingJobType,
-            process,
-            state.Request.DeviceId,
-            state,
-            cancellationTokenSource);
+        TranscodingJob transcodingJob;
+        try
+        {
+            transcodingJob = OnTranscodeBeginning(
+                outputPath,
+                state.Request.PlaySessionId,
+                state.MediaSource.LiveStreamId,
+                Guid.NewGuid().ToString("N", CultureInfo.InvariantCulture),
+                transcodingJobType,
+                process,
+                state.Request.DeviceId,
+                userId,
+                state,
+                cancellationTokenSource);
+        }
+        catch
+        {
+            // A racing request can lose session ownership before registration.
+            // Dispose only this unregistered process, never the existing job.
+            process.Dispose();
+            state.Dispose();
+            throw;
+        }
 
         var logFilePrefix = "FFmpeg.Transcode-";
         if (state.VideoRequest is not null
@@ -583,11 +599,19 @@ public sealed class TranscodeManager : ITranscodeManager, IDisposable
         TranscodingJobType type,
         Process process,
         string? deviceId,
+        Guid userId,
         StreamState state,
         CancellationTokenSource cancellationTokenSource)
     {
         lock (_activeTranscodingJobs)
         {
+            if (!string.IsNullOrWhiteSpace(playSessionId) && _activeTranscodingJobs.Exists(job =>
+                string.Equals(job.PlaySessionId, playSessionId, StringComparison.OrdinalIgnoreCase)
+                && (job.UserId != userId || job.ItemId != state.Request.Id)))
+            {
+                throw new UnauthorizedAccessException("A playback session cannot be shared across accounts or items.");
+            }
+
             var job = new TranscodingJob(_loggerFactory.CreateLogger<TranscodingJob>())
             {
                 Type = type,
@@ -598,6 +622,8 @@ public sealed class TranscodeManager : ITranscodeManager, IDisposable
                 CancellationTokenSource = cancellationTokenSource,
                 Id = transcodingJobId,
                 PlaySessionId = playSessionId,
+                UserId = userId,
+                ItemId = state.Request.Id,
                 LiveStreamId = liveStreamId,
                 MediaSource = state.MediaSource
             };
@@ -718,7 +744,7 @@ public sealed class TranscodeManager : ITranscodeManager, IDisposable
     {
         if (!string.IsNullOrWhiteSpace(e.PlaySessionId))
         {
-            PingTranscodingJob(e.PlaySessionId, e.IsPaused);
+            PingTranscodingJob(e.PlaySessionId, e.IsPaused, e.Session?.UserId ?? Guid.Empty);
         }
     }
 

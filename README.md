@@ -7,9 +7,9 @@ It keeps Jellyfin authentication, streaming and playback-state APIs so standard
 Jellyfin clients can connect, without maintaining a scanned media catalog.
 
 This branch (`codex/live-filesystem`) replaces the older, scan-backed Jigglefin.
-It is still a development build undergoing final release checks. Older CI artifacts
-from the `jigglefin` branch are **not** this implementation. Use a separate test
-profile; do not replace your production installation yet.
+It is a live-folder preview. Older CI artifacts from the `jigglefin` branch are
+**not** this implementation. Use a separate test profile initially, and back up
+your own profile before any later migration. No installer replaces your running server.
 
 ## How it works
 
@@ -71,7 +71,7 @@ resume on every client. Physical-device/background playback is not fully verifie
 Apple/Swiftfin interface testing remains deferred; API-contract coverage is not
 Apple-device validation.
 
-The latest completed checks, package hashes and outstanding gates are recorded in
+The latest completed checks, package hashes and verification limits are recorded in
 [JIGGLEFIN-LIVE-DESIGN.md](JIGGLEFIN-LIVE-DESIGN.md). [JIGGLEFIN.md](JIGGLEFIN.md)
 describes the superseded scan-backed implementation, not current behavior.
 
@@ -97,6 +97,12 @@ tests. Local SMB tests require explicit `JIGGLEFIN_TEST_LOCAL_SMB=1` and an alre
 available local administrative share; they do not create shares or change host
 services. Package/UI/native-audit scripts and their fixtures are in `scripts/` and
 `tests/`. Tests must never write to an owner's real media tree.
+
+The Windows CI workflow targets both `codex/live-filesystem` and `jigglefin`. It
+builds and tests the solution, packages the offline UI/runtime/encoder, then runs
+the headless packaged-UI and Android web-shell tests. Native outbound observation
+and older-ZIP migration also have local scripts; those are separate checks, not
+implied by a successful CI build.
 
 ## Upstream and licenses
 

@@ -1,6 +1,7 @@
 using System;
 using System.Globalization;
 using System.IO;
+using System.Linq;
 using System.Threading;
 using System.Threading.Tasks;
 using Jellyfin.Api.Models.StreamingDtos;
@@ -16,6 +17,64 @@ namespace Jellyfin.Api.Helpers;
 /// </summary>
 public static class HlsHelpers
 {
+    /// <summary>Checks that a segment belongs to one exact server-generated output prefix.</summary>
+    /// <param name="playlistId">The server's output hash.</param>
+    /// <param name="segmentId">The filename without extension.</param>
+    /// <returns>Whether the segment is a numbered member of that playlist.</returns>
+    public static bool IsLiveSegmentName(string playlistId, string segmentId)
+        => Guid.TryParseExact(playlistId, "N", out _) && segmentId.StartsWith(playlistId, StringComparison.Ordinal)
+            && int.TryParse(segmentId.AsSpan(playlistId.Length), NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out var index) && index >= -1;
+
+    /// <summary>Emits only local, authenticated segment URLs for native live-playlist consumers.</summary>
+    /// <param name="text">The server-generated playlist.</param>
+    /// <param name="playlistId">The server's exact output hash.</param>
+    /// <param name="token">The requesting client's token.</param>
+    /// <param name="nested">Whether the playlist already resides in its legacy segment route.</param>
+    /// <returns>A playlist whose segments and initialization asset carry the same authentication.</returns>
+    public static string AuthenticateLivePlaylist(string text, string playlistId, string token, bool nested = false)
+    {
+        ArgumentException.ThrowIfNullOrEmpty(token);
+        string Asset(string input)
+        {
+            var filename = input.Replace('\\', '/').Split('/')[^1];
+            if (!IsLiveSegmentName(playlistId, Path.GetFileNameWithoutExtension(filename))
+                || Path.GetExtension(filename) is not (".ts" or ".mp4" or ".m4s" or ".aac" or ".mp3"))
+            {
+                throw new InvalidDataException("The generated playlist contains an unexpected segment.");
+            }
+
+            return (nested ? string.Empty : "hls/" + playlistId + "/") + filename + "?ApiKey=" + Uri.EscapeDataString(token);
+        }
+
+        return string.Join('\n', text.Split('\n').Select(line =>
+        {
+            line = line.TrimEnd('\r');
+            if (string.IsNullOrWhiteSpace(line))
+            {
+                return line;
+            }
+
+            if (!line.StartsWith('#'))
+            {
+                return Asset(line);
+            }
+
+            var uri = line.IndexOf("URI=\"", StringComparison.Ordinal);
+            if (uri < 0)
+            {
+                return line;
+            }
+
+            var end = line.IndexOf('"', uri + 5);
+            if (!line.StartsWith("#EXT-X-MAP:", StringComparison.Ordinal) || end < 0)
+            {
+                throw new InvalidDataException("The generated playlist contains an unsupported asset reference.");
+            }
+
+            return line[..(uri + 5)] + Asset(line[(uri + 5)..end]) + line[end..];
+        }));
+    }
+
     /// <summary>
     /// Waits for a minimum number of segments to be available.
     /// </summary>

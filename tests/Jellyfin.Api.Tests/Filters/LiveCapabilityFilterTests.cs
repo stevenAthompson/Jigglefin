@@ -8,6 +8,7 @@ using Jellyfin.Api.Filters;
 using Jellyfin.Data.Enums;
 using Jellyfin.Database.Implementations.Entities;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Controller.MediaEncoding;
 using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.Querying;
 using MediaBrowser.Model.Session;
@@ -113,7 +114,7 @@ public sealed class LiveCapabilityFilterTests
         };
         var descriptor = new ControllerActionDescriptor { ControllerTypeInfo = controller.GetTypeInfo(), MethodInfo = controller.GetMethod(method)! };
         var context = new ActionExecutingContext(new ActionContext(http, new RouteData(), descriptor), [], arguments ?? [], new object());
-        new LiveCapabilityFilter(_library.Object, _users.Object).OnActionExecuting(context);
+        new LiveCapabilityFilter(_library.Object, _users.Object, Mock.Of<ITranscodeManager>()).OnActionExecuting(context);
         return context.Result;
     }
 

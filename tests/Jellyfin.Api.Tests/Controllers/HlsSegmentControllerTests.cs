@@ -1,32 +1,35 @@
 using System;
 using System.IO;
+using System.Security.Claims;
+using Jellyfin.Api.Constants;
 using Jellyfin.Api.Controllers;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.MediaEncoding;
 using MediaBrowser.Model.Configuration;
-using MediaBrowser.Model.IO;
+using MediaBrowser.Model.Dto;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
+using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Xunit;
 
 namespace Jellyfin.Api.Tests.Controllers;
 
-// The legacy HLS endpoints build a file path from caller-supplied route values, and the audio
-// and video segment endpoints are not authenticated. These tests pin down that requests escaping
-// the transcode directory are rejected while legitimate ones still serve a file.
-public sealed class HlsSegmentControllerTests
+// Private output must belong to the requested item and authenticated job owner.
+// Filenames and playback-session IDs alone confer no access.
+public sealed class HlsSegmentControllerTests : IDisposable
 {
-    private readonly Mock<IFileSystem> _fileSystem = new();
     private readonly Mock<IServerConfigurationManager> _config = new();
     private readonly Mock<ITranscodeManager> _transcodeManager = new();
     private readonly string _transcodePath;
+    private readonly Guid _userId = Guid.NewGuid();
+    private readonly Guid _itemId = Guid.NewGuid();
+    private readonly string _playlistId = Guid.NewGuid().ToString("N");
 
     public HlsSegmentControllerTests()
     {
-        _transcodePath = Path.Combine(Path.GetTempPath(), "jellyfin-hls-segment-tests");
-        Directory.CreateDirectory(_transcodePath);
+        _transcodePath = Directory.CreateTempSubdirectory("jellyfin-hls-segment-tests-").FullName;
 
         _config.Setup(c => c.GetConfiguration("encoding"))
             .Returns(new EncodingOptions { TranscodingTempPath = _transcodePath });
@@ -37,8 +40,11 @@ public sealed class HlsSegmentControllerTests
     {
         var httpContext = new DefaultHttpContext();
         httpContext.Request.Path = requestPath;
+        httpContext.User = new ClaimsPrincipal(new ClaimsIdentity(
+            [new Claim(InternalClaimTypes.UserId, _userId.ToString()), new Claim(InternalClaimTypes.Token, "isolated-test-token")],
+            "test"));
 
-        return new HlsSegmentController(_fileSystem.Object, _config.Object, _transcodeManager.Object)
+        return new HlsSegmentController(_config.Object, _transcodeManager.Object)
         {
             ControllerContext = new ControllerContext { HttpContext = httpContext }
         };
@@ -48,8 +54,8 @@ public sealed class HlsSegmentControllerTests
     public void GetHlsAudioSegmentLegacy_SegmentInsideTranscodePath_ReturnsFile()
     {
         var controller = CreateController("/Audio/abc/hls/segment/stream.mp3");
-
-        var result = controller.GetHlsAudioSegmentLegacy("abc", "segment");
+        using var job = OwnJob("segment.mp3", TranscodingJobType.Progressive);
+        var result = controller.GetHlsAudioSegmentLegacy(_itemId.ToString(), "segment");
 
         Assert.IsType<PhysicalFileResult>(result);
     }
@@ -93,10 +99,10 @@ public sealed class HlsSegmentControllerTests
     public void GetHlsPlaylistLegacy_M3u8InsideTranscodePath_ReturnsFile()
     {
         var controller = CreateController("/Videos/abc/hls/list/stream.m3u8");
-
-        var result = controller.GetHlsPlaylistLegacy("abc", "list");
-
-        Assert.IsType<PhysicalFileResult>(result);
+        using var job = OwnJob(_playlistId + ".m3u8", TranscodingJobType.Hls);
+        File.WriteAllText(job.Path!, "#EXTM3U\n" + _playlistId + "0.ts\n");
+        var result = controller.GetHlsPlaylistLegacy(_itemId.ToString(), _playlistId);
+        Assert.Contains(_playlistId + "0.ts?ApiKey=isolated-test-token", Assert.IsType<ContentResult>(result).Content, StringComparison.Ordinal);
     }
 
     [Fact]
@@ -124,12 +130,9 @@ public sealed class HlsSegmentControllerTests
     [Fact]
     public void GetHlsVideoSegmentLegacy_SegmentInsideTranscodePath_ReturnsFile()
     {
-        _fileSystem.Setup(f => f.GetFilePaths(_transcodePath, false))
-            .Returns(new[] { Path.Combine(_transcodePath, "playlist123.ts") });
-
+        using var job = OwnJob(_playlistId + ".m3u8", TranscodingJobType.Hls);
         var controller = CreateController("/Videos/abc/hls/playlist123/seg1.ts");
-
-        var result = controller.GetHlsVideoSegmentLegacy("abc", "playlist123", "seg1", "ts");
+        var result = controller.GetHlsVideoSegmentLegacy(_itemId.ToString(), _playlistId, _playlistId + "0", "ts");
 
         Assert.IsType<PhysicalFileResult>(result);
     }
@@ -137,14 +140,11 @@ public sealed class HlsSegmentControllerTests
     [Fact]
     public void GetHlsVideoSegmentLegacy_NoMatchingPlaylist_ReturnsNotFound()
     {
-        _fileSystem.Setup(f => f.GetFilePaths(_transcodePath, false))
-            .Returns(Array.Empty<string>());
-
         var controller = CreateController("/Videos/abc/hls/playlist123/seg1.ts");
 
-        var result = controller.GetHlsVideoSegmentLegacy("abc", "playlist123", "seg1", "ts");
+        var result = controller.GetHlsVideoSegmentLegacy(_itemId.ToString(), _playlistId, _playlistId + "0", "ts");
 
-        Assert.IsType<NotFoundObjectResult>(result);
+        Assert.IsType<NotFoundResult>(result);
     }
 
     [Theory]
@@ -156,6 +156,49 @@ public sealed class HlsSegmentControllerTests
         var result = controller.GetHlsVideoSegmentLegacy("abc", "playlist123", segmentId, "ts");
 
         Assert.IsType<BadRequestObjectResult>(result);
-        _fileSystem.Verify(f => f.GetFilePaths(It.IsAny<string>(), It.IsAny<bool>()), Times.Never);
+        _transcodeManager.VerifyNoOtherCalls();
+    }
+
+    [Theory]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void ExistingOutput_CannotBeReadForAnotherOwnerOrItem(bool wrongOwner)
+    {
+        using var job = OwnJob(_playlistId + ".m3u8", TranscodingJobType.Hls);
+        if (wrongOwner)
+        {
+            job.UserId = Guid.NewGuid();
+        }
+        else
+        {
+            job.ItemId = Guid.NewGuid();
+        }
+
+        var controller = CreateController("/Videos/abc/hls/list/segment.ts");
+        Assert.IsType<NotFoundResult>(controller.GetHlsVideoSegmentLegacy(_itemId.ToString(), _playlistId, _playlistId + "0", "ts"));
+        _transcodeManager.Verify(value => value.OnTranscodeBeginRequest(It.IsAny<string>(), It.IsAny<TranscodingJobType>()), Times.Never);
+    }
+
+    [Fact]
+    public void SegmentMustBelongToTheExactAuthorizedPlaylist()
+    {
+        using var job = OwnJob(_playlistId + ".m3u8", TranscodingJobType.Hls);
+        var controller = CreateController("/Videos/abc/hls/list/segment.ts");
+        Assert.IsType<BadRequestObjectResult>(controller.GetHlsVideoSegmentLegacy(_itemId.ToString(), _playlistId, Guid.NewGuid().ToString("N") + "0", "ts"));
+        _transcodeManager.VerifyNoOtherCalls();
+    }
+
+    public void Dispose() => Directory.Delete(_transcodePath, true);
+
+    private TranscodingJob OwnJob(string filename, TranscodingJobType type)
+    {
+        var job = new TranscodingJob(NullLogger<TranscodingJob>.Instance)
+        {
+            Path = Path.Combine(_transcodePath, filename), Type = type, ItemId = _itemId, UserId = _userId,
+            MediaSource = new MediaSourceInfo { Id = _itemId.ToString("N") }
+        };
+        _transcodeManager.Setup(value => value.GetTranscodingJob(job.Path, type)).Returns(job);
+        _transcodeManager.Setup(value => value.OnTranscodeBeginRequest(job.Path, type)).Returns(job);
+        return job;
     }
 }

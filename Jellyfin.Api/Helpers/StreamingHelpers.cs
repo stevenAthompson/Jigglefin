@@ -126,6 +126,11 @@ public static class StreamingHelpers
 
             if (currentJob is not null)
             {
+                if (!LiveTranscodeAccess.CanUse(currentJob, httpContext.User, item.Id))
+                {
+                    throw new ResourceNotFoundException();
+                }
+
                 mediaSource = currentJob.MediaSource;
             }
 
@@ -381,7 +386,9 @@ public static class StreamingHelpers
     /// <returns>The complete file path, including the folder, for the transcoding file.</returns>
     private static string GetOutputFilePath(StreamState state, string outputFileExtension, IServerConfigurationManager serverConfigurationManager, string? deviceId, string? playSessionId)
     {
-        var data = $"{state.MediaPath}-{state.UserAgent}-{deviceId!}-{playSessionId!}";
+        // Caller-chosen device/session strings cannot make two accounts share
+        // private output, even after the in-memory job has been removed.
+        var data = $"{state.User?.Id ?? Guid.Empty:N}-{state.Request.Id:N}-{state.MediaPath}-{state.UserAgent}-{deviceId!}-{playSessionId!}";
 
         var filename = data.GetMD5().ToString("N", CultureInfo.InvariantCulture);
         var ext = outputFileExtension.ToLowerInvariant();

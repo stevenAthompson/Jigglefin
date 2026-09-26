@@ -33,6 +33,12 @@ public sealed class TranscodingJob : IDisposable
     /// </summary>
     public string? PlaySessionId { get; set; }
 
+    /// <summary>Gets or sets the account authorized when this job was created.</summary>
+    public Guid UserId { get; set; }
+
+    /// <summary>Gets or sets the authorized item, independently of a client-supplied session identifier.</summary>
+    public Guid ItemId { get; set; }
+
     /// <summary>
     /// Gets or sets the live stream identifier.
     /// </summary>

@@ -72,12 +72,13 @@ internal sealed class LiveFolderFixture : IDisposable
         }
     }
 
-    public async Task Start()
+    public async Task Start(Action<IServiceCollection>? configureServices = null)
     {
         _configured = _factory.WithWebHostBuilder(builder => builder.ConfigureServices(services =>
         {
             services.RemoveAll<ILiveDirectoryReader>();
             services.AddSingleton<ILiveDirectoryReader>(Reader);
+            configureServices?.Invoke(services);
         }));
         Client = _configured.CreateClient();
         Client.DefaultRequestHeaders.AddAuthHeader(await AuthHelper.CompleteStartupAsync(Client));

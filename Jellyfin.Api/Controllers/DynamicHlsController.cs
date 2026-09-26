@@ -339,6 +339,7 @@ public class DynamicHlsController : BaseJellyfinApiController
         }
 
         var playlistText = HlsHelpers.GetLivePlaylistText(playlistPath, state);
+        playlistText = HlsHelpers.AuthenticateLivePlaylist(playlistText, Path.GetFileNameWithoutExtension(playlistPath), User.GetToken()!);
 
         return Content(playlistText, MimeTypes.GetMimeType("playlist.m3u8"));
     }
@@ -1501,7 +1502,7 @@ public class DynamicHlsController : BaseJellyfinApiController
                     var currentJob = _transcodeManager.GetTranscodingJob(playlistPath, TranscodingJobType);
                     await WaitForActiveTranscodingRequests(currentJob, cancellationToken).ConfigureAwait(false);
 
-                    await _transcodeManager.KillTranscodingJobs(streamingRequest.DeviceId, streamingRequest.PlaySessionId, p => false)
+                    await _transcodeManager.KillTranscodingJobs(streamingRequest.DeviceId, streamingRequest.PlaySessionId, p => false, User.GetIsApiKey() ? null : User.GetUserId())
                         .ConfigureAwait(false);
 
                     if (currentTranscodingIndex.HasValue)

@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.ComponentModel;
 using System.Diagnostics;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Runtime.InteropServices;
 using System.Security.Cryptography;
@@ -157,14 +158,14 @@ public sealed class LiveDriveReadTests
                     {
                         UseShellExecute = false, CreateNoWindow = true, WindowStyle = ProcessWindowStyle.Hidden,
                         RedirectStandardOutput = true, RedirectStandardError = true,
-                        Arguments = OfflineMediaInput.Arguments + $"-v error -i file:\"{lease.ReadPath}\" -f md5 -"
+                        Arguments = OfflineMediaInput.Arguments + $"-v error -i file:\"{lease.ReadPath}\" -f hash -hash sha256 -"
                     };
                     using var process = Process.Start(start)!;
                     var output = process.StandardOutput.ReadToEndAsync(TestContext.Current.CancellationToken);
                     var error = process.StandardError.ReadToEndAsync(TestContext.Current.CancellationToken);
                     await process.WaitForExitAsync(TestContext.Current.CancellationToken);
                     Assert.True(process.ExitCode == 0, await error);
-                    Assert.Equal("MD5=" + Convert.ToHexStringLower(MD5.HashData(bytes.AsSpan(44))), (await output).Trim());
+                    Assert.Equal("SHA256=" + Convert.ToHexStringLower(SHA256.HashData(bytes.AsSpan(44))), (await output).Trim());
                 }
                 else
                 {
@@ -247,6 +248,7 @@ public sealed class LiveDriveReadTests
 
         [DllImport("kernel32.dll", EntryPoint = "QueryDosDeviceW", CharSet = CharSet.Unicode, SetLastError = true)]
         [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        [SuppressMessage("Performance", "CA1838", Justification = "Bounded Windows test-fixture setup, not a production hot path.")]
         private static extern uint QueryDosDevice(string device, StringBuilder target, int size);
 
         [DllImport("kernel32.dll", EntryPoint = "DefineDosDeviceW", CharSet = CharSet.Unicode, SetLastError = true)]

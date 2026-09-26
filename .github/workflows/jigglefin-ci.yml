@@ -4,9 +4,11 @@ on:
   push:
     branches:
       - jigglefin
+      - codex/live-filesystem
   pull_request:
     branches:
       - jigglefin
+      - codex/live-filesystem
   workflow_dispatch:
 
 permissions:
@@ -33,7 +35,7 @@ jobs:
         run: dotnet restore Jellyfin.sln --locked-mode
 
       - name: Build
-        run: dotnet build Jellyfin.sln --configuration Release --no-restore
+        run: dotnet build Jellyfin.sln --configuration Release --no-restore -m:1
 
       - name: Prepare verified Jellyfin FFmpeg
         shell: pwsh
@@ -42,7 +44,7 @@ jobs:
       - name: Test
         env:
           JIGGLEFIN_TEST_FFMPEG: ${{ runner.temp }}\jellyfin-ffmpeg\ffmpeg.exe
-        run: dotnet test Jellyfin.sln --configuration Release --no-restore --no-build --verbosity minimal
+        run: dotnet test Jellyfin.sln --configuration Release --no-restore --no-build --verbosity minimal -m:1
 
       - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
@@ -80,6 +82,9 @@ jobs:
       - name: Smoke-test packaged Windows server
         shell: pwsh
         run: .\scripts\smoke-live-package-win.ps1 -PackageDirectory .\publish\Jigglefin-win-x64
+
+      - name: Check stock Android web-shell compatibility
+        run: node --test tests/WebClientSmoke/android-shell.test.cjs
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:

@@ -234,7 +234,7 @@ public class PlaystateController : BaseJellyfinApiController
     [ProducesResponseType(StatusCodes.Status204NoContent)]
     public ActionResult PingPlaybackSession([FromQuery, Required] string playSessionId)
     {
-        _transcodeManager.PingTranscodingJob(playSessionId, null);
+        _transcodeManager.PingTranscodingJob(playSessionId, null, User.GetIsApiKey() ? null : User.GetUserId());
         return NoContent();
     }
 
@@ -251,7 +251,7 @@ public class PlaystateController : BaseJellyfinApiController
         _logger.LogDebug("ReportPlaybackStopped PlaySessionId: {0}", playbackStopInfo.PlaySessionId ?? string.Empty);
         if (!string.IsNullOrWhiteSpace(playbackStopInfo.PlaySessionId))
         {
-            await _transcodeManager.KillTranscodingJobs(User.GetDeviceId()!, playbackStopInfo.PlaySessionId, s => true).ConfigureAwait(false);
+            await _transcodeManager.KillTranscodingJobs(User.GetDeviceId()!, playbackStopInfo.PlaySessionId, s => true, User.GetIsApiKey() ? null : User.GetUserId()).ConfigureAwait(false);
         }
 
         playbackStopInfo.SessionId = await RequestHelpers.GetSessionId(_sessionManager, _userManager, HttpContext).ConfigureAwait(false);
@@ -467,7 +467,7 @@ public class PlaystateController : BaseJellyfinApiController
         _logger.LogDebug("ReportPlaybackStopped PlaySessionId: {0}", playbackStopInfo.PlaySessionId ?? string.Empty);
         if (!string.IsNullOrWhiteSpace(playbackStopInfo.PlaySessionId))
         {
-            await _transcodeManager.KillTranscodingJobs(User.GetDeviceId()!, playbackStopInfo.PlaySessionId, s => true).ConfigureAwait(false);
+            await _transcodeManager.KillTranscodingJobs(User.GetDeviceId()!, playbackStopInfo.PlaySessionId, s => true, User.GetIsApiKey() ? null : User.GetUserId()).ConfigureAwait(false);
         }
 
         playbackStopInfo.SessionId = await RequestHelpers.GetSessionId(_sessionManager, _userManager, HttpContext).ConfigureAwait(false);

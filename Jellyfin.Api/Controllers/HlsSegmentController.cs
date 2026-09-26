@@ -1,14 +1,13 @@
 using System;
 using System.ComponentModel.DataAnnotations;
-using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Threading.Tasks;
 using Jellyfin.Api.Attributes;
+using Jellyfin.Api.Extensions;
 using Jellyfin.Api.Helpers;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Controller.Configuration;
 using MediaBrowser.Controller.MediaEncoding;
-using MediaBrowser.Model.IO;
 using MediaBrowser.Model.Net;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
@@ -20,25 +19,22 @@ namespace Jellyfin.Api.Controllers;
 /// The hls segment controller.
 /// </summary>
 [Route("")]
+[Authorize]
 [ApiExplorerSettings(IgnoreApi = true)]
 public class HlsSegmentController : BaseJellyfinApiController
 {
-    private readonly IFileSystem _fileSystem;
     private readonly IServerConfigurationManager _serverConfigurationManager;
     private readonly ITranscodeManager _transcodeManager;
 
     /// <summary>
     /// Initializes a new instance of the <see cref="HlsSegmentController"/> class.
     /// </summary>
-    /// <param name="fileSystem">Instance of the <see cref="IFileSystem"/> interface.</param>
     /// <param name="serverConfigurationManager">Instance of the <see cref="IServerConfigurationManager"/> interface.</param>
     /// <param name="transcodeManager">Instance of the <see cref="ITranscodeManager"/> interface.</param>
     public HlsSegmentController(
-        IFileSystem fileSystem,
         IServerConfigurationManager serverConfigurationManager,
         ITranscodeManager transcodeManager)
     {
-        _fileSystem = fileSystem;
         _serverConfigurationManager = serverConfigurationManager;
         _transcodeManager = transcodeManager;
     }
@@ -50,23 +46,27 @@ public class HlsSegmentController : BaseJellyfinApiController
     /// <param name="segmentId">The segment id.</param>
     /// <response code="200">Hls audio segment returned.</response>
     /// <returns>A <see cref="FileStreamResult"/> containing the audio stream.</returns>
-    // Can't require authentication just yet due to seeing some requests come from Chrome without full query string
-    // [Authenticated]
     [HttpGet("Audio/{itemId}/hls/{segmentId}/stream.mp3", Name = "GetHlsAudioSegmentLegacyMp3")]
     [HttpGet("Audio/{itemId}/hls/{segmentId}/stream.aac", Name = "GetHlsAudioSegmentLegacyAac")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesAudioFile]
-    [SuppressMessage("Microsoft.Performance", "CA1801:ReviewUnusedParameters", MessageId = "itemId", Justification = "Required for ServiceStack")]
     public ActionResult GetHlsAudioSegmentLegacy([FromRoute, Required] string itemId, [FromRoute, Required] string segmentId)
     {
-        // TODO: Deprecate with new iOS app
         var file = ValidateTranscodePath(string.Concat(segmentId, Path.GetExtension(Request.Path.Value.AsSpan())));
         if (file is null)
         {
             return BadRequest("Invalid segment.");
         }
 
-        return FileStreamResponseHelpers.GetStaticFileResult(file, MimeTypes.GetMimeType(file));
+        var job = _transcodeManager.GetTranscodingJob(file, TranscodingJobType.Progressive)
+            ?? _transcodeManager.GetTranscodingJob(file, TranscodingJobType.Hls);
+        if (job is null && segmentId.Length > 32 && HlsHelpers.IsLiveSegmentName(segmentId[..32], segmentId))
+        {
+            var playlist = ValidateTranscodePath(segmentId[..32] + ".m3u8");
+            job = playlist is null ? null : _transcodeManager.GetTranscodingJob(playlist, TranscodingJobType.Hls);
+        }
+
+        return GetFileResult(itemId, file, job);
     }
 
     /// <summary>
@@ -80,7 +80,6 @@ public class HlsSegmentController : BaseJellyfinApiController
     [Authorize]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesPlaylistFile]
-    [SuppressMessage("Microsoft.Performance", "CA1801:ReviewUnusedParameters", MessageId = "itemId", Justification = "Required for ServiceStack")]
     public ActionResult GetHlsPlaylistLegacy([FromRoute, Required] string itemId, [FromRoute, Required] string playlistId)
     {
         var file = ValidateTranscodePath(string.Concat(playlistId, Path.GetExtension(Request.Path.Value.AsSpan())));
@@ -90,7 +89,15 @@ public class HlsSegmentController : BaseJellyfinApiController
             return BadRequest("Invalid segment.");
         }
 
-        return GetFileResult(file, file);
+        var job = _transcodeManager.GetTranscodingJob(file, TranscodingJobType.Hls);
+        if (!CanUse(itemId, job))
+        {
+            return NotFound();
+        }
+
+        // Native players do not reliably forward request headers to segments.
+        // Every generated asset URL carries this request's own token instead.
+        return Content(HlsHelpers.AuthenticateLivePlaylist(System.IO.File.ReadAllText(file), playlistId, User.GetToken()!, nested: true), MimeTypes.GetMimeType(file));
     }
 
     /// <summary>
@@ -103,11 +110,17 @@ public class HlsSegmentController : BaseJellyfinApiController
     [HttpDelete("Videos/ActiveEncodings")]
     [Authorize]
     [ProducesResponseType(StatusCodes.Status204NoContent)]
-    public ActionResult StopEncodingProcess(
+    public async Task<ActionResult> StopEncodingProcess(
         [FromQuery, Required] string deviceId,
         [FromQuery, Required] string playSessionId)
     {
-        _transcodeManager.KillTranscodingJobs(deviceId, playSessionId, _ => true);
+        var job = _transcodeManager.GetTranscodingJob(playSessionId);
+        if (job is not null && !LiveTranscodeAccess.CanUse(job, User))
+        {
+            return NotFound();
+        }
+
+        await _transcodeManager.KillTranscodingJobs(deviceId, playSessionId, _ => true, User.GetIsApiKey() ? null : User.GetUserId()).ConfigureAwait(false);
         return NoContent();
     }
 
@@ -121,13 +134,10 @@ public class HlsSegmentController : BaseJellyfinApiController
     /// <response code="200">Hls video segment returned.</response>
     /// <response code="404">Hls segment not found.</response>
     /// <returns>A <see cref="FileStreamResult"/> containing the video segment.</returns>
-    // Can't require authentication just yet due to seeing some requests come from Chrome without full query string
-    // [Authenticated]
     [HttpGet("Videos/{itemId}/hls/{playlistId}/{segmentId}.{segmentContainer}")]
     [ProducesResponseType(StatusCodes.Status200OK)]
     [ProducesResponseType(StatusCodes.Status404NotFound)]
     [ProducesVideoFile]
-    [SuppressMessage("Microsoft.Performance", "CA1801:ReviewUnusedParameters", MessageId = "itemId", Justification = "Required for ServiceStack")]
     public ActionResult GetHlsVideoSegmentLegacy(
         [FromRoute, Required] string itemId,
         [FromRoute, Required] string playlistId,
@@ -135,35 +145,23 @@ public class HlsSegmentController : BaseJellyfinApiController
         [FromRoute, Required] string segmentContainer)
     {
         var file = ValidateTranscodePath(string.Concat(segmentId, Path.GetExtension(Request.Path.Value.AsSpan())));
-        if (file is null)
+        if (file is null || !HlsHelpers.IsLiveSegmentName(playlistId, segmentId)
+            || segmentContainer is not ("ts" or "mp4" or "m4s" or "aac" or "mp3"))
         {
             return BadRequest("Invalid segment.");
         }
 
-        var transcodeFolderPath = _serverConfigurationManager.GetTranscodePath();
-        var filePaths = _fileSystem.GetFilePaths(transcodeFolderPath);
-        // Add . to start of segment container for future use.
-        segmentContainer = segmentContainer.Insert(0, ".");
-        string? playlistPath = null;
-        foreach (var path in filePaths)
-        {
-            var pathExtension = Path.GetExtension(path);
-            if ((string.Equals(pathExtension, segmentContainer, StringComparison.OrdinalIgnoreCase)
-                 || string.Equals(pathExtension, ".m3u8", StringComparison.OrdinalIgnoreCase))
-                && path.Contains(playlistId, StringComparison.OrdinalIgnoreCase))
-            {
-                playlistPath = path;
-                break;
-            }
-        }
-
-        return playlistPath is null
-            ? NotFound("Hls segment not found.")
-            : GetFileResult(file, playlistPath);
+        var playlistPath = ValidateTranscodePath(playlistId + ".m3u8");
+        return GetFileResult(itemId, file, playlistPath is null ? null : _transcodeManager.GetTranscodingJob(playlistPath, TranscodingJobType.Hls));
     }
 
     private string? ValidateTranscodePath(string filename)
     {
+        if (string.IsNullOrEmpty(filename) || filename.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 || filename != Path.GetFileName(filename))
+        {
+            return null;
+        }
+
         var transcodePath = Path.TrimEndingDirectorySeparator(Path.GetFullPath(_serverConfigurationManager.GetTranscodePath()));
         var file = Path.GetFullPath(filename, transcodePath);
         // Require a separator after the transcode path so a sibling like "<transcodePath>-evil" can't pass.
@@ -175,9 +173,26 @@ public class HlsSegmentController : BaseJellyfinApiController
         return file;
     }
 
-    private ActionResult GetFileResult(string path, string playlistPath)
+    private bool CanUse(string itemId, TranscodingJob? job)
+        => Guid.TryParse(itemId, out var id) && LiveTranscodeAccess.CanUse(job, User, id);
+
+    private ActionResult GetFileResult(string itemId, string path, TranscodingJob? job)
     {
-        var transcodingJob = _transcodeManager.OnTranscodeBeginRequest(playlistPath, TranscodingJobType.Hls);
+        if (!CanUse(itemId, job))
+        {
+            return NotFound();
+        }
+
+        var transcodingJob = _transcodeManager.OnTranscodeBeginRequest(job!.Path!, job.Type);
+        if (!ReferenceEquals(job, transcodingJob))
+        {
+            if (transcodingJob is not null)
+            {
+                _transcodeManager.OnTranscodeEndRequest(transcodingJob);
+            }
+
+            return NotFound();
+        }
 
         Response.OnCompleted(() =>
         {

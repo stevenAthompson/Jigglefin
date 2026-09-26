@@ -2,7 +2,13 @@
 
 This supersedes the scan-backed architecture in `JIGGLEFIN.md`. The previous release
 is not an implementation of this design. Work is on `codex/live-filesystem` until
-the replacement passes its end-to-end gates.
+the replacement is ready for promotion. The dated checkpoints below are a history,
+not a cumulative list of open blockers; later entries supersede earlier ones.
+
+**Current status:** the live-folder server and simplified UI are implemented and
+the Windows preview has passed the automated end-to-end gates. See the final
+2026-09-26 checkpoint below for the ZIP, verification and explicit native-client
+limits. Promotion over an owner's running installation is a separate operation.
 
 ## Product contract
 
@@ -780,3 +786,83 @@ binding that job's source ID to the authorized requested item. These require
 dedicated HTTP regressions and corrections, then packaged/client verification;
 the successful read-handoff tests do not close those permission checks. Final
 distribution/CI documentation and release packaging remain after that fix.
+
+### Playback-session authorization and live-HLS compatibility
+
+Three HTTP regressions reproduced cached audio accessible without authentication,
+cached video bypassing a folder restriction, and caller-supplied session IDs
+substituting another item's source. Legacy HLS routes now require authentication
+and current folder access. Cached output also requires an exact live job owned by
+the account and bound to the requested item and source ID. Session reuse, playback
+reports, ping and stop use the same binding. Output hashes include account and item,
+and concurrent job registration rejects a session shared across accounts/items.
+Stop/ping also filter by owner while holding the job-list lock, so recycling a
+session ID between HTTP validation and job selection cannot affect a new owner.
+Real-job tests verify this boundary independently of the HTTP filter, including
+the device-only stop fallback.
+
+Live playlists carry the requesting token in local `ApiKey` asset URLs, including
+fMP4 initialization assets. This lets native players fetch segments without copying
+HTTP headers. Real FFmpeg TS/fMP4 tests caught and corrected use of the obsolete
+`api_key` spelling, which is not accepted when legacy authentication is disabled.
+They verify successful header-free segment reads, wrong-owner/wrong-item/anonymous
+denials, owner ping/stop, denial after job removal, and account-separated output
+when a later account reuses the caller-chosen session/device strings. Media remains
+read-only and no catalog entries are imported. Unit cases cover nested playlists,
+token escaping, exact output prefixes and rejection of unexpected asset references.
+
+CI now targets the live implementation branch as well as the old default branch,
+uses sequential build/test execution, and checks Android web-shell compatibility.
+The portable package includes this design/verification history alongside its usage
+guide and license notices. Current verification evidence is under
+`publish/test-results/live-transcode-authorization`; baseline failures and diagnostic
+runs are retained separately from final reports. Package verification is recorded
+below after the final runs.
+
+### Windows live-folder preview — 2026-09-26
+
+The final packaged workflows pass for
+`publish/Jigglefin-live-folder-preview-20260926-r2.zip`, SHA-256
+`5BFA5F473C4D9C6888E4426D2790389D04B7B92BDA1BE4ACCFDC478F816CAA01`.
+This ZIP contains the last ownership-selection fix; the earlier `r1` ZIP does not.
+
+- Packaged UI/native fixture: `%TEMP%\jigglefin-folder-web-lODS3d`.
+- Actual older-ZIP upgrade: `%TEMP%\jigglefin-zip-upgrade-d08ad85021b346e8b55b0dd89a67b26c`.
+- Retained local evidence: `publish/test-results/live-transcode-authorization/r2-*`.
+
+The native observer saw 55 media helpers across two server startups, with working
+positive controls, no attempted outbound/UNC accesses, no external browser requests
+or CSP violations, unchanged synthetic media and clean shutdowns. The workflow
+covers setup, immediate live listings, local selection metadata, direct/range/HLS
+playback, local subtitles, seeking, accounts, folder access, cache eviction,
+disconnected roots and actual restart/resume. The real older ZIP upgrade preserved
+accounts, restrictions and separate per-account audiobook positions; a fresh browser
+resumed the migrated audiobook at 31 seconds and newer progress survived restart.
+
+The full-solution build also exposed analyzer issues in Windows-only test scaffolding.
+The native checksum assertion now uses SHA-256; bounded P/Invoke test helpers have
+targeted performance-rule justifications; the nonparallel xUnit group has a matching
+non-collection type/filename. No behavioral assertions were weakened or tests skipped
+to make that build succeed.
+
+This is a portable preview, not an automatic production migration. The installed
+server/profile, user drive mappings and `Z:\Media` have not been changed. The runtime
+is offline; downloading source/build/test dependencies remains a developer operation.
+Stock clients keep their own UI and may expose inert catalog menus. Android TV
+folder-audio automatic resume remains a known client limitation, Apple-device UI
+validation is user-deferred, and physical/background Android behavior remains
+unverified. Those limits are also called out in the portable usage guide.
+
+Final source verification: the **entire solution in Release configuration** passed
+**4,312 tests across 17 suites**, with **21 existing skips**, zero failures and a
+clean process exit. `release-solution/*.trx` is the authoritative full-source run;
+earlier `full-solution`/`final-solution` attempts retain the test-helper analyzer
+errors and are not passing full-build claims. Real FFmpeg and existing local SMB
+tests were enabled. Both Android web-shell Node tests, UI syntax/build and ZIP
+packaging also pass. No Apple-device or physical/background Android validation is
+inferred from these automated results.
+
+Implementation, API fallback, playback authorization, local source verification,
+portable packaging, offline observation and synthetic-profile upgrade gates are
+complete for this preview. The default branch/running installation need not be
+replaced to evaluate it; use the live branch and a separate test profile first.

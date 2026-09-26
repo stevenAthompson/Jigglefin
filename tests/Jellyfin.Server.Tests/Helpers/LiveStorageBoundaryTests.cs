@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.ComponentModel;
+using System.Diagnostics.CodeAnalysis;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
@@ -692,6 +693,7 @@ public sealed class LiveStorageBoundaryTests
 
     [DllImport("kernel32.dll", EntryPoint = "GetShortPathNameW", CharSet = CharSet.Unicode, SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    [SuppressMessage("Performance", "CA1838", Justification = "Bounded Windows test-fixture setup, not a production hot path.")]
     private static extern uint GetShortPathName(string path, StringBuilder shortPath, int size);
 
     private sealed class RemappingReader : ILiveDirectoryReader
@@ -788,6 +790,7 @@ public sealed class LiveStorageBoundaryTests
 
         [DllImport("kernel32.dll", EntryPoint = "QueryDosDeviceW", CharSet = CharSet.Unicode, SetLastError = true)]
         [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        [SuppressMessage("Performance", "CA1838", Justification = "Bounded Windows test-fixture setup, not a production hot path.")]
         private static extern uint QueryDosDevice(string device, StringBuilder target, int size);
 
         [DllImport("mpr.dll", EntryPoint = "WNetAddConnection2W", CharSet = CharSet.Unicode)]
@@ -800,6 +803,7 @@ public sealed class LiveStorageBoundaryTests
 
         [DllImport("mpr.dll", EntryPoint = "WNetGetConnectionW", CharSet = CharSet.Unicode)]
         [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        [SuppressMessage("Performance", "CA1838", Justification = "Bounded Windows test-fixture verification, not a production hot path.")]
         private static extern int WNetGetConnection(string device, StringBuilder remote, ref int size);
 
         [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
@@ -871,6 +875,7 @@ public sealed class LiveStorageBoundaryTests
 
         [DllImport("kernel32.dll", EntryPoint = "QueryDosDeviceW", CharSet = CharSet.Unicode, SetLastError = true)]
         [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        [SuppressMessage("Performance", "CA1838", Justification = "Bounded Windows test-fixture setup, not a production hot path.")]
         private static extern uint QueryDosDevice(string device, StringBuilder target, int size);
 
         [DllImport("kernel32.dll", EntryPoint = "DefineDosDeviceW", CharSet = CharSet.Unicode, SetLastError = true)]
