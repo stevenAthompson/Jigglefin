@@ -104,6 +104,7 @@ internal sealed class LiveFolderFixture : IDisposable
     {
         paths = paths.Length == 0 ? [Media] : paths;
         var before = Reader.Enumerations.Count;
+        var beforeStats = Reader.Stats.Count;
         using var response = await Client.PostAsJsonAsync(
             $"Library/VirtualFolders?name={Uri.EscapeDataString(name)}&collectionType={collectionType}&refreshLibrary=true",
             new AddVirtualFolderDto { LibraryOptions = new LibraryOptions { PathInfos = paths.Select(path => new MediaPathInfo(path)).ToArray() } },
@@ -112,6 +113,7 @@ internal sealed class LiveFolderFixture : IDisposable
         Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
         Assert.Equal(before, Reader.Enumerations.Count);
         var views = await Query("UserViews");
+        Assert.Equal(beforeStats, Reader.Stats.Count);
         return Assert.Single(views.Items, item => item.Name == name);
     }
 

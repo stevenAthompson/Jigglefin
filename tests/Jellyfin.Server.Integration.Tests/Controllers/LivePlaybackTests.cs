@@ -6,6 +6,8 @@ using System.Net.Http;
 using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Net.Sockets;
+using System.Runtime.InteropServices;
+using System.Text;
 using System.Threading.Tasks;
 using Jellyfin.Api.Models.LibraryStructureDto;
 using Jellyfin.Api.Models.MediaInfoDtos;
@@ -31,15 +33,17 @@ namespace Jellyfin.Server.Integration.Tests.Controllers;
 public sealed class LivePlaybackTests
 {
     [Theory]
-    [InlineData("m4b", "Audio", false, false)]
-    [InlineData("mp4", "Videos", false, false)]
-    [InlineData("m4b", "Audio", true, false)]
-    [InlineData("mp4", "Videos", true, false)]
-    [InlineData("m4b", "Audio", false, true)]
-    [InlineData("mp4", "Videos", false, true)]
-    [InlineData("m4b", "Audio", true, true)]
-    [InlineData("mp4", "Videos", true, true)]
-    public async Task SelectedFile_PlaysAndRetainsResumeAfterCacheEvictionAndServerRestart(string extension, string streamRoute, bool deepPath, bool useSmb)
+    [InlineData("m4b", "Audio", false, false, false)]
+    [InlineData("mp4", "Videos", false, false, false)]
+    [InlineData("m4b", "Audio", true, false, false)]
+    [InlineData("mp4", "Videos", true, false, false)]
+    [InlineData("m4b", "Audio", false, true, false)]
+    [InlineData("mp4", "Videos", false, true, false)]
+    [InlineData("m4b", "Audio", true, true, false)]
+    [InlineData("mp4", "Videos", true, true, false)]
+    [InlineData("m4b", "Audio", false, false, true)]
+    [InlineData("mp4", "Videos", false, false, true)]
+    public async Task SelectedFile_PlaysAndRetainsResumeAfterCacheEvictionAndServerRestart(string extension, string streamRoute, bool deepPath, bool useSmb, bool shortPath)
     {
         var ffmpeg = Environment.GetEnvironmentVariable("JIGGLEFIN_TEST_FFMPEG");
         if (string.IsNullOrEmpty(ffmpeg))
@@ -50,6 +54,11 @@ public sealed class LivePlaybackTests
         if (useSmb && (!OperatingSystem.IsWindows() || Environment.GetEnvironmentVariable("JIGGLEFIN_TEST_LOCAL_SMB") != "1"))
         {
             throw SkipException.ForSkip("Set JIGGLEFIN_TEST_LOCAL_SMB=1 on Windows with its existing local administrative share readable; this test never creates or changes shares.");
+        }
+
+        if (shortPath && !OperatingSystem.IsWindows())
+        {
+            throw SkipException.ForSkip("Windows 8.3 spelling regression.");
         }
 
         var fixture = Directory.CreateTempSubdirectory("jigglefin-live-playback-");
@@ -68,6 +77,14 @@ public sealed class LivePlaybackTests
 
             var mediaRoot = Directory.CreateDirectory(mediaPath);
             var configuredPath = useSmb ? @"\\localhost\" + mediaRoot.FullName[0] + "$" + mediaRoot.FullName[2..] : mediaRoot.FullName;
+            if (shortPath)
+            {
+                var buffer = new StringBuilder(32768);
+                Assert.NotEqual(0u, GetShortPathName(configuredPath, buffer, buffer.Capacity));
+                Assert.NotEqual(configuredPath, buffer.ToString());
+                configuredPath = buffer.ToString();
+            }
+
             Assert.True(Directory.Exists(configuredPath));
             var profile = Path.Combine(fixture.FullName, "Profile");
             var source = await File.ReadAllBytesAsync(Path.Combine(AppContext.BaseDirectory, "Test Data", "JigglefinSample." + extension), TestContext.Current.CancellationToken);
@@ -351,6 +368,10 @@ public sealed class LivePlaybackTests
             fixture.Delete(true);
         }
     }
+
+    [DllImport("kernel32.dll", EntryPoint = "GetShortPathNameW", CharSet = CharSet.Unicode, SetLastError = true)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    private static extern uint GetShortPathName(string path, StringBuilder shortPath, int size);
 
     private static async Task<T> Get<T>(HttpClient client, string url)
     {

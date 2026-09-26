@@ -7,10 +7,54 @@ using System.Text;
 
 namespace Emby.Server.Implementations.Library.Live;
 
-/// <summary>Compares configured locations without enumerating media. Windows normalization can expand short names.</summary>
+/// <summary>Compares configured locations without opening or enumerating media.</summary>
 internal static class LivePathComparison
 {
     private const string NetworkDrivePrefix = "network-drive:";
+
+    public static bool OverlapsPrivateStorage(string media, string privatePath)
+    {
+        if (Overlaps(media, privatePath))
+        {
+            return true;
+        }
+
+        if (!OperatingSystem.IsWindows())
+        {
+            return false;
+        }
+
+        var mediaIdentities = Identities(media);
+        var privateIdentities = Identities(privatePath);
+        if (!mediaIdentities.Exists(path => path.Contains('~', StringComparison.Ordinal))
+            && !privateIdentities.Exists(path => path.Contains('~', StringComparison.Ordinal)))
+        {
+            return false;
+        }
+
+        // Short aliases must not disguise writable storage, but resolving the
+        // media path would itself touch media during startup. Inspect only the
+        // configured private location (or its nearest existing ancestor).
+        var longPrivate = Path.GetFullPath(privatePath);
+        var shortPrivate = ShortPrivatePath(longPrivate);
+        var longIdentities = Identities(longPrivate, expandShortNames: true);
+        var shortIdentities = Identities(shortPrivate);
+        foreach (var candidate in mediaIdentities)
+        {
+            foreach (var longIdentity in longIdentities)
+            {
+                foreach (var shortIdentity in shortIdentities)
+                {
+                    if (AliasComponentsOverlap(candidate, longIdentity, shortIdentity))
+                    {
+                        return true;
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
 
     public static bool Overlaps(string first, string second)
     {
@@ -57,7 +101,72 @@ internal static class LivePathComparison
     private static bool IsNetwork(string path)
         => path.StartsWith(@"\\", StringComparison.Ordinal) || path.StartsWith(NetworkDrivePrefix, StringComparison.Ordinal);
 
-    private static string? LocalShareIdentity(string path)
+    private static List<string> Identities(string path, bool expandShortNames = false)
+    {
+        var primary = Identity(path, new HashSet<string>(StringComparer.OrdinalIgnoreCase), expandShortNames);
+        var result = new List<string> { primary };
+        if (LocalShareIdentity(primary, expandShortNames) is { } local)
+        {
+            result.Add(local);
+        }
+
+        return result;
+    }
+
+    private static bool AliasComponentsOverlap(string media, string longPrivate, string shortPrivate)
+    {
+        var candidate = media.Split('\\');
+        var longParts = longPrivate.Split('\\');
+        var shortParts = shortPrivate.Split('\\');
+        if (longParts.Length != shortParts.Length)
+        {
+            return false;
+        }
+
+        for (var index = 0; index < Math.Min(candidate.Length, longParts.Length); index++)
+        {
+            if (!string.Equals(candidate[index], longParts[index], StringComparison.OrdinalIgnoreCase)
+                && !string.Equals(candidate[index], shortParts[index], StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+        }
+
+        return true;
+    }
+
+    private static string ShortPrivatePath(string path)
+    {
+        var remaining = new Stack<string>();
+        var current = path;
+        while (true)
+        {
+            var buffer = new StringBuilder(32768);
+            var length = GetShortPathName(current, buffer, buffer.Capacity);
+            if (length > 0 && length < buffer.Capacity)
+            {
+                var result = buffer.ToString();
+                while (remaining.Count > 0)
+                {
+                    result = Path.Combine(result, remaining.Pop());
+                }
+
+                return result;
+            }
+
+            var error = Marshal.GetLastWin32Error();
+            var parent = Path.GetDirectoryName(current);
+            if (length > 0 || error is not (2 or 3) || parent is null)
+            {
+                throw new IOException("Could not inspect short-name aliases of private storage.", new Win32Exception(error));
+            }
+
+            remaining.Push(Path.GetFileName(current));
+            current = parent;
+        }
+    }
+
+    private static string? LocalShareIdentity(string path, bool expandShortNames = false)
     {
         if (!OperatingSystem.IsWindows() || !path.StartsWith(@"\\", StringComparison.Ordinal))
         {
@@ -89,7 +198,7 @@ internal static class LivePathComparison
                 return null; // Not a disk-tree share.
             }
 
-            return Identity(Path.Combine(share.Path, parts.Length == 3 ? parts[2] : string.Empty), new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+            return Identity(Path.Combine(share.Path, parts.Length == 3 ? parts[2] : string.Empty), new HashSet<string>(StringComparer.OrdinalIgnoreCase), expandShortNames);
         }
         finally
         {
@@ -126,9 +235,9 @@ internal static class LivePathComparison
             || child.StartsWith(Path.EndsInDirectorySeparator(parent) ? parent : parent + Path.DirectorySeparatorChar, comparison);
     }
 
-    private static string Identity(string path, HashSet<string> seen)
+    private static string Identity(string path, HashSet<string> seen, bool expandShortNames = false)
     {
-        path = LiveDirectoryBrowser.NormalizeRootPath(path);
+        path = expandShortNames ? Path.TrimEndingDirectorySeparator(Path.GetFullPath(path)) : LiveDirectoryBrowser.NormalizeRootPath(path);
         if (!OperatingSystem.IsWindows() || path.StartsWith(@"\\", StringComparison.Ordinal))
         {
             return path;
@@ -157,12 +266,12 @@ internal static class LivePathComparison
         var target = buffer.ToString(); // The first string is the current mapping.
         if (target.StartsWith(@"\??\UNC\", StringComparison.OrdinalIgnoreCase))
         {
-            return Identity(@"\\" + target[8..] + path[2..], seen);
+            return Identity(@"\\" + target[8..] + path[2..], seen, expandShortNames);
         }
 
         if (target.StartsWith(@"\??\", StringComparison.Ordinal) && target.Length > 6 && target[5] == ':')
         {
-            return Identity(target[4..].TrimEnd('\\') + path[2..], seen);
+            return Identity(target[4..].TrimEnd('\\') + path[2..], seen, expandShortNames);
         }
 
         if (target.StartsWith(@"\Device\LanmanRedirector\", StringComparison.OrdinalIgnoreCase)
@@ -184,7 +293,7 @@ internal static class LivePathComparison
 
             if (!remainder.StartsWith(';') && remainder.Contains('\\', StringComparison.Ordinal))
             {
-                return Identity(@"\\" + remainder.TrimEnd('\\') + path[2..], seen);
+                return Identity(@"\\" + remainder.TrimEnd('\\') + path[2..], seen, expandShortNames);
             }
 
             return NetworkDrivePrefix + path;
@@ -198,6 +307,10 @@ internal static class LivePathComparison
     [DllImport("kernel32.dll", EntryPoint = "QueryDosDeviceW", CharSet = CharSet.Unicode, SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     private static extern uint QueryDosDevice(string device, StringBuilder target, int size);
+
+    [DllImport("kernel32.dll", EntryPoint = "GetShortPathNameW", CharSet = CharSet.Unicode, SetLastError = true)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    private static extern uint GetShortPathName(string path, StringBuilder shortPath, int size);
 
     [DllImport("mpr.dll", EntryPoint = "WNetGetConnectionW", CharSet = CharSet.Unicode)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]

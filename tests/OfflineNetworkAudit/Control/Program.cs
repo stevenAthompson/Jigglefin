@@ -6,6 +6,12 @@ using System.Text;
 using System.Threading.Tasks;
 
 // Positive controls use loopback only and their own child, never public hosts.
+if (args.Length == 2 && args[0] is "--normalize-lexical" or "--normalize-expanding")
+{
+    NormalizationControl.Run(args[1], args[0] == "--normalize-lexical");
+    return;
+}
+
 if (args.Length != 1)
 {
     throw new ArgumentException("Supply the exact test ffprobe executable.");

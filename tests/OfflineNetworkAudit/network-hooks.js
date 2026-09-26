@@ -66,12 +66,15 @@ const observer = Process.attachModuleObserver({ onAdded(module) {
     if (name === 'wininet.dll') {
       for (const api of ['HttpSendRequestA', 'HttpSendRequestW', 'InternetOpenUrlA', 'InternetOpenUrlW']) hook(api, () => record('http', api, null));
     }
-    if (name === 'kernelbase.dll') {
-      hook('CreateFileW', args => {
-        const name = textAt(args[0], true);
-        if (name && (/^\\\\\?\\UNC\\/i.test(name) || (/^\\\\/.test(name) && !/^\\\\[?.]\\/.test(name))))
-          record('unc-file', 'CreateFileW', name);
-      });
+    if (name === 'kernelbase.dll' || name === 'kernel32.dll') {
+      for (const api of ['CreateFileW', 'CreateFile2', 'GetFileAttributesW', 'GetFileAttributesExW', 'FindFirstFileW', 'FindFirstFileExW', 'GetLongPathNameW', 'GetShortPathNameW']) {
+        hook(api, args => {
+          const file = textAt(args[0], true);
+          if (api === 'GetLongPathNameW') record('path-expansion', api, file);
+          if (file && (/^\\\\\?\\UNC\\/i.test(file) || (/^\\\\/.test(file) && !/^\\\\[?.]\\/.test(file))))
+            record('unc-file', api, file);
+        });
+      }
     }
   } catch (error) { send({ kind: 'hook-error', api: module.name, error: String(error) }); }
 } });

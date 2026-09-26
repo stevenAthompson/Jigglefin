@@ -170,14 +170,14 @@ public sealed class LiveLibraryStore : ILiveLibrary
 
         lock (_gate)
         {
-            var path = Path.TrimEndingDirectorySeparator(Path.GetFullPath(fullPath));
+            var path = LiveDirectoryBrowser.NormalizeRootPath(fullPath);
             var root = GetLibraries().SelectMany(library => library.Roots).SingleOrDefault(root => ContainsPath(root.FullPath, path));
             if (root is null)
             {
                 return null;
             }
 
-            var relative = Path.GetRelativePath(root.FullPath, path);
+            var relative = LiveDirectoryBrowser.RelativeWithinRoot(root.FullPath, path);
             if (relative == ".")
             {
                 return root.Id;
@@ -260,7 +260,7 @@ public sealed class LiveLibraryStore : ILiveLibrary
         lock (_gate)
         {
             var library = FindByName(name);
-            var fullPath = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
+            var fullPath = LiveDirectoryBrowser.NormalizeRootPath(path);
             Save(library with { Roots = library.Roots.Where(root => !PathsEqual(root.FullPath, fullPath)).ToArray() });
         }
     }
@@ -340,7 +340,9 @@ public sealed class LiveLibraryStore : ILiveLibrary
     {
         var root = LiveDirectoryBrowser.DescribeRoot(Path.GetFileName(Path.TrimEndingDirectorySeparator(path)) is { Length: > 0 } name ? name : path, path);
         ValidateLocation(libraries.SelectMany(item => item.Roots), root);
-        return _browser.Mount(root.Name, root.FullPath);
+        // Configuration is only an address. Even an attribute check can contact
+        // an offline share; defer existence/type checks until explicit browsing.
+        return root;
     }
 
     private LiveDirectoryEntry DescribeMountPoint(LiveMediaRoot root)
@@ -361,7 +363,7 @@ public sealed class LiveLibraryStore : ILiveLibrary
 
     private void ValidateLocation(IEnumerable<LiveMediaRoot> roots, LiveMediaRoot root)
     {
-        if (_privateDirectories.Any(path => LivePathComparison.Overlaps(root.FullPath, path)))
+        if (_privateDirectories.Any(path => LivePathComparison.OverlapsPrivateStorage(root.FullPath, path)))
         {
             throw new ArgumentException("Media roots and private server state must not overlap.", nameof(root));
         }
@@ -374,7 +376,7 @@ public sealed class LiveLibraryStore : ILiveLibrary
 
     private void RequireSeparatePrivateStorage(LiveMediaRoot root)
     {
-        if (_privateDirectories.Any(path => LivePathComparison.Overlaps(root.FullPath, path)))
+        if (_privateDirectories.Any(path => LivePathComparison.OverlapsPrivateStorage(root.FullPath, path)))
         {
             throw new UnauthorizedAccessException("This media location now overlaps private server storage.");
         }

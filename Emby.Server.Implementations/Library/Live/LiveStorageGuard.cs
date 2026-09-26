@@ -93,7 +93,7 @@ public static class LiveStorageGuard
                 throw new InvalidDataException("A configured media root is not fully qualified.");
             }
 
-            if (writable.Any(path => LivePathComparison.Overlaps(path, root)))
+            if (writable.Any(path => LivePathComparison.OverlapsPrivateStorage(root, path)))
             {
                 throw new InvalidDataException("Private profile/cache/log/metadata/transcode locations overlap a media root. Move the private location outside media before starting; no startup files were created.");
             }

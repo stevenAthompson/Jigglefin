@@ -608,3 +608,66 @@ and clean shutdowns. The actual older-ZIP upgrade passes again.
 
 The installed server/profile and `Z:\Media` remain untouched. This remains a
 development checkpoint pending the explicitly listed final gates.
+
+### Configuration without filesystem access, including Windows short names
+
+Configuration and saved-address normalization no longer use Windows .NET's
+implicit 8.3 expansion. They call the lexical
+[GetFullPathNameW](https://learn.microsoft.com/en-us/windows/win32/api/fileapi/nf-fileapi-getfullpathnamew)
+instead; relative IDs/containment also avoid `Path.GetRelativePath`'s implicit
+normalization. Selected filesystem reads retain the configured logical spelling
+even when Windows returns a long physical name. IDs remain tied to configured path
+spelling, not a global physical-file identity: changing between short/long root
+spellings is a different root. Already stored long-spelled live roots are unchanged.
+The tests do not claim migration of every historical mixture of alias spellings.
+
+Private-write overlap protection is retained by resolving short aliases of the
+**private storage** path (or its nearest existing ancestor), never the supplied
+media path. Regressions cover whole and mixed short spellings, nonexistent private
+tails and a private SUBST drive whose target uses a short spelling. Selected
+audio/video HTTP/native-helper tests now have ten cases: ordinary/deep local and
+SMB paths, plus two short-spelled roots with direct/conversion and restart/resume.
+
+The expanded native audit then caught a separate issue: AddLibrary/AddPath still
+statted the configured root. They now save only validated addresses; unavailable
+paths are accepted and checked when opened. Shared HTTP and store tests require
+zero media stats as well as zero enumeration for configuration and home queries.
+A missing multi-root location is shown as unavailable only during navigation.
+
+The packaged audit keeps an unvisited `\\jigglefin-short-root.invalid\NoSuchShare\MEDIA~1`
+root through setup, home views and restart, verifies it is still configured, then
+removes it without browsing. The first package failed with two native UNC opens;
+the corrected package passes with zero native outbound/UNC attempts over 55 helpers
+and two startups, zero external browser attempts, unchanged fixture media and clean
+shutdowns. Private-share alias requests with missing short-spelled tails also reject
+without contacting the supplied hostname. The actual older-ZIP upgrade passes again.
+
+The separate before/after observer control invokes each build's actual path
+normalizer on an existing short-spelled fixture. The baseline makes one native
+`GetLongPathNameW` call and the new package makes zero. Both kernel32 and kernelbase
+exports must be observed: an earlier kernelbase-only trial missed .NET's call and
+is deliberately **not** counted as proof. The reproducible script fails if it
+misses the baseline positive control; no volume setting is changed for this test.
+
+- Tested ZIP: `publish/Jigglefin-live-short-check-20260926-r2.zip`.
+- SHA-256: `196DD50E38723028431752994E6F93D3CB069C41F3246C9CDB3C52D2928F60B3`.
+- Web/native fixture: `%TEMP%\jigglefin-folder-web-0Bln8d`.
+- Upgrade fixture: `%TEMP%\jigglefin-zip-upgrade-4764279db5c1474cb9f6fc6d91ddddf5`.
+- Native normalization fixture: `%TEMP%\jigglefin-network-audit-normalize-be1f20fdf75b4e7d91b20763a50447a3`.
+- Evidence: `publish/test-results/live-short-paths`; final package reports use the
+  `r2-` prefix, separate from the original regression/observer failures.
+
+Final source reruns pass **196 integration cases** (3 existing skips), **100
+server cases**, and **1,017 implementation cases** (17 existing skips), with clean
+test-process exits. Their reports use `r2-final-`. The preceding `r2-Integration`
+run exposed one obsolete assertion expecting a root stat during configuration;
+it was replaced by the stricter zero-stat assertion, also applied to home queries
+and the shared HTTP fixture. No new tests were skipped to obtain this result.
+
+This closes the implicit configuration-time short-name access finding, not the
+remaining active-read mapping and final API/path-open/distribution gates. In
+particular, pinning an ancestor/file handle does not make a later open by the
+original drive letter immune to remapping. That path needs its own regression and
+end-to-end consumer fix; it is not being claimed safe from these startup tests.
+All tests used owned synthetic fixtures. The user's mappings, installed profile
+and `Z:\Media` are unchanged; no development package has been deployed here.

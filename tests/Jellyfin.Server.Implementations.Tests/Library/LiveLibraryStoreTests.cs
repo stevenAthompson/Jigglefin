@@ -79,14 +79,32 @@ public sealed class LiveLibraryStoreTests : IDisposable
     {
         Assert.Empty(_store.GetLibraries());
         var library = _store.AddLibrary("Books", [_media]);
-        Assert.Equal(new[] { _media }, _reader.StatCalls);
+        Assert.Empty(_reader.StatCalls);
         Assert.Empty(_reader.EnumerationCalls);
-        _reader.StatCalls.Clear();
 
         var restarted = CreateStore();
         Assert.Equal(library.Id, Assert.Single(restarted.GetLibraries()).Id);
         Assert.Equal(library.Id, restarted.FindLibrary(library.Id)!.Id);
         Assert.Empty(_reader.StatCalls);
+        Assert.Empty(_reader.EnumerationCalls);
+    }
+
+    [Fact]
+    public void AddingUnavailableLocations_OnlySavesConfigurationUntilOpened()
+    {
+        var first = Path.Combine(_fixture.FullName, "Disconnected one");
+        var second = Path.Combine(_fixture.FullName, "Disconnected two");
+        var group = _store.AddLibrary("Unavailable", [first]);
+        _store.AddPath(group.Name, second);
+        var restarted = CreateStore();
+        var saved = Assert.Single(restarted.GetLibraries());
+        Assert.Equal(new[] { first, second }, saved.Roots.Select(root => root.FullPath));
+        Assert.Empty(_reader.StatCalls);
+        Assert.Empty(_reader.EnumerationCalls);
+
+        var entries = restarted.Browse(group.Id, TestContext.Current.CancellationToken);
+        Assert.All(entries, entry => Assert.True(entry.IsUnavailable));
+        Assert.Equal(new[] { first, second }, _reader.StatCalls);
         Assert.Empty(_reader.EnumerationCalls);
     }
 

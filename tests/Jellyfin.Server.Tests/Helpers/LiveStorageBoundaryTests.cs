@@ -166,9 +166,11 @@ public sealed class LiveStorageBoundaryTests
     }
 
     [Theory]
-    [InlineData(false)]
-    [InlineData(true)]
-    public void ShortNameAlias_CannotHidePrivateMediaOverlap(bool shortMediaRoot)
+    [InlineData(false, false)]
+    [InlineData(true, false)]
+    [InlineData(false, true)]
+    [InlineData(true, true)]
+    public void ShortNameAlias_CannotHidePrivateMediaOverlap(bool shortMediaRoot, bool mixedSpelling)
     {
         RequireWindows();
         var fixture = Directory.CreateTempSubdirectory("jigglefin-private-short-name-");
@@ -183,6 +185,11 @@ public sealed class LiveStorageBoundaryTests
                 throw SkipException.ForSkip("This volume does not create 8.3 aliases; do not change its global setting for a test.");
             }
 
+            if (mixedSpelling)
+            {
+                shortPath = Path.Combine(media.Parent!.FullName, Path.GetFileName(shortPath));
+            }
+
             var mediaPath = shortMediaRoot ? shortPath : media.FullName;
             var unsafeCache = Path.Combine(shortMediaRoot ? media.FullName : shortPath, "Do not create");
             var profile = Path.Combine(fixture.FullName, "Profile");
@@ -194,6 +201,70 @@ public sealed class LiveStorageBoundaryTests
             var store = new LiveLibraryStore(new LiveDirectoryBrowser(new PhysicalLiveDirectoryReader()), Path.Combine(profile, "data", "live-folders"), [unsafeCache]);
             Assert.Throws<ArgumentException>(() => store.AddLibrary("Forbidden", [mediaPath]));
             Assert.Empty(store.GetLibraries());
+        }
+        finally
+        {
+            fixture.Delete(true);
+        }
+    }
+
+    [Fact]
+    public void ShortMediaSpelling_IsNotExpandedByConfigurationOrSavedAddressImport()
+    {
+        RequireWindows();
+        var fixture = Directory.CreateTempSubdirectory("jigglefin-short-config-");
+        try
+        {
+            var media = Directory.CreateDirectory(Path.Combine(fixture.FullName, "Long media directory"));
+            var buffer = new StringBuilder(32768);
+            Assert.NotEqual(0u, GetShortPathName(media.FullName, buffer, buffer.Capacity));
+            var shortPath = buffer.ToString();
+            if (string.Equals(shortPath, media.FullName, StringComparison.OrdinalIgnoreCase))
+            {
+                throw SkipException.ForSkip("Requires existing 8.3 support; never change the volume setting.");
+            }
+
+            Assert.Equal(shortPath, LiveDirectoryBrowser.NormalizeRootPath(shortPath));
+            var store = new LiveLibraryStore(new LiveDirectoryBrowser(new PhysicalLiveDirectoryReader()), Path.Combine(fixture.FullName, "Profile"));
+            var group = store.AddLibrary("Short spelling", [shortPath]);
+            Assert.Equal(shortPath, Assert.Single(group.Roots).FullPath);
+            var file = Path.Combine(media.FullName, "Long chapter name.m4b");
+            File.WriteAllText(file, "synthetic media");
+            var logicalFile = Path.Combine(shortPath, Path.GetFileName(file));
+            var saved = store.ImportSavedAddress(logicalFile);
+            var entry = Assert.Single(store.Browse(group.Id, TestContext.Current.CancellationToken));
+            Assert.Equal(saved, entry.Id);
+            Assert.Equal(logicalFile, entry.File.FullPath);
+            Assert.Equal(entry.Id, store.GetEntry(entry.Id)!.Id);
+            File.Delete(file);
+            Assert.Empty(store.Browse(group.Id, TestContext.Current.CancellationToken));
+            File.WriteAllText(file, "synthetic media");
+            Assert.Equal(entry.Id, Assert.Single(store.Browse(group.Id, TestContext.Current.CancellationToken)).Id);
+        }
+        finally
+        {
+            fixture.Delete(true);
+        }
+    }
+
+    [Fact]
+    public void PrivateDriveWithShortTarget_CannotHideOverlapWithLongMediaRoot()
+    {
+        RequireWindows();
+        var fixture = Directory.CreateTempSubdirectory("jigglefin-private-short-drive-");
+        try
+        {
+            var media = Directory.CreateDirectory(Path.Combine(fixture.FullName, "Long media directory"));
+            var buffer = new StringBuilder(32768);
+            Assert.NotEqual(0u, GetShortPathName(media.FullName, buffer, buffer.Capacity));
+            var shortPath = buffer.ToString();
+            Assert.NotEqual(media.FullName, shortPath);
+            using var drive = new TestDrive(shortPath);
+            var privatePath = Path.Combine(drive.Root, "Do not create");
+            var profile = Path.Combine(fixture.FullName, "Profile");
+            var store = new LiveLibraryStore(new LiveDirectoryBrowser(new PhysicalLiveDirectoryReader()), Path.Combine(profile, "data"), [privatePath]);
+            Assert.Throws<ArgumentException>(() => store.AddLibrary("Forbidden", [media.FullName]));
+            Assert.Empty(Directory.EnumerateFileSystemEntries(media.FullName));
         }
         finally
         {
@@ -478,7 +549,20 @@ public sealed class LiveStorageBoundaryTests
             var length = remote.Capacity;
             Assert.Equal(0, WNetGetConnection(_device, remote, ref length));
             Assert.Equal(_remote, remote.ToString(), ignoreCase: true);
-            Assert.Equal(0, WNetCancelConnection2(_device, 0, false)); // Only this verified owned mapping; never force active users off.
+            // The redirector can briefly retain a closed directory handle. A
+            // bounded retry is safe; forcing an in-use mapping closed is not.
+            var error = WNetCancelConnection2(_device, 0, false);
+            for (var attempt = 0; error == 2401 && attempt < 20; attempt++)
+            {
+                System.Threading.Thread.Sleep(50);
+                remote.Clear();
+                length = remote.Capacity;
+                Assert.Equal(0, WNetGetConnection(_device, remote, ref length));
+                Assert.Equal(_remote, remote.ToString(), ignoreCase: true);
+                error = WNetCancelConnection2(_device, 0, false);
+            }
+
+            Assert.Equal(0, error);
             _connected = false;
         }
 

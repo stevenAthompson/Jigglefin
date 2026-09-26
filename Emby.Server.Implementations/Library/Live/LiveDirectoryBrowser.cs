@@ -1,6 +1,8 @@
 using System;
 using System.Collections.Generic;
+using System.ComponentModel;
 using System.IO;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Text;
 using System.Threading;
@@ -50,7 +52,7 @@ public sealed class LiveDirectoryBrowser
 
     /// <summary>Normalizes a configured path without accepting Windows device/ADS/trailing-dot aliases.</summary>
     /// <param name="path">An explicit absolute directory location.</param>
-    /// <returns>The normalized path. Windows may consult attributes when expanding existing 8.3 names.</returns>
+    /// <returns>The canonical lexical path, without expanding short names or accessing the filesystem.</returns>
     public static string NormalizeRootPath(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
@@ -59,7 +61,6 @@ public sealed class LiveDirectoryBrowser
             throw new ArgumentException("A media root must have a fully qualified path.", nameof(path));
         }
 
-        var fullPath = Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
         if (OperatingSystem.IsWindows())
         {
             var syntax = path.Replace('/', '\\');
@@ -76,9 +77,37 @@ public sealed class LiveDirectoryBrowser
                     throw new ArgumentException("Configured locations cannot contain ambiguous Windows path components.", nameof(path));
                 }
             }
+
+            // Unlike .NET Path.GetFullPath, GetFullPathNameW does not expand
+            // existing 8.3 names. It is lexical and cannot inspect an offline
+            // media root merely to create its configuration/address identity.
+            if (syntax.Length >= 32768)
+            {
+                throw new PathTooLongException("The configured path exceeds Windows' path limit.");
+            }
+
+            var buffer = new StringBuilder(Math.Max(256, syntax.Length + 1));
+            var length = GetFullPathName(syntax, buffer.Capacity, buffer, IntPtr.Zero);
+            if (length >= buffer.Capacity && length < 32768)
+            {
+                buffer.EnsureCapacity((int)length + 1);
+                length = GetFullPathName(syntax, buffer.Capacity, buffer, IntPtr.Zero);
+            }
+
+            if (length == 0)
+            {
+                throw new ArgumentException("Invalid configured path.", nameof(path), new Win32Exception(Marshal.GetLastWin32Error()));
+            }
+
+            if (length >= buffer.Capacity)
+            {
+                throw new PathTooLongException("The configured path exceeds Windows' path limit.");
+            }
+
+            return Path.TrimEndingDirectorySeparator(buffer.ToString());
         }
 
-        return fullPath;
+        return Path.TrimEndingDirectorySeparator(Path.GetFullPath(path));
     }
 
     /// <summary>Reads one entry's current attributes, without loading metadata.</summary>
@@ -136,7 +165,7 @@ public sealed class LiveDirectoryBrowser
             }
         }
 
-        var fullPath = Path.GetFullPath(Path.Combine(root.FullPath, relativePath));
+        var fullPath = NormalizeRootPath(Path.Combine(root.FullPath, relativePath));
         var rootPrefix = Path.EndsInDirectorySeparator(root.FullPath) ? root.FullPath : root.FullPath + Path.DirectorySeparatorChar;
         if (!string.Equals(fullPath, root.FullPath, _pathComparison) && !fullPath.StartsWith(rootPrefix, _pathComparison))
         {
@@ -150,7 +179,7 @@ public sealed class LiveDirectoryBrowser
     {
         var info = _reader.Stat(root.FullPath);
         RequireDirectory(info);
-        var relative = Path.GetRelativePath(root.FullPath, fullPath);
+        var relative = RelativeWithinRoot(root.FullPath, fullPath);
         if (relative == ".")
         {
             return info;
@@ -191,7 +220,7 @@ public sealed class LiveDirectoryBrowser
 
     private static LiveDirectoryEntry Describe(LiveMediaRoot root, LiveFileInfo info)
     {
-        var relativePath = Path.GetRelativePath(root.FullPath, info.FullPath);
+        var relativePath = RelativeWithinRoot(root.FullPath, info.FullPath);
         if (relativePath == ".")
         {
             return new LiveDirectoryEntry(root.Id, root.Id, null, root.Name, string.Empty, info);
@@ -209,12 +238,32 @@ public sealed class LiveDirectoryBrowser
     public static Guid EntryId(LiveMediaRoot root, string relativePath)
     {
         var path = ResolveWithinRoot(root, relativePath);
-        var relative = Path.GetRelativePath(root.FullPath, path);
+        var relative = RelativeWithinRoot(root.FullPath, path);
         return relative == "." ? root.Id : CreateId(root.Id.ToString("N"), CanonicalIdentityPath(relative));
+    }
+
+    internal static string RelativeWithinRoot(string root, string path)
+    {
+        if (string.Equals(root, path, _pathComparison))
+        {
+            return ".";
+        }
+
+        var prefix = Path.EndsInDirectorySeparator(root) ? root : root + Path.DirectorySeparatorChar;
+        if (!path.StartsWith(prefix, _pathComparison))
+        {
+            throw new ArgumentException("The media path is outside its configured root.", nameof(path));
+        }
+
+        return path[prefix.Length..];
     }
 
     private static string CanonicalIdentityPath(string path)
         => OperatingSystem.IsWindows() ? path.Replace('\\', '/').ToUpperInvariant() : path;
+
+    [DllImport("kernel32.dll", EntryPoint = "GetFullPathNameW", CharSet = CharSet.Unicode, SetLastError = true)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    private static extern uint GetFullPathName(string path, int size, StringBuilder fullPath, IntPtr filePart);
 
     private static Guid CreateId(string scope, string path)
     {

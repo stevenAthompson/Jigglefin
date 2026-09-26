@@ -178,9 +178,10 @@ async function main() {
   console.log('Minimal setup passed.');
   // Query only the local share table to reject aliases of private storage.
   // In the native audit even an attempted lookup/open of the .invalid host fails.
-  for (const host of ['localhost', 'jigglefin-share-alias.invalid']) {
-    const alias = `\\\\${host}\\${profile[0]}$${profile.slice(2)}`;
+  for (const host of ['localhost', 'jigglefin-share-alias.invalid']) for (const suffix of ['', '\\MISSING~1']) {
+    const alias = `\\\\${host}\\${profile[0]}$${profile.slice(2)}${suffix}`;
     const rejected = await fetch(base + '/Library/VirtualFolders?name=Forbidden%20share%20alias', {
+      signal: AbortSignal.timeout(15000),
       method: 'POST', headers: { Authorization: `MediaBrowser Client="Isolated test", Device="CLI", DeviceId="live-web-harness", Version="0.1.0", Token="${token}"`, 'Content-Type': 'application/json' },
       body: JSON.stringify({ LibraryOptions: { PathInfos: [{ Path: alias }] } })
     });
@@ -189,6 +190,11 @@ async function main() {
   }
   assert.ok(!(await api('UserViews')).Items.some(item => item.Name === 'Forbidden share alias'));
   console.log('Private local-share aliases rejected without contacting the supplied host.');
+  // Retain this unvisited, unreachable root through the restart below. Setup,
+  // home views and startup must not trigger 8.3 expansion or contact its share.
+  await api('Library/VirtualFolders?name=Unvisited%20short%20root', 'POST', {
+    LibraryOptions: { PathInfos: [{ Path: '\\\\jigglefin-short-root.invalid\\NoSuchShare\\MEDIA~1' }] }
+  });
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   const availableMount = path.join(fixture, 'Available location'), disconnectedMount = path.join(fixture, 'Disconnected location');
   await fs.mkdir(availableMount); await fs.mkdir(disconnectedMount);
@@ -297,6 +303,9 @@ async function main() {
   console.log('Accounts, explicit folder access, per-user state and mobile layout passed.');
   await page.close(); await stopServer(); await startServer();
   token = (await api('Users/AuthenticateByName', 'POST', { Username: username, Pw: password }, null)).AccessToken;
+  assert.ok((await api('UserViews')).Items.some(item => item.Name === 'Unvisited short root'), 'The unvisited short root must survive startup without a filesystem lookup.');
+  await api('Library/VirtualFolders?name=Unvisited%20short%20root', 'DELETE');
+  console.log('Unvisited short-spelled network root survived setup and restart without being opened.');
   page = await newPage(context); await page.goto(base + '/web/#/resume');
   await page.getByRole('button', { name: 'Select file Chapter 01.m4b', exact: true }).click();
   await page.getByRole('button', { name: /Resume at 1:0/ }).click(); await playing(page, 63);

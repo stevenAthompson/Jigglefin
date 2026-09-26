@@ -14,7 +14,7 @@ public interface ILiveLibrary
     /// <returns>The configured folder groups.</returns>
     IReadOnlyList<LiveLibraryDefinition> GetLibraries();
 
-    /// <summary>Registers roots after checking only their own attributes.</summary>
+    /// <summary>Registers root addresses without accessing media, even for attribute checks.</summary>
     /// <param name="name">The group name.</param>
     /// <param name="paths">Explicit filesystem roots.</param>
     /// <param name="id">An existing configuration ID during migration, otherwise null.</param>
@@ -36,7 +36,7 @@ public interface ILiveLibrary
     /// <param name="name">The configured group name.</param>
     void RemoveLibrary(string name);
 
-    /// <summary>Adds an explicitly configured path without enumerating it.</summary>
+    /// <summary>Adds an explicitly configured path without accessing it.</summary>
     /// <param name="name">The group name.</param>
     /// <param name="path">The additional root.</param>
     void AddPath(string name, string path);

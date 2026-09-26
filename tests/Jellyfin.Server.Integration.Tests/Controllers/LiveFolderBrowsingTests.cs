@@ -69,11 +69,12 @@ public sealed class LiveFolderBrowsingTests
                     TestContext.Current.CancellationToken);
                 Assert.Equal(HttpStatusCode.NoContent, create.StatusCode);
                 Assert.Empty(reader.Enumerations);
-                Assert.Equal(new[] { fixture.FullName }, reader.Stats);
+                Assert.Empty(reader.Stats);
 
                 var views = await Query(client, "UserViews");
                 libraryId = Assert.Single(views.Items).Id;
                 Assert.Empty(reader.Enumerations);
+                Assert.Empty(reader.Stats);
                 var items = await Query(client, $"Items?parentId={libraryId}&recursive=true");
                 Assert.Equal(3, items.Items.Count);
                 Assert.DoesNotContain(items.Items, item => item.Name == "Deep");

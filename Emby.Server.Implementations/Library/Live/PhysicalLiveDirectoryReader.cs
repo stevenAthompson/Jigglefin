@@ -18,7 +18,7 @@ public sealed class PhysicalLiveDirectoryReader : ILiveDirectoryReader
         FileSystemInfo info = (attributes & FileAttributes.Directory) != 0
             ? new DirectoryInfo(path)
             : new FileInfo(path);
-        return ToEntry(info);
+        return ToEntry(info, path);
     }
 
     /// <inheritdoc />
@@ -42,11 +42,11 @@ public sealed class PhysicalLiveDirectoryReader : ILiveDirectoryReader
         foreach (var info in new DirectoryInfo(path).EnumerateFileSystemInfos("*", options))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            yield return ToEntry(info);
+            yield return ToEntry(info, Path.Combine(path, info.Name));
         }
     }
 
-    private static LiveFileInfo ToEntry(FileSystemInfo info)
+    private static LiveFileInfo ToEntry(FileSystemInfo info, string logicalPath)
     {
         var attributes = info.Attributes;
         var directory = (attributes & FileAttributes.Directory) != 0;
@@ -54,14 +54,14 @@ public sealed class PhysicalLiveDirectoryReader : ILiveDirectoryReader
         // Never ask for the length of a link target. Listed links are visible but
         // cannot be selected/traversed by LiveDirectoryBrowser.
         long? length = !directory && !link ? ((FileInfo)info).Length : null;
-        return new LiveFileInfo(info.FullName, directory, link, length, info.LastWriteTimeUtc);
+        return new LiveFileInfo(logicalPath, directory, link, length, info.LastWriteTimeUtc);
     }
 
     private static void CheckAncestors(string path)
     {
         // A configured root can itself look ordinary while an ancestor is a
         // junction. Inspect attributes, never enumerate ancestors or descendants.
-        var parent = Path.GetDirectoryName(Path.TrimEndingDirectorySeparator(Path.GetFullPath(path)));
+        var parent = Path.GetDirectoryName(LiveDirectoryBrowser.NormalizeRootPath(path));
         while (parent is not null)
         {
             if ((File.GetAttributes(parent) & FileAttributes.ReparsePoint) != 0)
