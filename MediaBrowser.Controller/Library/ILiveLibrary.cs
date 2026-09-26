@@ -18,8 +18,9 @@ public interface ILiveLibrary
     /// <param name="name">The group name.</param>
     /// <param name="paths">Explicit filesystem roots.</param>
     /// <param name="id">An existing configuration ID during migration, otherwise null.</param>
+    /// <param name="enabled">Whether users may access the group from its first committed state.</param>
     /// <returns>The new configuration.</returns>
-    LiveLibraryDefinition AddLibrary(string name, IReadOnlyList<string> paths, Guid? id = null);
+    LiveLibraryDefinition AddLibrary(string name, IReadOnlyList<string> paths, Guid? id = null, bool enabled = true);
 
     /// <summary>Changes a group's display name without changing identities.</summary>
     /// <param name="name">The current name.</param>

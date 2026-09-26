@@ -7,11 +7,11 @@ namespace Jellyfin.Server.Integration.Tests
     /// <summary>
     /// Defines the test for encoded querystrings in the url.
     /// </summary>
-    public class EncodedQueryStringTest : IClassFixture<JellyfinApplicationFactory>
+    public class EncodedQueryStringTest : IClassFixture<EncodingApplicationFactory>
     {
         private readonly JellyfinApplicationFactory _factory;
 
-        public EncodedQueryStringTest(JellyfinApplicationFactory factory)
+        public EncodedQueryStringTest(EncodingApplicationFactory factory)
         {
             _factory = factory;
         }

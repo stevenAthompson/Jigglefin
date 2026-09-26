@@ -6,12 +6,14 @@ using System.Threading;
 using Jellyfin.Api.Constants;
 using Jellyfin.Api.Controllers;
 using Jellyfin.Api.Filters;
+using Jellyfin.Api.Models.LibraryStructureDto;
 using Jellyfin.Data;
 using Jellyfin.Data.Enums;
 using Jellyfin.Database.Implementations.Entities;
 using Jellyfin.Database.Implementations.Enums;
 using MediaBrowser.Controller;
 using MediaBrowser.Controller.Library;
+using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.Querying;
 using Microsoft.AspNetCore.Http;
@@ -121,18 +123,22 @@ public sealed class LiveFolderApiFilterTests
         Assert.Single(Assert.IsType<QueryResult<BaseItemDto>>(Assert.IsType<OkObjectResult>(result).Value).Items);
     }
 
-    [Fact]
-    public void AddRoot_RefreshFlagDoesNotInvokeCatalog()
+    [Theory]
+    [InlineData(null)]
+    [InlineData(true)]
+    [InlineData(false)]
+    public void AddRoot_RefreshFlagDoesNotInvokeCatalogAndAvailabilityIsAtomic(bool? enabled)
     {
-        _library.Setup(library => library.AddLibrary("Books", new[] { "configured-path" }, null)).Returns(_definition);
+        _library.Setup(library => library.AddLibrary("Books", new[] { "configured-path" }, null, enabled != false)).Returns(_definition);
         var result = Apply<LibraryStructureController>("AddVirtualFolder", new()
         {
             ["name"] = "Books",
             ["paths"] = new[] { "configured-path" },
-            ["refreshLibrary"] = true
+            ["refreshLibrary"] = true,
+            ["libraryOptionsDto"] = enabled.HasValue ? new AddVirtualFolderDto { LibraryOptions = new LibraryOptions { Enabled = enabled.Value } } : null
         });
         Assert.IsType<NoContentResult>(result);
-        _library.Verify(library => library.AddLibrary("Books", new[] { "configured-path" }, null), Times.Once);
+        _library.Verify(library => library.AddLibrary("Books", new[] { "configured-path" }, null, enabled != false), Times.Once);
         _library.VerifyNoOtherCalls();
         _users.VerifyNoOtherCalls();
     }

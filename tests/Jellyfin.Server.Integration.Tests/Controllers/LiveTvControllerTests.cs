@@ -1,11 +1,12 @@
 using System.Net;
 using System.Net.Http.Json;
-using System.Net.Mime;
-using System.Text;
 using System.Text.Json;
 using System.Threading.Tasks;
 using Jellyfin.Extensions.Json;
+using MediaBrowser.Controller.Configuration;
+using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.LiveTv;
+using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace Jellyfin.Server.Integration.Tests.Controllers;
@@ -38,7 +39,7 @@ public sealed class LiveTvControllerTests : IClassFixture<JellyfinApplicationFac
     }
 
     [Fact]
-    public async Task AddTunerHost_Valid_ReturnsCorrectResponse()
+    public async Task AddTunerHost_LocalPlaylist_IsUnavailableAndCannotBeSaved()
     {
         var client = _factory.CreateClient();
         client.DefaultRequestHeaders.AddAuthHeader(_accessToken ??= await AuthHelper.CompleteStartupAsync(client));
@@ -51,17 +52,13 @@ public sealed class LiveTvControllerTests : IClassFixture<JellyfinApplicationFac
 
         var response = await client.PostAsJsonAsync("/LiveTv/TunerHosts", body, _jsonOptions, TestContext.Current.CancellationToken);
 
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-        Assert.Equal(MediaTypeNames.Application.Json, response.Content.Headers.ContentType?.MediaType);
-        Assert.Equal(Encoding.UTF8.BodyName, response.Content.Headers.ContentType?.CharSet);
-        var responseBody = await response.Content.ReadFromJsonAsync<TunerHostInfo>(TestContext.Current.CancellationToken);
-        Assert.NotNull(responseBody);
-        Assert.Equal(body.Type, responseBody.Type);
-        Assert.Equal(body.Url, responseBody.Url);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        var options = (LiveTvOptions)_factory.Services.GetRequiredService<IServerConfigurationManager>().GetConfiguration("livetv");
+        Assert.Empty(options.TunerHosts);
     }
 
     [Fact]
-    public async Task AddTunerHost_InvalidType_ReturnsNotFound()
+    public async Task AddTunerHost_InvalidType_IsUnavailable()
     {
         var client = _factory.CreateClient();
         client.DefaultRequestHeaders.AddAuthHeader(_accessToken ??= await AuthHelper.CompleteStartupAsync(client));
@@ -74,11 +71,11 @@ public sealed class LiveTvControllerTests : IClassFixture<JellyfinApplicationFac
 
         var response = await client.PostAsJsonAsync("/LiveTv/TunerHosts", body, _jsonOptions, TestContext.Current.CancellationToken);
 
-        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 
     [Fact]
-    public async Task AddTunerHost_InvalidUrl_ReturnsNotFound()
+    public async Task AddTunerHost_InvalidUrl_IsUnavailable()
     {
         var client = _factory.CreateClient();
         client.DefaultRequestHeaders.AddAuthHeader(_accessToken ??= await AuthHelper.CompleteStartupAsync(client));
@@ -91,6 +88,6 @@ public sealed class LiveTvControllerTests : IClassFixture<JellyfinApplicationFac
 
         var response = await client.PostAsJsonAsync("/LiveTv/TunerHosts", body, _jsonOptions, TestContext.Current.CancellationToken);
 
-        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
     }
 }

@@ -13,7 +13,7 @@ namespace Jellyfin.Server.Integration.Tests.Controllers;
 public sealed class LocalFirstLibraryOptionsTests
 {
     [Fact]
-    public async Task CreateLibrary_UsesLocalFirstDefaultsUnlessTypeOptionsAreExplicit()
+    public async Task CreateLibrary_RemoteAndMediaWritingOptionsCannotBeOptedInto()
     {
         using var factory = new JellyfinApplicationFactory();
         using var client = factory.CreateClient();
@@ -33,7 +33,13 @@ public sealed class LocalFirstLibraryOptionsTests
             foreach (var (libraryName, options) in new[]
             {
                 (name, new LibraryOptions()),
-                (explicitName, new LibraryOptions { TypeOptions = [explicitOptions] })
+                (explicitName, new LibraryOptions
+                {
+                    TypeOptions = [explicitOptions], SaveLocalMetadata = true, SaveSubtitlesWithMedia = true,
+                    SaveLyricsWithMedia = true, SaveTrickplayWithMedia = true, EnableRealtimeMonitor = true,
+                    EnableChapterImageExtraction = true, EnableTrickplayImageExtraction = true,
+                    MetadataSavers = ["Nfo"], SubtitleDownloadLanguages = ["eng"]
+                })
             })
             {
                 using var createResponse = await client.PostAsJsonAsync(
@@ -50,16 +56,22 @@ public sealed class LocalFirstLibraryOptionsTests
                 TestContext.Current.CancellationToken);
             Assert.NotNull(libraries);
 
-            var defaultLibrary = Assert.Single(libraries, library => library.Name == name);
-            var defaultType = Assert.Single(defaultLibrary.LibraryOptions!.TypeOptions);
-            Assert.Equal("Movie", defaultType.Type);
-            Assert.Empty(defaultType.MetadataFetchers);
-            Assert.Equal(["Screen Grabber", "Image Extractor"], defaultType.ImageFetchers);
-
-            var configuredLibrary = Assert.Single(libraries, library => library.Name == explicitName);
-            var configuredType = Assert.Single(configuredLibrary.LibraryOptions!.TypeOptions);
-            Assert.Equal(explicitOptions.MetadataFetchers, configuredType.MetadataFetchers);
-            Assert.Equal(explicitOptions.ImageFetchers, configuredType.ImageFetchers);
+            foreach (var libraryName in new[] { name, explicitName })
+            {
+                var library = Assert.Single(libraries, library => library.Name == libraryName);
+                var options = library.LibraryOptions;
+                Assert.NotNull(options);
+                Assert.Empty(options.TypeOptions);
+                Assert.Empty(options.MetadataSavers!);
+                Assert.False(options.SaveLocalMetadata);
+                Assert.False(options.SaveSubtitlesWithMedia);
+                Assert.False(options.SaveLyricsWithMedia);
+                Assert.False(options.SaveTrickplayWithMedia);
+                Assert.False(options.EnableRealtimeMonitor);
+                Assert.False(options.EnableChapterImageExtraction);
+                Assert.False(options.EnableTrickplayImageExtraction);
+                Assert.Null(library.CollectionType);
+            }
         }
         finally
         {

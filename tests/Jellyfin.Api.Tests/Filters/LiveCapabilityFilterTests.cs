@@ -74,6 +74,14 @@ public sealed class LiveCapabilityFilterTests
     }
 
     [Fact]
+    public void UnknownController_IsBlockedWithoutMediaAccess()
+    {
+        Assert.IsType<BadRequestObjectResult>(Apply(typeof(UnavailableController), nameof(UnavailableController.Read)));
+        _library.VerifyNoOtherCalls();
+        _users.VerifyNoOtherCalls();
+    }
+
+    [Fact]
     public void UnknownCatalogMediaId_IsRejectedWithoutResolvingTheOldCatalog()
     {
         var id = Guid.NewGuid();
@@ -107,5 +115,10 @@ public sealed class LiveCapabilityFilterTests
         var context = new ActionExecutingContext(new ActionContext(http, new RouteData(), descriptor), [], arguments ?? [], new object());
         new LiveCapabilityFilter(_library.Object, _users.Object).OnActionExecuting(context);
         return context.Result;
+    }
+
+    private sealed class UnavailableController : ControllerBase
+    {
+        public ActionResult Read() => throw new InvalidOperationException("Must not execute.");
     }
 }

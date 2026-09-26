@@ -4,16 +4,14 @@ using System.Linq;
 using System.Net;
 using System.Net.Http.Json;
 using System.Threading.Tasks;
-using Emby.Server.Implementations.Library;
 using Jellyfin.Api.Models.LibraryStructureDto;
 using Jellyfin.Data.Enums;
 using Jellyfin.Extensions.Json;
-using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.Entities;
+using MediaBrowser.Model.MediaInfo;
 using MediaBrowser.Model.Querying;
-using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 using Xunit.Sdk;
 
@@ -58,9 +56,6 @@ public sealed class FolderFirstTranscodingTests
             Assert.Equal(HttpStatusCode.NoContent, createResponse.StatusCode);
             created = true;
 
-            var libraryManager = (LibraryManager)factory.Services.GetRequiredService<ILibraryManager>();
-            await libraryManager.ValidateMediaLibraryInternal(new Progress<double>(), TestContext.Current.CancellationToken);
-
             var views = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
                 "UserViews?presetViews=books", JsonDefaults.Options, TestContext.Current.CancellationToken);
             Assert.NotNull(views);
@@ -73,7 +68,12 @@ public sealed class FolderFirstTranscodingTests
             var books = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
                 $"Items?parentId={action.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
             Assert.NotNull(books);
-            var audiobook = Assert.Single(books.Items);
+            var folder = Assert.Single(books.Items);
+            Assert.Equal(BaseItemKind.Folder, folder.Type);
+            var files = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={folder.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(files);
+            var audiobook = Assert.Single(files.Items);
             Assert.Equal(BaseItemKind.AudioBook, audiobook.Type);
 
             using var streamResponse = await client.GetAsync(
@@ -139,9 +139,6 @@ public sealed class FolderFirstTranscodingTests
             Assert.Equal(HttpStatusCode.NoContent, createResponse.StatusCode);
             created = true;
 
-            var libraryManager = (LibraryManager)factory.Services.GetRequiredService<ILibraryManager>();
-            await libraryManager.ValidateMediaLibraryInternal(new Progress<double>(), TestContext.Current.CancellationToken);
-
             var views = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
                 "UserViews?presetViews=movies", JsonDefaults.Options, TestContext.Current.CancellationToken);
             Assert.NotNull(views);
@@ -154,11 +151,15 @@ public sealed class FolderFirstTranscodingTests
             var movies = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
                 $"Items?parentId={action.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
             Assert.NotNull(movies);
-            var movie = Assert.Single(movies.Items);
-            Assert.Equal(BaseItemKind.Movie, movie.Type);
+            var folder = Assert.Single(movies.Items);
+            Assert.Equal(BaseItemKind.Folder, folder.Type);
+            var files = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
+                $"Items?parentId={folder.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(files);
+            var movie = Assert.Single(files.Items, item => item.Type == BaseItemKind.Video);
 
-            var movieDetails = await client.GetFromJsonAsync<BaseItemDto>(
-                $"Items/{movie.Id}?fields=MediaSources,MediaStreams",
+            var movieDetails = await client.GetFromJsonAsync<PlaybackInfoResponse>(
+                $"Items/{movie.Id}/PlaybackInfo",
                 JsonDefaults.Options,
                 TestContext.Current.CancellationToken);
             Assert.NotNull(movieDetails);

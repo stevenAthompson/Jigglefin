@@ -1,26 +1,25 @@
 using System;
+using System.IO;
 using System.Linq;
 using System.Net;
+using System.Net.Http;
 using System.Net.Http.Json;
-using System.Text.Json;
 using System.Threading.Tasks;
 using Jellyfin.Api.Models.LibraryStructureDto;
 using Jellyfin.Extensions.Json;
 using MediaBrowser.Controller;
-using MediaBrowser.Controller.Providers;
 using MediaBrowser.Model.Configuration;
+using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.Entities;
+using MediaBrowser.Model.Querying;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
-using Xunit.v3.Priority;
 
 namespace Jellyfin.Server.Integration.Tests.Controllers;
 
-[TestCaseOrderer(typeof(PriorityOrderer))]
 public sealed class LibraryStructureControllerTests : IClassFixture<JellyfinApplicationFactory>
 {
     private readonly JellyfinApplicationFactory _factory;
-    private readonly JsonSerializerOptions _jsonOptions = JsonDefaults.Options;
     private static string? _accessToken;
 
     public LibraryStructureControllerTests(JellyfinApplicationFactory factory)
@@ -29,193 +28,176 @@ public sealed class LibraryStructureControllerTests : IClassFixture<JellyfinAppl
     }
 
     [Fact]
-    [Priority(-3)]
-    public async Task AddVirtualFolder_WithWarmDirectoryServiceCache_InvalidatesTheParentListing()
+    public async Task CreateAndEnableGroup_UsesPrivateConfigurationNotLegacyDirectoriesOrScans()
     {
-        const string Name = "stale-cache-test";
-
-        var client = _factory.CreateClient();
-        client.DefaultRequestHeaders.AddAuthHeader(_accessToken ??= await AuthHelper.CompleteStartupAsync(client));
-
-        var directoryService = _factory.Services.GetRequiredService<IDirectoryService>();
-        var rootFolderPath = _factory.Services.GetRequiredService<IServerApplicationPaths>().DefaultUserViewsPath;
-
-        // Cache a listing of the libraries root taken before the new folder exists. Everything
-        // resolving through this DirectoryService keeps reading that listing until it is dropped,
-        // so the library stays invisible. Making the caches shared once turned this into a real
-        // test failure, see UpdateLibraryOptions_Valid_Success.
-        Assert.DoesNotContain(
-            directoryService.GetFileSystemEntries(rootFolderPath),
-            x => string.Equals(x.Name, Name, StringComparison.Ordinal));
-
-        var body = new AddVirtualFolderDto()
+        using var client = await Client();
+        var name = "configuration-only-" + Guid.NewGuid().ToString("N");
+        var privateViews = _factory.Services.GetRequiredService<IServerApplicationPaths>().DefaultUserViewsPath;
+        var before = PrivateEntries(privateViews);
+        try
         {
-            LibraryOptions = new LibraryOptions()
-            {
-                Enabled = false
-            }
-        };
+            await Create(client, name);
+            var group = await Group(client, name);
+            Assert.False(group.LibraryOptions!.Enabled);
+            Assert.Empty(group.Locations);
+            Assert.DoesNotContain((await Views(client)).Items, item => item.Id.Equals(Guid.Parse(group.ItemId)));
+            Assert.Equal(before, PrivateEntries(privateViews));
 
-        using var response = await client.PostAsJsonAsync($"Library/VirtualFolders?name={Name}&refreshLibrary=false", body, _jsonOptions, TestContext.Current.CancellationToken);
-        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
-
-        Assert.Contains(
-            directoryService.GetFileSystemEntries(rootFolderPath),
-            x => string.Equals(x.Name, Name, StringComparison.Ordinal));
-
-        using var cleanup = await client.DeleteAsync($"Library/VirtualFolders?name={Name}&refreshLibrary=false", TestContext.Current.CancellationToken);
-        Assert.Equal(HttpStatusCode.NoContent, cleanup.StatusCode);
+            using var enable = await client.PostAsync($"Jigglefin/Folders/{group.ItemId}/Enabled?enabled=true", null, TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.NoContent, enable.StatusCode);
+            Assert.Equal(group.ItemId, (await Group(client, name)).ItemId);
+            var visible = Assert.Single((await Views(client)).Items, item => item.Name == name);
+            var children = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>($"Items?parentId={visible.Id}", JsonDefaults.Options, TestContext.Current.CancellationToken);
+            Assert.NotNull(children);
+            Assert.Empty(children.Items);
+            Assert.Equal(before, PrivateEntries(privateViews));
+        }
+        finally
+        {
+            await Remove(client, name);
+        }
     }
 
     [Fact]
-    [Priority(-1)]
-    public async Task Post_NewVirtualFolder_NotFound()
+    public async Task DuplicateName_DoesNotOverwriteConfiguration()
     {
-        var client = _factory.CreateClient();
-        client.DefaultRequestHeaders.AddAuthHeader(_accessToken ??= await AuthHelper.CompleteStartupAsync(client));
-
-        var body = new AddVirtualFolderDto()
+        using var client = await Client();
+        var name = Guid.NewGuid().ToString("N");
+        try
         {
-            LibraryOptions = new LibraryOptions()
-            {
-                Enabled = false
-            }
-        };
-
-        using var response = await client.PostAsJsonAsync("Library/VirtualFolders?name=test&refreshLibrary=true", body, _jsonOptions, TestContext.Current.CancellationToken);
-        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
-    }
-
-    [Fact]
-    [Priority(-2)]
-    public async Task UpdateLibraryOptions_Invalid_NotFound()
-    {
-        var client = _factory.CreateClient();
-        client.DefaultRequestHeaders.AddAuthHeader(_accessToken ??= await AuthHelper.CompleteStartupAsync(client));
-
-        var body = new UpdateLibraryOptionsDto()
+            await Create(client, name);
+            var original = await Group(client, name);
+            using var duplicate = await client.PostAsJsonAsync(
+                $"Library/VirtualFolders?name={name}&refreshLibrary=true",
+                new AddVirtualFolderDto { LibraryOptions = new LibraryOptions() },
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.BadRequest, duplicate.StatusCode);
+            var unchanged = await Group(client, name);
+            Assert.Equal(original.ItemId, unchanged.ItemId);
+            Assert.False(unchanged.LibraryOptions!.Enabled);
+        }
+        finally
         {
-            Id = Guid.NewGuid(),
-            LibraryOptions = new LibraryOptions()
-        };
-
-        using var response = await client.PostAsJsonAsync("Library/VirtualFolders/LibraryOptions", body, _jsonOptions, TestContext.Current.CancellationToken);
-        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
-    }
-
-    [Fact]
-    [Priority(-2)]
-    public async Task UpdateLibraryOptions_Valid_Success()
-    {
-        var client = _factory.CreateClient();
-        client.DefaultRequestHeaders.AddAuthHeader(_accessToken ??= await AuthHelper.CompleteStartupAsync(client));
-
-        var createBody = new AddVirtualFolderDto()
-        {
-            LibraryOptions = new LibraryOptions()
-            {
-                Enabled = false
-            }
-        };
-
-        using var createResponse = await client.PostAsJsonAsync("Library/VirtualFolders?name=test&refreshLibrary=true", createBody, _jsonOptions, TestContext.Current.CancellationToken);
-        Assert.Equal(HttpStatusCode.NoContent, createResponse.StatusCode);
-
-        await Task.Delay(2000, TestContext.Current.CancellationToken).ConfigureAwait(true);
-
-        using var response = await client.GetAsync("Library/VirtualFolders", TestContext.Current.CancellationToken);
-        Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-
-        var library = await response.Content.ReadFromJsonAsAsyncEnumerable<VirtualFolderInfo>(_jsonOptions, TestContext.Current.CancellationToken)
-            .FirstOrDefaultAsync(x => string.Equals(x?.Name, "test", StringComparison.Ordinal), TestContext.Current.CancellationToken);
-        Assert.NotNull(library);
-
-        var options = library.LibraryOptions;
-        Assert.NotNull(options);
-        Assert.False(options.Enabled);
-        options.Enabled = true;
-
-        var body = new UpdateLibraryOptionsDto()
-        {
-            Id = Guid.Parse(library.ItemId),
-            LibraryOptions = options
-        };
-
-        using var response2 = await client.PostAsJsonAsync("Library/VirtualFolders/LibraryOptions", body, _jsonOptions, TestContext.Current.CancellationToken);
-        Assert.Equal(HttpStatusCode.NoContent, response2.StatusCode);
-    }
-
-    [Fact]
-    [Priority(1)]
-    public async Task DeleteLibrary_Invalid_NotFound()
-    {
-        var client = _factory.CreateClient();
-        client.DefaultRequestHeaders.AddAuthHeader(_accessToken ??= await AuthHelper.CompleteStartupAsync(client));
-
-        using var response = await client.DeleteAsync("Library/VirtualFolders?name=doesntExist", TestContext.Current.CancellationToken);
-        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+            await Remove(client, name);
+        }
     }
 
     [Theory]
-    [Priority(1)]
+    [InlineData(false)]
+    [InlineData(true)]
+    public async Task CatalogOptionsWrite_IsUnavailableForUnknownAndExistingGroups(bool existing)
+    {
+        using var client = await Client();
+        var name = Guid.NewGuid().ToString("N");
+        try
+        {
+            if (existing)
+            {
+                await Create(client, name);
+            }
+
+            var id = existing ? Guid.Parse((await Group(client, name)).ItemId) : Guid.NewGuid();
+            using var response = await client.PostAsJsonAsync(
+                "Library/VirtualFolders/LibraryOptions",
+                new UpdateLibraryOptionsDto { Id = id, LibraryOptions = new LibraryOptions { SaveLocalMetadata = true, EnableRealtimeMonitor = true } },
+                JsonDefaults.Options,
+                TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+            if (existing)
+            {
+                var options = (await Group(client, name)).LibraryOptions!;
+                Assert.False(options.Enabled);
+                Assert.False(options.SaveLocalMetadata);
+                Assert.False(options.EnableRealtimeMonitor);
+            }
+        }
+        finally
+        {
+            if (existing)
+            {
+                await Remove(client, name);
+            }
+        }
+    }
+
+    [Theory]
     [InlineData("..")]
     [InlineData("../..")]
     [InlineData(".")]
     [InlineData("test/../..")]
     [InlineData("/var/lib/jellyfin/data")]
-    public async Task DeleteLibrary_PathTraversal_NotFound(string name)
+    public async Task Rename_DisplayLabelsAreNotUsedAsFilesystemPaths(string label)
     {
-        var client = _factory.CreateClient();
-        client.DefaultRequestHeaders.AddAuthHeader(_accessToken ??= await AuthHelper.CompleteStartupAsync(client));
-
-        using var response = await client.DeleteAsync($"Library/VirtualFolders?name={Uri.EscapeDataString(name)}", TestContext.Current.CancellationToken);
-        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        using var client = await Client();
+        var name = Guid.NewGuid().ToString("N");
+        var currentName = name;
+        var privateViews = _factory.Services.GetRequiredService<IServerApplicationPaths>().DefaultUserViewsPath;
+        var before = PrivateEntries(privateViews);
+        try
+        {
+            await Create(client, name);
+            var original = await Group(client, name);
+            using var response = await client.PostAsync(
+                $"Library/VirtualFolders/Name?name={name}&newName={Uri.EscapeDataString(label)}", null, TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+            currentName = label;
+            var renamed = await Group(client, label);
+            Assert.Equal(original.ItemId, renamed.ItemId);
+            Assert.Equal(before, PrivateEntries(privateViews));
+        }
+        finally
+        {
+            await Remove(client, currentName);
+        }
     }
 
     [Theory]
-    [Priority(1)]
+    [InlineData("doesntExist")]
     [InlineData("..")]
     [InlineData("../..")]
     [InlineData(".")]
     [InlineData("test/../..")]
     [InlineData("/var/lib/jellyfin/data")]
-    public async Task RenameLibrary_PathTraversalNewName_BadRequest(string newName)
+    public async Task UnknownLabel_CannotDeleteOrRenameAnyFilesystemLocation(string name)
     {
-        var client = _factory.CreateClient();
-        client.DefaultRequestHeaders.AddAuthHeader(_accessToken ??= await AuthHelper.CompleteStartupAsync(client));
-
-        using var response = await client.PostAsync(
-            $"Library/VirtualFolders/Name?name=test&newName={Uri.EscapeDataString(newName)}",
-            null,
-            TestContext.Current.CancellationToken);
-        Assert.Equal(HttpStatusCode.BadRequest, response.StatusCode);
+        using var client = await Client();
+        using var deleted = await client.DeleteAsync($"Library/VirtualFolders?name={Uri.EscapeDataString(name)}", TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.NotFound, deleted.StatusCode);
+        using var renamed = await client.PostAsync($"Library/VirtualFolders/Name?name={Uri.EscapeDataString(name)}&newName=renamed", null, TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.NotFound, renamed.StatusCode);
     }
 
-    [Theory]
-    [Priority(1)]
-    [InlineData("..")]
-    [InlineData("../..")]
-    [InlineData("/var/lib/jellyfin/data")]
-    public async Task RenameLibrary_PathTraversalName_NotFound(string name)
+    private async Task<HttpClient> Client()
     {
         var client = _factory.CreateClient();
         client.DefaultRequestHeaders.AddAuthHeader(_accessToken ??= await AuthHelper.CompleteStartupAsync(client));
-
-        using var response = await client.PostAsync(
-            $"Library/VirtualFolders/Name?name={Uri.EscapeDataString(name)}&newName=renamed",
-            null,
-            TestContext.Current.CancellationToken);
-        Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
+        return client;
     }
 
-    [Fact]
-    [Priority(1)]
-    public async Task DeleteLibrary_Valid_Success()
+    private static async Task Create(HttpClient client, string name)
     {
-        var client = _factory.CreateClient();
-        client.DefaultRequestHeaders.AddAuthHeader(_accessToken ??= await AuthHelper.CompleteStartupAsync(client));
-
-        using var response = await client.DeleteAsync("Library/VirtualFolders?name=test&refreshLibrary=true", TestContext.Current.CancellationToken);
+        using var response = await client.PostAsJsonAsync(
+            $"Library/VirtualFolders?name={Uri.EscapeDataString(name)}&refreshLibrary=true",
+            new AddVirtualFolderDto { LibraryOptions = new LibraryOptions { Enabled = false } },
+            JsonDefaults.Options,
+            TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
     }
+
+    private static async Task Remove(HttpClient client, string name)
+    {
+        using var response = await client.DeleteAsync($"Library/VirtualFolders?name={Uri.EscapeDataString(name)}&refreshLibrary=true", TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.NoContent, response.StatusCode);
+        Assert.DoesNotContain((await Views(client)).Items, item => item.Name == name);
+    }
+
+    private static async Task<VirtualFolderInfo> Group(HttpClient client, string name)
+        => Assert.Single((await client.GetFromJsonAsync<VirtualFolderInfo[]>("Library/VirtualFolders", JsonDefaults.Options, TestContext.Current.CancellationToken))!, group => group.Name == name);
+
+    private static async Task<QueryResult<BaseItemDto>> Views(HttpClient client)
+        => (await client.GetFromJsonAsync<QueryResult<BaseItemDto>>("UserViews", JsonDefaults.Options, TestContext.Current.CancellationToken))!;
+
+    private static string[] PrivateEntries(string path)
+        => Directory.Exists(path) ? Directory.GetFileSystemEntries(path).Order(StringComparer.Ordinal).ToArray() : [];
 }

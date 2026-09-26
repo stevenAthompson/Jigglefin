@@ -49,7 +49,7 @@ public sealed class LiveCapabilityFilter : IActionFilter, IOrderedFilter
         var method = action.MethodInfo.Name;
         if (controller == nameof(BrandingController) && method == "GetBrandingCss")
         {
-            context.Result = new ContentResult { Content = string.Empty, ContentType = "text/css" };
+            context.Result = new ContentResult { Content = string.Empty, ContentType = "text/css; charset=utf-8" };
             return;
         }
 
@@ -142,7 +142,8 @@ public sealed class LiveCapabilityFilter : IActionFilter, IOrderedFilter
             nameof(LyricsController) => method == "SearchRemoteLyrics",
             nameof(PluginsController) => method == "GetPlugins",
             nameof(PackageController) => method is "GetPackages" or "GetRepositories",
-            nameof(DashboardController) => method == "GetConfigurationPages",
+            nameof(DashboardController) => method is "GetConfigurationPages" or "GetDashboardConfigurationPage",
+            nameof(SyncPlayController) => method == "SyncPlayGetGroups",
             nameof(BrandingController) => method == "GetBrandingOptions",
             nameof(VideosController) => method == "GetAdditionalPart",
             nameof(LibraryController) => method is "GetThemeSongs" or "GetThemeVideos" or "GetThemeMedia" or "GetItemCounts" or "GetLibraryOptionsInfo",

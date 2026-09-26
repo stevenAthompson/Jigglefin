@@ -1,4 +1,3 @@
-using System.IO;
 using System.Net;
 using System.Net.Http.Json;
 using System.Net.Mime;
@@ -33,16 +32,13 @@ namespace Jellyfin.Server.Integration.Tests.Controllers
         }
 
         [Fact]
-        public async Task GetDashboardConfigurationPage_ExistingPage_CorrectPage()
+        public async Task GetDashboardConfigurationPage_EvenInstalledTestPlugin_NotFound()
         {
             var client = _factory.CreateClient();
 
             var response = await client.GetAsync("/web/ConfigurationPage?name=TestPlugin", TestContext.Current.CancellationToken);
 
-            Assert.Equal(HttpStatusCode.OK, response.StatusCode);
-            Assert.Equal(MediaTypeNames.Text.Html, response.Content.Headers.ContentType?.MediaType);
-            StreamReader reader = new StreamReader(typeof(TestPlugin).Assembly.GetManifestResourceStream("Jellyfin.Server.Integration.Tests.TestPage.html")!);
-            Assert.Equal(await response.Content.ReadAsStringAsync(TestContext.Current.CancellationToken), await reader.ReadToEndAsync(TestContext.Current.CancellationToken));
+            Assert.Equal(HttpStatusCode.NotFound, response.StatusCode);
         }
 
         [Fact]
@@ -65,8 +61,9 @@ namespace Jellyfin.Server.Integration.Tests.Controllers
 
             Assert.Equal(HttpStatusCode.OK, response.StatusCode);
 
-            _ = await response.Content.ReadFromJsonAsync<ConfigurationPageInfo[]>(_jsonOptions, TestContext.Current.CancellationToken);
-            // TODO: check content
+            var pages = await response.Content.ReadFromJsonAsync<ConfigurationPageInfo[]>(_jsonOptions, TestContext.Current.CancellationToken);
+            Assert.NotNull(pages);
+            Assert.Empty(pages);
         }
 
         [Fact]

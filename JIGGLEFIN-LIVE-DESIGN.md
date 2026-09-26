@@ -229,7 +229,32 @@ HTTP scenarios passed with real helpers; headless UI direct/HLS playback, access
 cache eviction, enable/disable and restart/resume passed with zero external browser
 requests and unchanged fixture media. Full legacy integration failures remain open.
 
-Still required before release: remaining query/filter compatibility and authorization/path-open audits; complete
+Compatibility regression triage has now replaced the obsolete plugin/catalog,
+configuration-directory and typed-folder playback assumptions with assertions of
+the live/offline contract. Creating a disabled group commits it disabled atomically;
+display labels never become filesystem paths. Catalog recommendations/theme media
+are empty, catalog singleton fallbacks lead to a real authorized folder view,
+remote/provider options cannot be opted into, tuner/SyncPlay creation stays blocked,
+and lost WebSockets still close their sessions. Plugin pages are 404, SyncPlay lists
+are valid empty arrays and branding CSS has an explicit charset. The test-only URL
+echo controller uses a separate encoding fixture; the production unknown-controller
+boundary is unchanged and directly tested. Direct/range audio and native MP3/HLS
+tests navigate physical folders and negotiate playback instead of asking scans to
+collapse folders into playable items. Authorized entry DTOs include their real paths.
+
+The complete integration rerun is **139 passed, 51 failed, 3 skipped** (193 total),
+down from 102 failures. Remaining failures are all in `FolderFirstLibraryTests` (29),
+`FolderFirstRescanTests` (8), and `LocalSidecarLibraryTests` (14). They remain enabled:
+mixed/multi-root/empty/same-name/authorization coverage must be retained while moving
+to immediate listings, freshness without scans, and selection-time metadata. The
+sidecar work must also cover OPF and Emby/Kodi precedence, ambiguity and editing;
+it must not merely delete unsupported assertions. The full suite is still NOT green.
+API tests now pass 199; server implementations pass 1,011 (17 skipped). The latest headless browser
+run again passed direct/HLS playback, subtitles, accounts, enable/disable, cache
+clearing and restart/resume with unchanged media and zero external requests.
+
+Still required before release: remaining query/filter compatibility and
+authorization/path-open audits; complete
 native-helper/server/browser outbound verification; updated integration/native-client
 regression; and upgrade-profile Windows package validation. Clean-profile packaging
 and the simplified browser are now tested, but not substitutes for these gates.

@@ -67,7 +67,7 @@ public sealed class LiveLibraryStore : ILiveLibrary
     }
 
     /// <inheritdoc />
-    public LiveLibraryDefinition AddLibrary(string name, IReadOnlyList<string> paths, Guid? id = null)
+    public LiveLibraryDefinition AddLibrary(string name, IReadOnlyList<string> paths, Guid? id = null, bool enabled = true)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(name);
         ArgumentNullException.ThrowIfNull(paths);
@@ -87,7 +87,7 @@ public sealed class LiveLibraryStore : ILiveLibrary
                 roots.Add(root);
             }
 
-            var library = new LiveLibraryDefinition(id ?? Guid.NewGuid(), name, roots);
+            var library = new LiveLibraryDefinition(id ?? Guid.NewGuid(), name, roots) { Enabled = enabled };
             if (existing.Any(item => item.Id.Equals(library.Id)))
             {
                 throw new ArgumentException("The folder group ID already exists.", nameof(id));
@@ -206,6 +206,7 @@ public sealed class LiveLibraryStore : ILiveLibrary
     /// <inheritdoc />
     public void RenameLibrary(string name, string newName)
     {
+        ArgumentException.ThrowIfNullOrWhiteSpace(name);
         ArgumentException.ThrowIfNullOrWhiteSpace(newName);
         lock (_gate)
         {

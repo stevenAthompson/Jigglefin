@@ -204,7 +204,7 @@ public sealed class LiveFolderApiFilter : IActionFilter
                     paths = (Arg<AddVirtualFolderDto>(args, "libraryOptionsDto")?.LibraryOptions?.PathInfos ?? []).Select(path => path.Path).ToArray();
                 }
 
-                _library.AddLibrary(Arg<string>(args, "name"), paths);
+                _library.AddLibrary(Arg<string>(args, "name"), paths, enabled: Arg<AddVirtualFolderDto>(args, "libraryOptionsDto")?.LibraryOptions?.Enabled != false);
                 return new NoContentResult();
             case "RemoveVirtualFolder":
                 _library.RemoveLibrary(Arg<string>(args, "name"));
@@ -398,6 +398,7 @@ public sealed class LiveFolderApiFilter : IActionFilter
         }
 
         var dto = Folder(entry.Id, entry.Name, parent);
+        dto.Path = entry.File.FullPath;
         dto.IsFolder = entry.File.IsDirectory;
         dto.LocationType = LocationType.FileSystem;
         if (!entry.File.IsDirectory)

@@ -1,6 +1,5 @@
 using System.Net.Http.Json;
 using System.Threading.Tasks;
-using Jellyfin.Data.Enums;
 using Jellyfin.Extensions.Json;
 using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.Querying;
@@ -18,7 +17,7 @@ public sealed class UserViewsControllerTests : IClassFixture<JellyfinApplication
     }
 
     [Fact]
-    public async Task GetUserViews_NewServer_ContainsPhysicalFoldersView()
+    public async Task GetUserViews_NewServer_HasNoInventedLibraries()
     {
         var client = _factory.CreateClient();
         client.DefaultRequestHeaders.AddAuthHeader(await AuthHelper.CompleteStartupAsync(client));
@@ -31,6 +30,7 @@ public sealed class UserViewsControllerTests : IClassFixture<JellyfinApplication
             TestContext.Current.CancellationToken);
 
         Assert.NotNull(result);
-        Assert.Contains(result.Items, item => item.CollectionType == CollectionType.folders);
+        Assert.Empty(result.Items);
+        Assert.Equal(0, result.TotalRecordCount);
     }
 }

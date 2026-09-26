@@ -64,6 +64,17 @@ public sealed class LiveLibraryStoreTests : IDisposable
     }
 
     [Fact]
+    public void DisabledGroup_IsCommittedDisabledAndStaysDisabledAfterRestart()
+    {
+        var group = _store.AddLibrary("Unavailable", [_media], enabled: false);
+        Assert.False(group.Enabled);
+        Assert.False(Assert.Single(_store.GetLibraries()).Enabled);
+        Assert.False(Assert.Single(CreateStore().GetLibraries()).Enabled);
+        Assert.False(LiveLibraryAccess.CanAccess(null, group));
+        Assert.Empty(_reader.EnumerationCalls);
+    }
+
+    [Fact]
     public void StartupAndConfigurationQueries_DoNotAccessMedia()
     {
         Assert.Empty(_store.GetLibraries());

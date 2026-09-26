@@ -6,15 +6,12 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text;
 using System.Threading.Tasks;
-using Emby.Server.Implementations.Library;
 using Jellyfin.Api.Models.LibraryStructureDto;
 using Jellyfin.Data.Enums;
 using Jellyfin.Extensions.Json;
-using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.Querying;
-using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
 namespace Jellyfin.Server.Integration.Tests.Controllers;
@@ -30,7 +27,7 @@ public sealed class FolderFirstStreamingTests
         var audioBytes = CreateSilentWave();
         await File.WriteAllBytesAsync(Path.Combine(albumFolder, "Test Track.wav"), audioBytes, TestContext.Current.CancellationToken);
 
-        using var factory = new JellyfinApplicationFactory();
+        using var factory = new JellyfinApplicationFactory { FfmpegPath = Environment.GetEnvironmentVariable("JIGGLEFIN_TEST_FFMPEG") };
         using var client = factory.CreateClient();
         client.DefaultRequestHeaders.AddAuthHeader(await AuthHelper.CompleteStartupAsync(client));
         var libraryName = "Jigglefin stream test " + Guid.NewGuid().ToString("N");
@@ -45,9 +42,6 @@ public sealed class FolderFirstStreamingTests
                 TestContext.Current.CancellationToken);
             Assert.Equal(HttpStatusCode.NoContent, createResponse.StatusCode);
             created = true;
-
-            var libraryManager = (LibraryManager)factory.Services.GetRequiredService<ILibraryManager>();
-            await libraryManager.ValidateMediaLibraryInternal(new Progress<double>(), TestContext.Current.CancellationToken);
 
             var views = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
                 "UserViews?presetViews=music",
@@ -70,7 +64,7 @@ public sealed class FolderFirstStreamingTests
                 TestContext.Current.CancellationToken);
             Assert.NotNull(albums);
             var album = Assert.Single(albums.Items, item => item.Name == "Example Album");
-            Assert.Equal(BaseItemKind.MusicAlbum, album.Type);
+            Assert.Equal(BaseItemKind.Folder, album.Type);
 
             var tracks = await client.GetFromJsonAsync<QueryResult<BaseItemDto>>(
                 $"Items?parentId={album.Id}",

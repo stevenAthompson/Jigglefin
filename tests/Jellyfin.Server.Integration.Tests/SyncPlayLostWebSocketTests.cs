@@ -14,6 +14,7 @@ using Emby.Server.Implementations.Session;
 using Jellyfin.Api.Models.SyncPlayDtos;
 using Jellyfin.Extensions.Json;
 using MediaBrowser.Controller.Net;
+using MediaBrowser.Controller.Session;
 using Microsoft.Extensions.DependencyInjection;
 using Xunit;
 
@@ -29,7 +30,7 @@ public sealed class SyncPlayLostWebSocketTests : IClassFixture<JellyfinApplicati
     }
 
     [Fact]
-    public async Task LostWebSocket_EndsSession_And_RemovesEmptySyncPlayGroup()
+    public async Task LostWebSocket_EndsSession_WhileUnsupportedSyncPlayCannotCreateGroups()
     {
         var cancellationToken = TestContext.Current.CancellationToken;
         var client = _factory.CreateClient();
@@ -40,7 +41,7 @@ public sealed class SyncPlayLostWebSocketTests : IClassFixture<JellyfinApplicati
         wsClient.ConfigureRequest = request =>
             request.Headers.Authorization = AuthHelper.DummyAuthHeader + $", Token={accessToken}";
 
-        var webSocket = await wsClient.ConnectAsync(
+        using var webSocket = await wsClient.ConnectAsync(
             new UriBuilder(_factory.Server.BaseAddress)
             {
                 Scheme = "ws",
@@ -48,7 +49,7 @@ public sealed class SyncPlayLostWebSocketTests : IClassFixture<JellyfinApplicati
             }.Uri,
             cancellationToken);
 
-        _ = DrainAsync(webSocket, cancellationToken);
+        var drain = DrainAsync(webSocket, cancellationToken);
 
         var watched = await WaitForWatchedWebSocketsAsync(TimeSpan.FromSeconds(10), cancellationToken);
         var connection = Assert.Single(watched);
@@ -57,17 +58,22 @@ public sealed class SyncPlayLostWebSocketTests : IClassFixture<JellyfinApplicati
             "SyncPlay/New",
             JsonContent.Create(new NewGroupRequestDto { GroupName = "ZombieGroupRepro" }, options: JsonDefaults.Options),
             cancellationToken);
-        Assert.Equal(HttpStatusCode.OK, createResponse.StatusCode);
-        Assert.Equal(1, await WaitForGroupCountAsync(client, 1, TimeSpan.FromSeconds(10), cancellationToken));
+        Assert.Equal(HttpStatusCode.BadRequest, createResponse.StatusCode);
+        Assert.Equal(0, await WaitForGroupCountAsync(client, 0, TimeSpan.FromSeconds(10), cancellationToken));
+
+        var sessions = _factory.Services.GetRequiredService<ISessionManager>();
+        var sessionId = Assert.Single(sessions.Sessions).Id;
 
         connection.LastKeepAliveDate = DateTime.UtcNow - TimeSpan.FromSeconds(180);
 
-        var groupCount = await WaitForGroupCountAsync(client, 0, TimeSpan.FromSeconds(45), cancellationToken);
-        Assert.True(
-            groupCount == 0,
-            $"SyncPlay group still listed {groupCount} group(s) after the WebSocket was lost: "
-            + "the keep-alive watchdog removed the socket from its watchlist without closing "
-            + "the session, leaving a zombie participant in the group (SessionWebSocketListener).");
+        await drain.WaitAsync(TimeSpan.FromSeconds(45), cancellationToken);
+        var timeout = Stopwatch.StartNew();
+        while (sessions.Sessions.Any(session => session.Id == sessionId) && timeout.Elapsed < TimeSpan.FromSeconds(5))
+        {
+            await Task.Delay(100, cancellationToken);
+        }
+
+        Assert.DoesNotContain(sessions.Sessions, session => session.Id == sessionId);
     }
 
     private static async Task DrainAsync(WebSocket webSocket, CancellationToken cancellationToken)
