@@ -173,23 +173,17 @@ namespace Jellyfin.Server.Extensions
             // https://github.com/dotnet/aspnetcore/blob/master/src/Middleware/HttpOverrides/src/ForwardedHeadersMiddleware.cs
             // Enable debug logging on Microsoft.AspNetCore.HttpOverrides.ForwardedHeadersMiddleware to help investigate issues.
 
-            if (config.KnownProxies.Length == 0)
-            {
-                options.ForwardedHeaders = ForwardedHeaders.None;
-                options.KnownIPNetworks.Clear();
-                options.KnownProxies.Clear();
-            }
-            else
-            {
-                options.ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedHost;
-                AddProxyAddresses(config, config.KnownProxies, options);
-            }
+            // Trust only explicitly configured, locally parseable addresses. In particular,
+            // rejected legacy hostnames must not leave the framework's loopback defaults trusted.
+            options.KnownIPNetworks.Clear();
+            options.KnownProxies.Clear();
+            AddProxyAddresses(config, config.KnownProxies, options);
 
-            // Only set forward limit if we have some known proxies or some known networks.
-            if (options.KnownProxies.Count != 0 || options.KnownIPNetworks.Count != 0)
-            {
-                options.ForwardLimit = null;
-            }
+            var hasKnownProxies = options.KnownProxies.Count != 0 || options.KnownIPNetworks.Count != 0;
+            options.ForwardedHeaders = hasKnownProxies
+                ? ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto | ForwardedHeaders.XForwardedHost
+                : ForwardedHeaders.None;
+            options.ForwardLimit = hasKnownProxies ? null : 1;
         }
 
         /// <summary>

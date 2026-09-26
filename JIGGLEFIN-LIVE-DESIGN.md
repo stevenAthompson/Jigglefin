@@ -364,10 +364,59 @@ shutdown. Successful harnesses retain machine-readable reports and screenshots.
 - Clean UI fixture: `%TEMP%\jigglefin-folder-web-hXncsm`.
 - Upgrade fixture: `%TEMP%\jigglefin-zip-upgrade-fe66cebcb56e47edad206cb589e918f2`.
 
+### Server/native-helper outbound checkpoint
+
+The outbound audit found a real bypass of the HTTP transport boundary: host parsing
+used DNS for hostname-based proxy settings and request-host selection. Production
+host parsing now accepts numeric addresses and the literal `localhost` without a
+resolver call; other names fail closed. This does not prevent clients resolving
+the server's name on their own side. Bracketed IPv6 parsing also preserves its final
+character and honors the configured address families. Forwarded headers are enabled
+only for explicitly configured numeric proxies/subnets or literal localhost; invalid
+legacy hostnames cannot retain the framework's implicit loopback trust. Six actual
+middleware cases cover trusted and rejected peers (three failed before the fix).
+All 153 networking tests and 69 server tests pass; the complete HTTP integration run
+still passes 190 cases with three existing skips. A real name-resolution event listener has a localhost positive
+control and requires zero resolver starts from the production parser.
+
+`scripts/audit-offline-win.ps1` now observes the newly created server/launcher and
+every native child from startup using process-local module/function instrumentation.
+It does not capture other apps' traffic or change firewall/system tracing settings.
+Its positive control must see managed DNS/TCP/UDP, incoming accepts and an actual
+FFprobe child making a loopback HTTP request. During the product run it records
+attempted Winsock/DNS/HTTP/UNC operations, not just successful connections, and fails
+on incomplete observation. The observer does not block calls. Details, exact hook
+coverage and limitations are documented in `tests/OfflineNetworkAudit/README.md`.
+
+The complete packaged own-UI workflow passed with zero observed outbound attempts
+across both startups, including 56 native helper processes in the proxy-fixed build.
+Old enabled plugin/update/tuner settings and a hostname proxy cannot revive online behavior. Legacy download,
+search, configuration and refresh endpoints were exercised using a hostile Host
+header. Renamed HLS/concat files and NFO remote artwork/trailers could not contact
+their loopback trap. Direct/HLS playback, subtitles, account restrictions, cache
+eviction, unavailable mounts and restart/resume still work; media bytes/mtimes are
+unchanged. Repeated packaged runs pass. A disconnect control verified that losing
+the test controller stops only its owned process tree. The harness itself exposed
+and fixed a Windows venv process-parent mismatch and an interpreter-shutdown race;
+neither was accepted as a passing run.
+
+The tested package is `publish/Jigglefin-live-offline-check-20260926-r2.zip`, SHA-256
+`10B8178D6B8E91AAC43E30305F2FF1F164AF66637EE050CFEFA46BC3FA56838F`.
+It also passed the actual older-ZIP upgrade harness again. Local evidence is in
+`publish/test-results/live-offline-audit`; the proxy-fixed packaged native audit
+fixture is `%TEMP%\jigglefin-folder-web-qgHzyG`, and the upgrade fixture is
+`%TEMP%\jigglefin-zip-upgrade-ce4e916a77eb4797977aa9ff27e790c8`.
+The `proxy-fixed-*` evidence reports include the explicit range-request regression.
+Earlier complete native audit fixtures remain available too; they do not substitute
+for the rebuilt package after the proxy fix. A repeated complete run with the final
+observer also passes in `%TEMP%\jigglefin-folder-web-ULVP6m` (`repeat-*` reports).
+
 Still required before release: final query/authorization/path-open and private-write
-audits (including drive/share mappings and private hardlinks); complete native-helper/
-server/browser outbound verification; unmodified native-client regression against
-this live implementation; and final distribution validation after those changes.
-The actual older ZIP migration gate is now covered, but not every historical Jellyfin
-version or the user's production profile. The installed server and previous release
-ZIP have not been replaced. No real Apple-device UI coverage has been added.
+audits, especially mapped-drive/LAN-share behavior and private hardlink aliases;
+unmodified native-client regression against this live implementation; and final
+distribution validation after those changes. The native capture proves the exercised
+local-media paths, not kernel SMB redirectors or arbitrary drivers/binaries. Incoming
+client connections and passive discovery replies remain permitted by the contract.
+The older ZIP migration gate is covered, but not every historical Jellyfin version
+or the user's production profile. The installed server and previous release ZIP
+have not been replaced. No real Apple-device UI coverage has been added.

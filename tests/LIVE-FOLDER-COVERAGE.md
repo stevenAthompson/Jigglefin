@@ -21,6 +21,8 @@ a destructive test fixture at a user's media tree or installed profile.
 | Existing live HTTP/playback/migration tests | Large unvisited trees, blocked legacy mutation/online endpoints, real direct/range/transcoded audio/video, subtitles, independent bookmarks across eviction/restart, native network traps and isolated legacy-profile import. |
 | `WebClientSmoke/live-folders.cjs` | Actual simplified UI, headless desktop/mobile, direct/HLS playback and seeking, subtitles, saved places, account isolation, cache clearing, enable/disable/removal, disconnected-root recovery and process restart. Records external browser attempts before denying them and requires zero attempts; fixture hashes/mtimes remain unchanged. |
 | `WebClientSmoke/live-upgrade.cjs` through `scripts/smoke-upgrade-package-win.ps1` | Extracts the actual older and replacement ZIPs into an owned fixture. The older binary creates real accounts, restricted/disabled/disconnected roots and separate audiobook bookmarks. The replacement upgrades a copied profile while all synthetic media content is locked. Checks unchanged legacy catalog/state, only saved-address import, surviving tokens/permissions, local metadata/range playback, disconnected bookmark recovery, cache eviction, fresh-browser resume and repeated restarts without overwriting newer progress. Original profile and media hashes/mtimes must stay identical. |
+| `OfflineHostParsingTests` and `OfflineNetworkAudit` | Host parsing accepts numeric addresses and literal localhost without DNS. Real name-resolution events provide a positive control. The process-local native audit observes server/launcher/helper calls throughout the headless UI workflow and legacy online/refresh requests, old online-enabled settings, malicious playlist/NFO URLs and restart; managed and native loopback controls prove the observer sees actual attempts. |
+| `ParseNetworkTests.ProxyTrust_UsesOnlyExplicitOfflineAddresses` | Actual forwarded-header middleware accepts explicitly configured numeric proxies/subnets and localhost; unknown hostnames disable forwarding, and configuring a non-loopback proxy does not implicitly trust loopback peers. |
 
 `LiveFolderFixture` shares setup and assertions instead of duplicating many large
 scan fixtures. Every browse must enumerate exactly its requested directory and
@@ -82,3 +84,8 @@ The upgrade fixture's media lock is released before selection/playback; locked
 startup/resume is evidence of no content reads, not a claim that playback needs no
 file access. Synthetic profile upgrade is now covered by a real binary-to-binary
 test, but is not proof of every historical Jellyfin version or the user's profile.
+
+For reproducible server/native-helper/browser outbound checks, see
+`OfflineNetworkAudit/README.md` and `scripts/audit-offline-win.ps1`. This extends the
+browser's own request interception with native process-tree observation; it does
+not silently turn off an existing system-wide network capture or inspect other apps.

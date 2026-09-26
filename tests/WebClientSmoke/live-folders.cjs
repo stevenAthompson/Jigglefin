@@ -14,6 +14,9 @@ const { once } = require('node:events');
 const { chromium } = require('playwright');
 const root = path.resolve(__dirname, '../..');
 const packageDirectory = process.env.JIGGLEFIN_TEST_PACKAGE && path.resolve(process.env.JIGGLEFIN_TEST_PACKAGE);
+const auditPython = process.env.JIGGLEFIN_AUDIT_PYTHON;
+const networkAudit = auditPython && require('../OfflineNetworkAudit/audit.cjs');
+const nativeReports = [], nativeResults = [];
 const powershell = path.join(process.env.SystemRoot, 'System32/WindowsPowerShell/v1.0/powershell.exe');
 const capture = promisify(execFile);
 const dotnet = process.env.JIGGLEFIN_TEST_DOTNET || path.join(process.env.LOCALAPPDATA, 'Microsoft/dotnet/dotnet.exe');
@@ -23,7 +26,7 @@ const ffmpeg = packageDirectory ? path.join(packageDirectory, 'ffmpeg.exe') : pr
 const delay = ms => new Promise(resolve => setTimeout(resolve, ms));
 const password = 'Temporary-' + crypto.randomBytes(16).toString('hex');
 const username = 'FolderTestAdmin';
-let fixture, profile, child, base, browser, token, output = '', successful = false, launchTime;
+let fixture, profile, child, base, browser, token, output = '', successful = false, launchTime, closeNativeTrap, auditRootPid;
 const failures = [], externalRequests = [], violations = [], requests = [], httpErrors = [];
 const redactUrl = value => { const url = new URL(value); for (const key of [...url.searchParams.keys()]) if (['apikey', 'api_key', 'token', 'access_token'].includes(key.toLowerCase())) url.searchParams.set(key, 'REDACTED'); return url.href; };
 
@@ -43,14 +46,26 @@ async function api(url, method = 'GET', body, accessToken = token) {
 }
 async function startServer() {
   output = '';
+  auditRootPid = undefined;
   const args = ['--service', '--nonetchange', '--configdir', path.join(profile, 'config'), '--cachedir', path.join(profile, 'cache'), '--logdir', path.join(profile, 'logs')];
   // Packaged runs use the actual Windows PowerShell 5.1 launcher, from outside the
   // package, with a spaced profile path and no explicit Web/FFmpeg overrides.
   launchTime = new Date().toISOString();
-  child = packageDirectory
-    ? spawn(powershell, ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', path.join(packageDirectory, 'Start-Jigglefin.ps1'), '-DataDir', profile, ...args], { cwd: fixture, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'] })
-    : spawn(dotnet, [serverDll, '--datadir', profile, ...args, '--webdir', web, '--ffmpeg', ffmpeg], { cwd: fixture, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, DOTNET_ROOT: path.dirname(dotnet), ASPNETCORE_ENVIRONMENT: 'Production' } });
-  child.stdout.on('data', data => { output = (output + data).slice(-16000); }); child.stderr.on('data', data => { output = (output + data).slice(-16000); });
+  const executable = packageDirectory ? powershell : dotnet;
+  const launchArgs = packageDirectory
+    ? ['-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File', path.join(packageDirectory, 'Start-Jigglefin.ps1'), '-DataDir', profile, ...args]
+    : [serverDll, '--datadir', profile, ...args, '--webdir', web, '--ffmpeg', ffmpeg];
+  const launchOptions = { cwd: fixture, windowsHide: true, stdio: ['ignore', 'pipe', 'pipe'], env: { ...process.env, DOTNET_ROOT: path.dirname(dotnet), ASPNETCORE_ENVIRONMENT: 'Production' } };
+  if (networkAudit) {
+    const report = path.join(fixture, `native-network-${nativeReports.length + 1}.json`);
+    nativeReports.push(report);
+    child = networkAudit.launch(auditPython, executable, launchArgs, launchOptions, report);
+  } else child = spawn(executable, launchArgs, launchOptions);
+  child.stdout.on('data', data => {
+    output = (output + data).slice(-16000);
+    const rootMatch = /JIGGLEFIN_NATIVE_TRACE_ROOT:(\d+)/.exec(output);
+    if (rootMatch) auditRootPid = Number(rootMatch[1]);
+  }); child.stderr.on('data', data => { output = (output + data).slice(-16000); });
   for (let count = 0; count < 120; count++) {
     if (child.exitCode !== null) throw new Error(`Isolated server exited (${child.exitCode}): ${output.slice(-3500)}`);
     let ready = false;
@@ -62,7 +77,9 @@ async function startServer() {
 }
 async function verifyPackagedProcess(stop) {
   // Resolve and validate exact child identity afresh before inspecting/killing it.
-  const script = `$ErrorActionPreference = 'Stop'; $matched = @(Get-CimInstance Win32_Process -Filter "ParentProcessId = $env:JIGGLEFIN_TEST_PARENT" | Where-Object { $_.ExecutablePath -eq $env:JIGGLEFIN_TEST_BINARY -and $_.CommandLine.Contains($env:JIGGLEFIN_TEST_PROFILE) -and $_.CreationDate.ToUniversalTime() -ge [DateTime]::Parse($env:JIGGLEFIN_TEST_LAUNCH).ToUniversalTime() }); if ($matched.Count -ne 1) { throw 'Could not resolve the exact isolated launcher child' }; if ($env:JIGGLEFIN_TEST_STOP -eq '1') { Stop-Process -Id $matched[0].ProcessId -Force } else { $listeners = @(Get-NetTCPConnection -LocalPort $env:JIGGLEFIN_TEST_PORT -State Listen); if (-not $listeners.Count -or @($listeners | Where-Object OwningProcess -NE $matched[0].ProcessId).Count) { throw 'Port not exclusively owned by isolated server' } }`;
+  if (networkAudit) assert.ok(Number.isSafeInteger(auditRootPid), 'Native tracer must identify its newly created process.');
+  const tracedParent = networkAudit ? `$launchers = @(Get-CimInstance Win32_Process -Filter "ProcessId = ${auditRootPid}" | Where-Object { $_.ExecutablePath -eq '${powershell.replaceAll("'", "''")}' -and $_.CommandLine.Contains($env:JIGGLEFIN_TEST_PROFILE) -and $_.CreationDate.ToUniversalTime() -ge [DateTime]::Parse($env:JIGGLEFIN_TEST_LAUNCH).ToUniversalTime() }); if ($launchers.Count -ne 1) { throw 'Could not resolve isolated traced launcher' }; $launchParent = $launchers[0].ProcessId;` : '';
+  const script = `$ErrorActionPreference = 'Stop'; $launchParent = [int]$env:JIGGLEFIN_TEST_PARENT; ${tracedParent} $matched = @(Get-CimInstance Win32_Process -Filter "ParentProcessId = $launchParent" | Where-Object { $_.ExecutablePath -eq $env:JIGGLEFIN_TEST_BINARY -and $_.CommandLine.Contains($env:JIGGLEFIN_TEST_PROFILE) -and $_.CreationDate.ToUniversalTime() -ge [DateTime]::Parse($env:JIGGLEFIN_TEST_LAUNCH).ToUniversalTime() }); if ($matched.Count -ne 1) { throw 'Could not resolve the exact isolated launcher child' }; if ($env:JIGGLEFIN_TEST_STOP -eq '1') { Stop-Process -Id $matched[0].ProcessId -Force } else { $listeners = @(Get-NetTCPConnection -LocalPort $env:JIGGLEFIN_TEST_PORT -State Listen); if (-not $listeners.Count -or @($listeners | Where-Object OwningProcess -NE $matched[0].ProcessId).Count) { throw 'Port not exclusively owned by isolated server' } }`;
   await capture(powershell, ['-NoProfile', '-NonInteractive', '-Command', script], { windowsHide: true, timeout: 15000, env: { ...process.env, JIGGLEFIN_TEST_PARENT: String(child.pid), JIGGLEFIN_TEST_BINARY: path.join(packageDirectory, 'jellyfin.exe'), JIGGLEFIN_TEST_PROFILE: profile, JIGGLEFIN_TEST_LAUNCH: launchTime, JIGGLEFIN_TEST_STOP: stop ? '1' : '0', JIGGLEFIN_TEST_PORT: new URL(base).port } });
 }
 async function packageCliChecks() {
@@ -87,6 +104,7 @@ async function stopServer() {
   if (process.exitCode === null) { if (packageDirectory) await verifyPackagedProcess(true); else process.kill(); await exited; }
   assert.equal(process.exitCode, 0, 'Isolated server/launcher must shut down cleanly.');
   child = null;
+  if (networkAudit) nativeResults.push(await networkAudit.check(nativeReports.at(-1)));
 }
 async function snapshot(directory) {
   const result = {};
@@ -134,10 +152,16 @@ async function main() {
   await fs.writeFile(path.join(films, 'Film.en.srt'), '1\n00:00:00,000 --> 00:00:15,000\nOffline subtitle\n');
   await fs.copyFile(path.join(root, 'branding/jigglefin-256.png'), path.join(books, 'folder.png'));
   await fs.writeFile(path.join(media, 'notes.txt'), 'Visible but not media.');
+  if (networkAudit) closeNativeTrap = await networkAudit.fixtureTrap(media);
   const before = await snapshot(media);
   const port = await unusedPort(); base = `http://127.0.0.1:${port}`;
   await fs.mkdir(path.join(profile, 'config'), { recursive: true });
-  await fs.writeFile(path.join(profile, 'config/network.xml'), `<?xml version="1.0"?><NetworkConfiguration><InternalHttpPort>${port}</InternalHttpPort><PublicHttpPort>${port}</PublicHttpPort><AutoDiscovery>false</AutoDiscovery><EnableIPv6>false</EnableIPv6><EnableRemoteAccess>false</EnableRemoteAccess><LocalNetworkAddresses><string>127.0.0.1</string></LocalNetworkAddresses></NetworkConfiguration>`);
+  await fs.writeFile(path.join(profile, 'config/network.xml'), `<?xml version="1.0"?><NetworkConfiguration><InternalHttpPort>${port}</InternalHttpPort><PublicHttpPort>${port}</PublicHttpPort><AutoDiscovery>false</AutoDiscovery><EnableIPv6>false</EnableIPv6><EnableRemoteAccess>false</EnableRemoteAccess><LocalNetworkAddresses><string>127.0.0.1</string></LocalNetworkAddresses>${networkAudit ? '<KnownProxies><string>never-resolve.invalid</string></KnownProxies>' : ''}</NetworkConfiguration>`);
+  if (networkAudit) {
+    // Old opt-in settings must not reactivate removed network features.
+    await fs.writeFile(path.join(profile, 'config/system.xml'), '<?xml version="1.0"?><ServerConfiguration><EnableAutoUpdate>true</EnableAutoUpdate><PluginRepositories><RepositoryInfo><Name>Never contact</Name><Url>http://never-resolve.invalid/plugins.json</Url><Enabled>true</Enabled></RepositoryInfo></PluginRepositories></ServerConfiguration>');
+    await fs.writeFile(path.join(profile, 'config/livetv.xml'), '<?xml version="1.0"?><LiveTvOptions><TunerHosts><TunerHostInfo><Id>offline-audit</Id><Url>http://never-resolve.invalid/tuner</Url><Type>hdhomerun</Type></TunerHostInfo></TunerHosts></LiveTvOptions>');
+  }
   await startServer();
   browser = await chromium.launch({ headless: true });
   const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
@@ -203,6 +227,10 @@ async function main() {
   await page.locator('#player').evaluate(video => { video.currentTime = 31; }); await playing(page, 31);
   await page.getByRole('button', { name: 'Stop & save place', exact: true }).click(); await page.getByRole('button', { name: /Resume at 0:3/ }).waitFor();
   const bookId = (await api('UserItems/Resume')).Items.find(item => item.Name === 'Chapter 01.m4b').Id;
+  if (networkAudit) {
+    await networkAudit.legacyEndpoints(base, token, bookId);
+    console.log('Legacy online/refresh endpoints and hostile Host header exercised under native observation.');
+  }
   await page.getByRole('button', { name: 'Favorite', exact: true }).click(); await page.getByRole('button', { name: 'Remove favorite', exact: true }).waitFor();
   let saved = (await api('Items/' + bookId)).UserData.PlaybackPositionTicks;
   assert.ok(saved >= 31e7 && saved < 40e7, `Unexpected saved position: ${saved}`);
@@ -284,9 +312,10 @@ main().catch(async error => {
   process.exitCode = 1;
 }).finally(async () => {
   await browser?.close(); await stopServer();
+  if (closeNativeTrap) await closeNativeTrap();
   if (successful) {
     await fs.writeFile(path.join(fixture, 'web-smoke-report.json'), JSON.stringify({
-      pass: true, packageDirectory: packageDirectory || null, externalRequests, failures, violations,
+      pass: true, packageDirectory: packageDirectory || null, externalRequests, failures, violations, nativeResults,
       checks: ['Minimal setup; live navigation without scans; direct/HLS audio and video; subtitles; per-account bookmarks; cache eviction; restart/resume; disconnected roots; unchanged media bytes and timestamps; clean server shutdown.']
     }, null, 2) + '\n');
     console.log('PASS. Isolated fixture retained for visual review:', fixture);

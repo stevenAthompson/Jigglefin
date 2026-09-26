@@ -1,16 +1,21 @@
 using System;
 using System.Linq;
 using System.Net;
+using System.Threading.Tasks;
 using Jellyfin.Networking.Manager;
 using Jellyfin.Server.Extensions;
 using MediaBrowser.Common.Configuration;
 using MediaBrowser.Common.Net;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.HttpOverrides;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Moq;
 using Xunit;
 using IConfigurationManager = MediaBrowser.Common.Configuration.IConfigurationManager;
+using IPNetwork = System.Net.IPNetwork;
 
 namespace Jellyfin.Server.Tests
 {
@@ -101,6 +106,34 @@ namespace Jellyfin.Server.Tests
             {
                 Assert.NotEqual(default, options.KnownIPNetworks.FirstOrDefault(x => x.BaseAddress.Equals(item.BaseAddress) && x.PrefixLength == item.PrefixLength));
             }
+        }
+
+        [Theory]
+        [InlineData("never-resolve.invalid", "127.0.0.1", false)]
+        [InlineData("never-resolve.invalid", "203.0.113.20", false)]
+        [InlineData("192.0.2.10", "127.0.0.1", false)]
+        [InlineData("192.0.2.10", "192.0.2.10", true)]
+        [InlineData("192.0.2.0/24", "192.0.2.11", true)]
+        [InlineData("localhost", "127.0.0.1", true)]
+        public async Task ProxyTrust_UsesOnlyExplicitOfflineAddresses(string proxy, string peer, bool forwarded)
+        {
+            var options = new ForwardedHeadersOptions();
+            ApiServiceCollectionExtensions.ConfigureForwardHeaders(
+                new NetworkConfiguration { KnownProxies = [proxy], EnableIPv4 = true, EnableIPv6 = true }, options);
+            if (proxy == "never-resolve.invalid")
+            {
+                Assert.Equal(ForwardedHeaders.None, options.ForwardedHeaders);
+                Assert.Empty(options.KnownProxies);
+                Assert.Empty(options.KnownIPNetworks);
+            }
+
+            var context = new DefaultHttpContext();
+            context.Connection.RemoteIpAddress = IPAddress.Parse(peer);
+            context.Request.Headers["X-Forwarded-For"] = "198.51.100.25";
+            context.Request.Headers["X-Forwarded-Host"] = "never-resolve.invalid";
+            var middleware = new ForwardedHeadersMiddleware(_ => Task.CompletedTask, NullLoggerFactory.Instance, Options.Create(options));
+            await middleware.Invoke(context);
+            Assert.Equal(IPAddress.Parse(forwarded ? "198.51.100.25" : peer), context.Connection.RemoteIpAddress);
         }
 
         private static IConfigurationManager GetMockConfig(NetworkConfiguration conf)

@@ -4,7 +4,6 @@ using System.Diagnostics.CodeAnalysis;
 using System.Globalization;
 using System.Net;
 using System.Net.Sockets;
-using System.Text.RegularExpressions;
 using Jellyfin.Extensions;
 using MediaBrowser.Model.Net;
 using Microsoft.Extensions.Logging;
@@ -14,13 +13,8 @@ namespace MediaBrowser.Common.Net;
 /// <summary>
 /// Defines the <see cref="NetworkUtils" />.
 /// </summary>
-public static partial class NetworkUtils
+public static class NetworkUtils
 {
-    // Use regular expression as CheckHostName isn't RFC5892 compliant.
-    // Modified from gSkinner's expression at https://stackoverflow.com/questions/11809631/fully-qualified-domain-name-validation
-    [GeneratedRegex(@"(?im)^(?!:\/\/)(?=.{1,255}$)((.{1,63}\.){0,127}(?![0-9]*$)[a-z0-9-]+\.?)(:(\d){1,5}){0,1}$", RegexOptions.IgnoreCase, "en-US")]
-    private static partial Regex FqdnGeneratedRegex();
-
     /// <summary>
     /// Returns true if the IPAddress contains an IP6 Local link address.
     /// </summary>
@@ -284,7 +278,9 @@ public static partial class NetworkUtils
     }
 
     /// <summary>
-    /// Attempts to parse a host span.
+    /// Attempts to parse a numeric host or the literal localhost without DNS.
+    /// Other hostnames fail closed; server settings and client Host headers must
+    /// never cause an outbound lookup in the offline server.
     /// </summary>
     /// <param name="host">Host name to parse.</param>
     /// <param name="addresses">Object representing the span, if it has successfully been parsed.</param>
@@ -306,7 +302,7 @@ public static partial class NetworkUtils
             int i = host.IndexOf(']');
             if (i != -1)
             {
-                return TryParseHost(host[1..(i - 1)], out addresses);
+                return TryParseHost(host[1..i], out addresses, isIPv4Enabled, isIPv6Enabled);
             }
 
             addresses = Array.Empty<IPAddress>();
@@ -323,26 +319,26 @@ public static partial class NetworkUtils
         {
             var firstPart = hosts[0];
 
-            // Is hostname or hostname:port
-            if (FqdnGeneratedRegex().IsMatch(firstPart))
+            // Resolve only the reserved local name, without consulting DNS or
+            // a hosts file. Clients may still resolve this server's name on their
+            // side; no server-side lookup is needed to accept their connection.
+            if (string.Equals(firstPart, "localhost", StringComparison.OrdinalIgnoreCase))
             {
-                try
+                addresses = (isIPv4Enabled, isIPv6Enabled) switch
                 {
-                    // .NET automatically filters only supported returned addresses based on OS support.
-                    addresses = Dns.GetHostAddresses(firstPart);
-                    return true;
-                }
-                catch (SocketException)
-                {
-                    // Ignore socket errors, as the result value will just be an empty array.
-                }
+                    (true, true) => [IPAddress.Loopback, IPAddress.IPv6Loopback],
+                    (true, false) => [IPAddress.Loopback],
+                    (false, true) => [IPAddress.IPv6Loopback],
+                    _ => []
+                };
+                return addresses.Length > 0;
             }
 
             // Is an IPv4 or IPv4:port
             if (IPAddress.TryParse(firstPart.AsSpan().LeftPart('/'), out var address))
             {
-                if (((address.AddressFamily == AddressFamily.InterNetwork) && (!isIPv4Enabled && isIPv6Enabled))
-                    || ((address.AddressFamily == AddressFamily.InterNetworkV6) && (isIPv4Enabled && !isIPv6Enabled)))
+                if ((address.AddressFamily == AddressFamily.InterNetwork && !isIPv4Enabled)
+                    || (address.AddressFamily == AddressFamily.InterNetworkV6 && !isIPv6Enabled))
                 {
                     addresses = Array.Empty<IPAddress>();
                     return false;
@@ -356,7 +352,7 @@ public static partial class NetworkUtils
         }
         else if (hosts.Count > 0 && hosts.Count <= 9) // 8 octets + port
         {
-            if (IPAddress.TryParse(host.LeftPart('/'), out var address))
+            if (isIPv6Enabled && IPAddress.TryParse(host.LeftPart('/'), out var address))
             {
                 addresses = new[] { address };
                 return true;
