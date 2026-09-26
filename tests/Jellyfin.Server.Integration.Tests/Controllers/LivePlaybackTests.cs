@@ -31,16 +31,25 @@ namespace Jellyfin.Server.Integration.Tests.Controllers;
 public sealed class LivePlaybackTests
 {
     [Theory]
-    [InlineData("m4b", "Audio", false)]
-    [InlineData("mp4", "Videos", false)]
-    [InlineData("m4b", "Audio", true)]
-    [InlineData("mp4", "Videos", true)]
-    public async Task SelectedFile_PlaysAndRetainsResumeAfterCacheEvictionAndServerRestart(string extension, string streamRoute, bool deepPath)
+    [InlineData("m4b", "Audio", false, false)]
+    [InlineData("mp4", "Videos", false, false)]
+    [InlineData("m4b", "Audio", true, false)]
+    [InlineData("mp4", "Videos", true, false)]
+    [InlineData("m4b", "Audio", false, true)]
+    [InlineData("mp4", "Videos", false, true)]
+    [InlineData("m4b", "Audio", true, true)]
+    [InlineData("mp4", "Videos", true, true)]
+    public async Task SelectedFile_PlaysAndRetainsResumeAfterCacheEvictionAndServerRestart(string extension, string streamRoute, bool deepPath, bool useSmb)
     {
         var ffmpeg = Environment.GetEnvironmentVariable("JIGGLEFIN_TEST_FFMPEG");
         if (string.IsNullOrEmpty(ffmpeg))
         {
             throw SkipException.ForSkip("Set JIGGLEFIN_TEST_FFMPEG for real probe/stream/transcode tests.");
+        }
+
+        if (useSmb && (!OperatingSystem.IsWindows() || Environment.GetEnvironmentVariable("JIGGLEFIN_TEST_LOCAL_SMB") != "1"))
+        {
+            throw SkipException.ForSkip("Set JIGGLEFIN_TEST_LOCAL_SMB=1 on Windows with its existing local administrative share readable; this test never creates or changes shares.");
         }
 
         var fixture = Directory.CreateTempSubdirectory("jigglefin-live-playback-");
@@ -58,6 +67,8 @@ public sealed class LivePlaybackTests
             }
 
             var mediaRoot = Directory.CreateDirectory(mediaPath);
+            var configuredPath = useSmb ? @"\\localhost\" + mediaRoot.FullName[0] + "$" + mediaRoot.FullName[2..] : mediaRoot.FullName;
+            Assert.True(Directory.Exists(configuredPath));
             var profile = Path.Combine(fixture.FullName, "Profile");
             var source = await File.ReadAllBytesAsync(Path.Combine(AppContext.BaseDirectory, "Test Data", "JigglefinSample." + extension), TestContext.Current.CancellationToken);
             var media = Path.Combine(mediaRoot.FullName, "Chapter." + extension);
@@ -90,7 +101,7 @@ public sealed class LivePlaybackTests
                 var initialCount = await database.BaseItems.CountAsync(TestContext.Current.CancellationToken);
                 using var create = await client.PostAsJsonAsync(
                     "Library/VirtualFolders?name=Media&refreshLibrary=true",
-                    new AddVirtualFolderDto { LibraryOptions = new LibraryOptions { PathInfos = [new MediaPathInfo(mediaRoot.FullName)] } },
+                    new AddVirtualFolderDto { LibraryOptions = new LibraryOptions { PathInfos = [new MediaPathInfo(configuredPath)] } },
                     JsonDefaults.Options,
                     TestContext.Current.CancellationToken);
                 Assert.Equal(HttpStatusCode.NoContent, create.StatusCode);

@@ -176,6 +176,19 @@ async function main() {
   await page.getByRole('heading', { name: 'Your folders', exact: true }).waitFor();
   token = (await api('Users/AuthenticateByName', 'POST', { Username: username, Pw: password }, null)).AccessToken;
   console.log('Minimal setup passed.');
+  // Query only the local share table to reject aliases of private storage.
+  // In the native audit even an attempted lookup/open of the .invalid host fails.
+  for (const host of ['localhost', 'jigglefin-share-alias.invalid']) {
+    const alias = `\\\\${host}\\${profile[0]}$${profile.slice(2)}`;
+    const rejected = await fetch(base + '/Library/VirtualFolders?name=Forbidden%20share%20alias', {
+      method: 'POST', headers: { Authorization: `MediaBrowser Client="Isolated test", Device="CLI", DeviceId="live-web-harness", Version="0.1.0", Token="${token}"`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ LibraryOptions: { PathInfos: [{ Path: alias }] } })
+    });
+    assert.equal(rejected.status, 400, 'UNC aliases must not expose private profile storage');
+    assert.match(await rejected.text(), /overlap/i);
+  }
+  assert.ok(!(await api('UserViews')).Items.some(item => item.Name === 'Forbidden share alias'));
+  console.log('Private local-share aliases rejected without contacting the supplied host.');
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
   const availableMount = path.join(fixture, 'Available location'), disconnectedMount = path.join(fixture, 'Disconnected location');
   await fs.mkdir(availableMount); await fs.mkdir(disconnectedMount);

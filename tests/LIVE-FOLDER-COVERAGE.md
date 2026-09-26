@@ -26,6 +26,8 @@ a destructive test fixture at a user's media tree or installed profile.
 | `OfflineHostParsingTests` and `OfflineNetworkAudit` | Host parsing accepts numeric addresses and literal localhost without DNS. Real name-resolution events provide a positive control. The process-local native audit observes server/launcher/helper calls throughout the headless UI workflow and legacy online/refresh requests, old online-enabled settings, malicious playlist/NFO URLs and restart; managed and native loopback controls prove the observer sees actual attempts. |
 | `ParseNetworkTests.ProxyTrust_UsesOnlyExplicitOfflineAddresses` | Actual forwarded-header middleware accepts explicitly configured numeric proxies/subnets and localhost; unknown hostnames disable forwarding, and configuring a non-loopback proxy does not implicitly trust loopback peers. |
 | `LiveStorageBoundaryTests` | Actual NTFS hardlinks in private database/config/log/image/transcode locations are rejected before startup writes; nested private links are rejected without following targets. A temporary, unused DOS drive alias cannot hide private/media overlap. Repointing it between requests rejects saved IDs while other roots remain available. A dangling network-device mapping does not require media access at startup with local private storage. Logging configuration cannot redirect output into media or load requested sink assemblies. |
+| SMB/alias cases in `LiveStorageBoundaryTests` | Real 8.3 spellings, local UNC aliases (including an unresolvable host), and LanmanRedirector/Mup device names cannot disguise private/media overlap. Real SMB reads show additions/removals immediately. An owned temporary SMB mapping disconnects/reconnects without losing saved IDs. No existing share, mapping, credentials, firewall or server service is changed. |
+| SMB cases in `LivePlaybackTests` | The full selected-file HTTP/helper matrix also runs through the existing local SMB share: ordinary and >300-character audio/video paths, NFO/art/subtitles, direct/range/conversion, per-request TV auth, subtitles Off, cache eviction and server-restart bookmarks; synthetic media bytes/mtimes stay unchanged. |
 | `NativeClientSmoke/android-tv.cjs` | Unmodified official Android TV release in an owned windowless Android guest: login, empty/nested folders, local NFO, audio progress/pause and app restart, actual video/subtitle rendering, stop and immediate Resume. Changed durable positions, not server-extrapolated counters, are playback proof. Stock folder-audio auto-resume remains a recorded limitation. |
 | `NativeClientSmoke/android-mobile.cjs` and `WebClientSmoke/android-shell.test.cjs` | Official phone app's embedded WebView recognizes the local bootstrap bundle and does not collide with its globals. Tests connection/login, hardware Back, folder navigation, selected local metadata, audiobook save/reopen/resume and video with subtitles Off. This is not ExoPlayer/background media-session coverage. |
 | `UserDataChangeNotifierTests` | Shutdown discards queued notification batches and awaits in-flight sends before service disposal; no async-void timer exception may kill the process. |
@@ -47,6 +49,9 @@ Use the installed .NET 10 SDK. In PowerShell, set the helper to the prepared bin
 
 ```powershell
 $env:JIGGLEFIN_TEST_FFMPEG = 'D:\Jigglefin\publish\ffmpeg-prepared-test\ffmpeg.exe'
+# Opt in only when the existing local administrative share is readable. The
+# SMB fixtures use owned temporary data and never create/modify a share.
+$env:JIGGLEFIN_TEST_LOCAL_SMB = '1'
 dotnet test tests/Jellyfin.Server.Integration.Tests --no-restore -m:1
 dotnet test tests/Jellyfin.Api.Tests --no-restore -m:1
 dotnet test tests/Jellyfin.Server.Implementations.Tests --no-restore -m:1

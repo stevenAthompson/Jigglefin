@@ -7,7 +7,7 @@ using System.Text;
 
 namespace Emby.Server.Implementations.Library.Live;
 
-/// <summary>Compares configured locations without opening or enumerating media.</summary>
+/// <summary>Compares configured locations without enumerating media. Windows normalization can expand short names.</summary>
 internal static class LivePathComparison
 {
     private const string NetworkDrivePrefix = "network-drive:";
@@ -17,6 +17,19 @@ internal static class LivePathComparison
         first = Identity(first, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
         second = Identity(second, new HashSet<string>(StringComparer.OrdinalIgnoreCase));
         if (Contains(first, second) || Contains(second, first))
+        {
+            return true;
+        }
+
+        // A UNC spelling can name this machine even when its host is an alias.
+        // Inspect only the local share table (never resolve/contact that host).
+        // Conservatively treat a same-named local share as another possible
+        // identity; a remote alias must not hide local private storage.
+        var firstLocal = LocalShareIdentity(first);
+        var secondLocal = LocalShareIdentity(second);
+        if ((firstLocal is not null && (Contains(firstLocal, second) || Contains(second, firstLocal)))
+            || (secondLocal is not null && (Contains(secondLocal, first) || Contains(first, secondLocal)))
+            || (firstLocal is not null && secondLocal is not null && (Contains(firstLocal, secondLocal) || Contains(secondLocal, firstLocal))))
         {
             return true;
         }
@@ -43,6 +56,49 @@ internal static class LivePathComparison
 
     private static bool IsNetwork(string path)
         => path.StartsWith(@"\\", StringComparison.Ordinal) || path.StartsWith(NetworkDrivePrefix, StringComparison.Ordinal);
+
+    private static string? LocalShareIdentity(string path)
+    {
+        if (!OperatingSystem.IsWindows() || !path.StartsWith(@"\\", StringComparison.Ordinal))
+        {
+            return null;
+        }
+
+        var parts = path[2..].Split('\\', 3);
+        if (parts.Length < 2)
+        {
+            throw new InvalidDataException("A configured share requires a server and share name.");
+        }
+
+        var error = NetShareGetInfo(null, parts[1], 2, out var buffer);
+        try
+        {
+            if (error is 2310 or 2114) // NERR_NetNameNotFound / NERR_ServerNotStarted.
+            {
+                return null;
+            }
+
+            if (error != 0)
+            {
+                throw new IOException("Could not inspect local share aliases before accessing configured storage.", new Win32Exception(error));
+            }
+
+            var share = Marshal.PtrToStructure<ShareInfo>(buffer);
+            if ((share.Type & 0xFF) != 0 || string.IsNullOrEmpty(share.Path))
+            {
+                return null; // Not a disk-tree share.
+            }
+
+            return Identity(Path.Combine(share.Path, parts.Length == 3 ? parts[2] : string.Empty), new HashSet<string>(StringComparer.OrdinalIgnoreCase));
+        }
+        finally
+        {
+            if (buffer != IntPtr.Zero)
+            {
+                _ = NetApiBufferFree(buffer);
+            }
+        }
+    }
 
     private static string NetworkIdentity(string path)
     {
@@ -112,6 +168,25 @@ internal static class LivePathComparison
         if (target.StartsWith(@"\Device\LanmanRedirector\", StringComparison.OrdinalIgnoreCase)
             || target.StartsWith(@"\Device\Mup\", StringComparison.OrdinalIgnoreCase))
         {
+            // The DOS-device target already contains the provider's UNC name.
+            // Read that local mapping without asking the provider to reconnect.
+            var remainder = target[(target.IndexOf('\\', 8) + 1)..];
+            while (remainder.StartsWith(';'))
+            {
+                var separator = remainder.IndexOf('\\', StringComparison.Ordinal);
+                if (separator < 0)
+                {
+                    break;
+                }
+
+                remainder = remainder[(separator + 1)..];
+            }
+
+            if (!remainder.StartsWith(';') && remainder.Contains('\\', StringComparison.Ordinal))
+            {
+                return Identity(@"\\" + remainder.TrimEnd('\\') + path[2..], seen);
+            }
+
             return NetworkDrivePrefix + path;
         }
 
@@ -127,4 +202,25 @@ internal static class LivePathComparison
     [DllImport("mpr.dll", EntryPoint = "WNetGetConnectionW", CharSet = CharSet.Unicode)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     private static extern int WNetGetConnection(string device, StringBuilder target, ref int size);
+
+    [DllImport("netapi32.dll", EntryPoint = "NetShareGetInfo", CharSet = CharSet.Unicode)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    private static extern int NetShareGetInfo(string? server, string name, int level, out IntPtr buffer);
+
+    [DllImport("netapi32.dll")]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    private static extern int NetApiBufferFree(IntPtr buffer);
+
+    [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+    private struct ShareInfo
+    {
+        public string Name;
+        public uint Type;
+        public string Remark;
+        public uint Permissions;
+        public uint MaxUses;
+        public uint CurrentUses;
+        public string Path;
+        public string Password;
+    }
 }

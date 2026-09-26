@@ -126,7 +126,8 @@ public sealed class LiveStorageBoundaryTests
             new XDocument(new XElement("LibraryOptions", new XElement("PathInfos", new XElement("MediaPathInfo", new XElement("Path", media.FullName)))))
                 .Save(Path.Combine(group.FullName, "options.xml"));
             var unsafeCache = Path.Combine(drive.Root, "Do not create");
-            Assert.Throws<InvalidDataException>(() => StartupHelpers.CreateApplicationPaths(new StartupOptions { DataDir = profile, CacheDir = unsafeCache }));
+            var startupError = Assert.Throws<InvalidDataException>(() => StartupHelpers.CreateApplicationPaths(new StartupOptions { DataDir = profile, CacheDir = unsafeCache }));
+            Assert.Contains("overlap", startupError.Message, StringComparison.Ordinal);
             Assert.Empty(Directory.EnumerateFileSystemEntries(media.FullName));
 
             var store = new LiveLibraryStore(new LiveDirectoryBrowser(new PhysicalLiveDirectoryReader()), Path.Combine(profile, "data", "live-folders"), [unsafeCache]);
@@ -157,6 +158,179 @@ public sealed class LiveStorageBoundaryTests
             var paths = StartupHelpers.CreateApplicationPaths(new StartupOptions { DataDir = profile });
             Assert.Equal(profile, paths.ProgramDataPath);
             Assert.True(Directory.Exists(paths.DataPath));
+        }
+        finally
+        {
+            fixture.Delete(true);
+        }
+    }
+
+    [Theory]
+    [InlineData(false)]
+    [InlineData(true)]
+    public void ShortNameAlias_CannotHidePrivateMediaOverlap(bool shortMediaRoot)
+    {
+        RequireWindows();
+        var fixture = Directory.CreateTempSubdirectory("jigglefin-private-short-name-");
+        try
+        {
+            var media = Directory.CreateDirectory(Path.Combine(fixture.FullName, "Long media directory"));
+            var buffer = new StringBuilder(32768);
+            Assert.NotEqual(0u, GetShortPathName(media.FullName, buffer, buffer.Capacity));
+            var shortPath = buffer.ToString();
+            if (string.Equals(shortPath, media.FullName, StringComparison.OrdinalIgnoreCase))
+            {
+                throw SkipException.ForSkip("This volume does not create 8.3 aliases; do not change its global setting for a test.");
+            }
+
+            var mediaPath = shortMediaRoot ? shortPath : media.FullName;
+            var unsafeCache = Path.Combine(shortMediaRoot ? media.FullName : shortPath, "Do not create");
+            var profile = Path.Combine(fixture.FullName, "Profile");
+            var group = Directory.CreateDirectory(Path.Combine(profile, "root", "default", "Books"));
+            new XDocument(new XElement("LibraryOptions", new XElement("PathInfos", new XElement("MediaPathInfo", new XElement("Path", mediaPath)))))
+                .Save(Path.Combine(group.FullName, "options.xml"));
+            Assert.Throws<InvalidDataException>(() => StartupHelpers.CreateApplicationPaths(new StartupOptions { DataDir = profile, CacheDir = unsafeCache }));
+            Assert.Empty(Directory.EnumerateFileSystemEntries(media.FullName));
+            var store = new LiveLibraryStore(new LiveDirectoryBrowser(new PhysicalLiveDirectoryReader()), Path.Combine(profile, "data", "live-folders"), [unsafeCache]);
+            Assert.Throws<ArgumentException>(() => store.AddLibrary("Forbidden", [mediaPath]));
+            Assert.Empty(store.GetLibraries());
+        }
+        finally
+        {
+            fixture.Delete(true);
+        }
+    }
+
+    [Theory]
+    [InlineData("localhost", false)]
+    [InlineData("127.0.0.1", false)]
+    [InlineData("localhost", true)]
+    [InlineData("127.0.0.1", true)]
+    [InlineData("jigglefin-alias-must-not-resolve.invalid", false)]
+    public void LocalShareAlias_CannotHidePrivateMediaOverlap(string host, bool sharedPrivatePath)
+    {
+        RequireLocalSmb();
+        var fixture = Directory.CreateTempSubdirectory("jigglefin-private-local-share-");
+        try
+        {
+            var media = Directory.CreateDirectory(Path.Combine(fixture.FullName, "Media"));
+            var sharePath = @"\\" + host + @"\" + media.FullName[0] + "$" + media.FullName[2..];
+            if (!host.EndsWith(".invalid", StringComparison.Ordinal))
+            {
+                Assert.True(Directory.Exists(sharePath), "The existing local administrative share must be readable for this regression; do not create or modify a share.");
+            }
+
+            var mediaPath = sharedPrivatePath ? media.FullName : sharePath;
+            var unsafeCache = Path.Combine(sharedPrivatePath ? sharePath : media.FullName, "Do not create");
+            var profile = Path.Combine(fixture.FullName, "Profile");
+            var group = Directory.CreateDirectory(Path.Combine(profile, "root", "default", "Books"));
+            new XDocument(new XElement("LibraryOptions", new XElement("PathInfos", new XElement("MediaPathInfo", new XElement("Path", mediaPath)))))
+                .Save(Path.Combine(group.FullName, "options.xml"));
+            Assert.Throws<InvalidDataException>(() => StartupHelpers.CreateApplicationPaths(new StartupOptions { DataDir = profile, CacheDir = unsafeCache }));
+            Assert.Empty(Directory.EnumerateFileSystemEntries(media.FullName));
+            var store = new LiveLibraryStore(new LiveDirectoryBrowser(new PhysicalLiveDirectoryReader()), Path.Combine(profile, "data", "live-folders"), [unsafeCache]);
+            Assert.Throws<ArgumentException>(() => store.AddLibrary("Forbidden", [mediaPath]));
+            Assert.Empty(store.GetLibraries());
+        }
+        finally
+        {
+            fixture.Delete(true);
+        }
+    }
+
+    [Theory]
+    [InlineData(@"\Device\LanmanRedirector\;Y:0000000000000000\localhost\")]
+    [InlineData(@"\Device\Mup\localhost\")]
+    [InlineData(@"\Device\Mup\;LanmanRedirector\;Y:0000000000000000\localhost\")]
+    public void NetworkDriveDeviceName_CannotHideLocalPrivateStorage(string provider)
+    {
+        RequireLocalSmb();
+        var fixture = Directory.CreateTempSubdirectory("jigglefin-private-network-device-");
+        try
+        {
+            var profile = Path.Combine(fixture.FullName, "Profile");
+            using var drive = new TestDrive(provider + fixture.FullName[0] + "$" + fixture.FullName[2..], rawTarget: true);
+            var store = new LiveLibraryStore(new LiveDirectoryBrowser(new PhysicalLiveDirectoryReader()), Path.Combine(profile, "data"), [profile]);
+            Assert.Throws<ArgumentException>(() => store.AddLibrary("Forbidden", [Path.Combine(drive.Root, "Profile")]));
+            Assert.Empty(store.GetLibraries());
+        }
+        finally
+        {
+            fixture.Delete(true);
+        }
+    }
+
+    [Fact]
+    public void RealSmbRoot_BrowsesFreshEntriesAndRecoversWithoutAScan()
+    {
+        RequireLocalSmb();
+        var fixture = Directory.CreateTempSubdirectory("jigglefin-live-smb-");
+        try
+        {
+            var media = Directory.CreateDirectory(Path.Combine(fixture.FullName, "Media"));
+            var profile = Path.Combine(fixture.FullName, "Profile");
+            var sharePath = @"\\localhost\" + media.FullName[0] + "$" + media.FullName[2..];
+            Assert.True(Directory.Exists(sharePath), "Read the existing local share only; do not modify server/share settings.");
+            var store = new LiveLibraryStore(new LiveDirectoryBrowser(new PhysicalLiveDirectoryReader()), Path.Combine(profile, "data"), [profile]);
+            var group = store.AddLibrary("SMB", [sharePath]);
+            Assert.Empty(store.Browse(group.Id, TestContext.Current.CancellationToken));
+            var file = Path.Combine(media.FullName, "Chapter.m4b");
+            File.WriteAllText(file, "owned SMB bytes");
+            var timestamp = File.GetLastWriteTimeUtc(file);
+            var entry = Assert.Single(store.Browse(group.Id, TestContext.Current.CancellationToken));
+            Assert.Equal("Chapter.m4b", entry.Name);
+            using (var stream = MediaBrowser.Controller.Library.LivePathLease.OpenRead(entry.File.FullPath))
+            using (var reader = new StreamReader(stream))
+            {
+                Assert.Equal("owned SMB bytes", reader.ReadToEnd());
+            }
+
+            var offline = media.FullName + "-unavailable";
+            Directory.Move(media.FullName, offline);
+            Assert.ThrowsAny<IOException>(() => store.Browse(group.Id, TestContext.Current.CancellationToken));
+            Directory.Move(offline, media.FullName);
+            Assert.Equal(entry.Id, Assert.Single(store.Browse(group.Id, TestContext.Current.CancellationToken)).Id);
+            Assert.Equal("owned SMB bytes", File.ReadAllText(file));
+            Assert.Equal(timestamp, File.GetLastWriteTimeUtc(file));
+            File.Delete(file);
+            Assert.Empty(store.Browse(group.Id, TestContext.Current.CancellationToken));
+        }
+        finally
+        {
+            fixture.Delete(true);
+        }
+    }
+
+    [Fact]
+    public void OwnedSmbDrive_DisconnectAndReconnectKeepSavedIdsWithoutAScan()
+    {
+        RequireLocalSmb();
+        var fixture = Directory.CreateTempSubdirectory("jigglefin-live-smb-drive-");
+        try
+        {
+            var media = Directory.CreateDirectory(Path.Combine(fixture.FullName, "Media"));
+            var file = Path.Combine(media.FullName, "Chapter.m4b");
+            File.WriteAllText(file, "owned mapped SMB bytes");
+            var timestamp = File.GetLastWriteTimeUtc(file);
+            var remote = @"\\localhost\" + media.FullName[0] + "$" + media.FullName[2..];
+            using var drive = new TestNetworkDrive(remote);
+            var profile = Path.Combine(fixture.FullName, "Profile");
+            var store = new LiveLibraryStore(new LiveDirectoryBrowser(new PhysicalLiveDirectoryReader()), Path.Combine(profile, "data"), [profile]);
+            var group = store.AddLibrary("Mapped SMB", [drive.Root]);
+            var entry = Assert.Single(store.Browse(group.Id, TestContext.Current.CancellationToken));
+            using (var stream = MediaBrowser.Controller.Library.LivePathLease.OpenRead(entry.File.FullPath))
+            using (var reader = new StreamReader(stream))
+            {
+                Assert.Equal("owned mapped SMB bytes", reader.ReadToEnd());
+            }
+
+            drive.Disconnect();
+            Assert.ThrowsAny<IOException>(() => store.Browse(group.Id, TestContext.Current.CancellationToken));
+            drive.Connect();
+            Assert.Equal(entry.Id, Assert.Single(store.Browse(group.Id, TestContext.Current.CancellationToken)).Id);
+            Assert.NotNull(store.GetEntry(entry.Id));
+            Assert.Equal("owned mapped SMB bytes", File.ReadAllText(file));
+            Assert.Equal(timestamp, File.GetLastWriteTimeUtc(file));
         }
         finally
         {
@@ -243,10 +417,108 @@ public sealed class LiveStorageBoundaryTests
         }
     }
 
+    private static void RequireLocalSmb()
+    {
+        RequireWindows();
+        if (Environment.GetEnvironmentVariable("JIGGLEFIN_TEST_LOCAL_SMB") != "1")
+        {
+            throw SkipException.ForSkip("Set JIGGLEFIN_TEST_LOCAL_SMB=1 with the existing local administrative share readable; tests never create or change shares.");
+        }
+    }
+
     [DllImport("kernel32.dll", EntryPoint = "CreateHardLinkW", CharSet = CharSet.Unicode, SetLastError = true)]
     [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
     [return: MarshalAs(UnmanagedType.Bool)]
     private static extern bool CreateHardLink(string newName, string existingName, IntPtr security);
+
+    [DllImport("kernel32.dll", EntryPoint = "GetShortPathNameW", CharSet = CharSet.Unicode, SetLastError = true)]
+    [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+    private static extern uint GetShortPathName(string path, StringBuilder shortPath, int size);
+
+    private sealed class TestNetworkDrive : IDisposable
+    {
+        private readonly string _device;
+        private readonly string _remote;
+        private bool _connected;
+
+        public TestNetworkDrive(string remote)
+        {
+            _remote = remote;
+            for (var letter = 'Y'; letter >= 'E'; letter--)
+            {
+                var candidate = letter + ":";
+                if (QueryDosDevice(candidate, new StringBuilder(32768), 32768) == 0 && Marshal.GetLastWin32Error() == 2)
+                {
+                    _device = candidate;
+                    Connect();
+                    return;
+                }
+            }
+
+            throw new InvalidOperationException("No unused drive letter is available for the owned SMB mapping.");
+        }
+
+        public string Root => _device + @"\";
+
+        public void Connect()
+        {
+            Assert.False(_connected);
+            Assert.Equal(0u, QueryDosDevice(_device, new StringBuilder(32768), 32768));
+            Assert.Equal(2, Marshal.GetLastWin32Error());
+            var resource = new NetworkResource { Type = 1, LocalName = _device, RemoteName = _remote };
+            var error = WNetAddConnection2(ref resource, null, null, 4); // CONNECT_TEMPORARY; no prompts/credential changes.
+            Assert.Equal(0, error);
+            _connected = true;
+        }
+
+        public void Disconnect()
+        {
+            Assert.True(_connected);
+            var remote = new StringBuilder(32768);
+            var length = remote.Capacity;
+            Assert.Equal(0, WNetGetConnection(_device, remote, ref length));
+            Assert.Equal(_remote, remote.ToString(), ignoreCase: true);
+            Assert.Equal(0, WNetCancelConnection2(_device, 0, false)); // Only this verified owned mapping; never force active users off.
+            _connected = false;
+        }
+
+        public void Dispose()
+        {
+            if (_connected)
+            {
+                Disconnect();
+            }
+        }
+
+        [DllImport("kernel32.dll", EntryPoint = "QueryDosDeviceW", CharSet = CharSet.Unicode, SetLastError = true)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        private static extern uint QueryDosDevice(string device, StringBuilder target, int size);
+
+        [DllImport("mpr.dll", EntryPoint = "WNetAddConnection2W", CharSet = CharSet.Unicode)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        private static extern int WNetAddConnection2(ref NetworkResource resource, string? password, string? username, uint flags);
+
+        [DllImport("mpr.dll", EntryPoint = "WNetCancelConnection2W", CharSet = CharSet.Unicode)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        private static extern int WNetCancelConnection2(string name, uint flags, [MarshalAs(UnmanagedType.Bool)] bool force);
+
+        [DllImport("mpr.dll", EntryPoint = "WNetGetConnectionW", CharSet = CharSet.Unicode)]
+        [DefaultDllImportSearchPaths(DllImportSearchPath.System32)]
+        private static extern int WNetGetConnection(string device, StringBuilder remote, ref int size);
+
+        [StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)]
+        private struct NetworkResource
+        {
+            public uint Scope;
+            public uint Type;
+            public uint DisplayType;
+            public uint Usage;
+            public string? LocalName;
+            public string RemoteName;
+            public string? Comment;
+            public string? Provider;
+        }
+    }
 
     private sealed class TestDrive : IDisposable
     {

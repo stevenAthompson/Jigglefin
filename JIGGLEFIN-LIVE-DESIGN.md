@@ -547,3 +547,64 @@ verifies focus and entered address rather than accepting that attempt as a pass.
 This checkpoint does not close the remaining storage-alias/real-SMB and final
 API/path-open review gates described above. The installed profile is unchanged;
 the ZIP is a development checkpoint, not production-upgrade approval.
+
+### Local-share aliases and actual SMB checkpoint
+
+Four new regressions reproduced a private-write boundary bypass: a media location
+spelled through `\\localhost\C$\...` or `\\127.0.0.1\C$\...` was treated as
+unrelated to the same local directory used for cache storage. Both directions now
+reject the overlap before startup creates files or a library is added. An unknown
+hostname can also be an alias, so the guard consults **only the local share table**
+and conservatively compares the same-named local share's path. It never resolves
+or contacts the supplied server. This can reject a genuinely remote same-named
+share if its relative path would overlap local private storage; that conservative
+ambiguity is intentional. Failure to inspect the local table fails closed.
+[NetShareGetInfo with a null server](https://learn.microsoft.com/en-us/windows/win32/api/lmshare/nf-lmshare-netsharegetinfo)
+provides that local-only lookup. No shares, service configuration or credentials
+are created or altered by the implementation or tests.
+
+LanmanRedirector/Mup DOS-device spellings now yield their recorded UNC identity
+without asking the provider to reconnect. Tests cover three provider forms plus
+the previous dangling-provider case. Real SMB browsing also succeeds through the
+existing local share: added/removed files are immediately visible, unavailable
+owned directories recover without scanning, and direct reads preserve bytes/mtime.
+A separate test creates a non-persistent mapping on a verified unused drive letter,
+disconnects only that verified owned mapping, reconnects it, and checks saved IDs.
+Cleanup removes that mapping; the user's X:, Y: and Z: mappings are unchanged.
+This exercises the actual Windows SMB redirector, not a simulated filesystem. It
+does not simulate a NAS/server crash or disconnect another application's transport.
+
+The full selected-file HTTP/native-helper regression now has eight cases: ordinary
+and >300-character audio/video paths, both local and SMB. All eight pass, including
+selected local metadata/art/subtitles, direct/range/transcoded playback, TV-auth URL
+compatibility, explicit subtitles Off, cache eviction and server-restart bookmarks.
+SMB cases require `JIGGLEFIN_TEST_LOCAL_SMB=1` and a readable existing local
+administrative share; they never enable a share or request elevation. That flag and
+the real FFmpeg helper were supplied for the recorded runs.
+The complete reruns pass **194 HTTP integration cases** (3 existing skips),
+**96 server cases** (including all 27 storage-boundary cases), and **1,016
+implementation cases** (17 existing skips), with successful test-process exits.
+
+Two real 8.3 overlap tests already pass on the previous code because .NET expands
+short spellings. That is **not** proof that normalization is purely lexical:
+[Path.GetFullPath may consult the filesystem](https://learn.microsoft.com/en-us/dotnet/api/system.io.path.getfullpath).
+The implementation comments now state that caveat. The zero-startup-media-access
+audit must still address implicit 8.3 expansion, alongside mapping changes during
+an active native read and the final authorization/path-open review. These findings
+are not being reclassified as completed gates merely because the normal tests pass.
+
+The packaged own-UI/native-outbound workflow additionally attempts private-profile
+mounts through localhost and an unresolvable share hostname. Both reject without
+contacting the supplied host: zero observed outbound calls across 55 native helpers
+and two server startups, zero external browser requests, unchanged synthetic media,
+and clean shutdowns. The actual older-ZIP upgrade passes again.
+
+- Tested ZIP: `publish/Jigglefin-live-share-check-20260926-r1.zip`.
+- SHA-256: `403EEFCCEB07369D0D9FB7B4103D2EC1B36EB270A931F078BD4E2E5AC4013147`.
+- Web/native fixture: `%TEMP%\jigglefin-folder-web-qKnDYi`.
+- Upgrade fixture: `%TEMP%\jigglefin-zip-upgrade-16b8ca5667bd4e01a9083d05563ac7bd`.
+- Evidence: `publish/test-results/live-alias-audit`, including the four original
+  failing `local-share-before.trx` cases and final package reports.
+
+The installed server/profile and `Z:\Media` remain untouched. This remains a
+development checkpoint pending the explicitly listed final gates.

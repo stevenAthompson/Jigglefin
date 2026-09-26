@@ -50,7 +50,7 @@ public sealed class LiveDirectoryBrowser
 
     /// <summary>Normalizes a configured path without accepting Windows device/ADS/trailing-dot aliases.</summary>
     /// <param name="path">An explicit absolute directory location.</param>
-    /// <returns>The canonical lexical path, without filesystem access.</returns>
+    /// <returns>The normalized path. Windows may consult attributes when expanding existing 8.3 names.</returns>
     public static string NormalizeRootPath(string path)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(path);
