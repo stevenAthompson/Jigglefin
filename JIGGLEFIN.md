@@ -1,5 +1,12 @@
 # Jigglefin architecture
 
+> Historical scan-backed implementation notes. This document describes the previous
+> prototype, not the active product contract. The live, offline replacement is specified
+> in [JIGGLEFIN-LIVE-DESIGN.md](JIGGLEFIN-LIVE-DESIGN.md); its simplified web build and
+> package test are documented in [Jigglefin.Web/README.md](Jigglefin.Web/README.md).
+> In particular, scans and optional online metadata below are **not** supported by the
+> replacement. The old package smoke script is retained only as historical test coverage.
+
 Jigglefin is a Windows-focused, folder-first fork of Jellyfin Server. Its compatibility boundary
 is the Jellyfin HTTP/WebSocket API: unmodified Jellyfin applications should continue to discover,
 authenticate with, browse, and stream from a Jigglefin server.

@@ -160,10 +160,49 @@ Validation at this checkpoint: API 196 passed; server implementations 1,007 pass
 and 17 skipped; controller 209 passed; server 29 passed; media encoding 100 passed
 and 1 skipped; the three live HTTP scenarios passed with real native helpers.
 
+The simplified bundled UI now lives in `Jigglefin.Web`: minimal setup/login,
+immediate folder listings, local filename filtering/sorting, selected NFO/artwork,
+direct playback and local HLS conversion, text subtitles, audio-track controls,
+playback speed, seeking, favorites and resume. Settings contain only passwords,
+folder locations, explicit per-account folder access and selection-cache clearing.
+New accounts start with no accessible folders. The elevated cache-clear endpoint
+does not touch the independent bookmark store. There is no metadata dashboard,
+scan button, catalog navigation, plugin manager, online setup or CDN configuration.
+
+Browser scripts/assets, including the pinned hls.js bundle, are local. Same-origin
+CSP headers cover server pages, with an additional HTML policy, no-referrer and
+disabled worker/remote-playback features. The actual browser test records attempted
+external requests before refusing them and asserts zero attempts/CSP violations.
+Real startup also exposed remaining similarity-provider construction; similarity
+and external search providers are now never instantiated.
+
+The Windows packager now verifies the offline UI asset manifest and includes only
+its listed files/licenses. The new `scripts/smoke-live-package-win.ps1` exercises
+the extracted self-contained ZIP through the actual Windows PowerShell 5.1 launcher
+from outside the package, with spaced profile/package paths, bundled Web/FFmpeg
+defaults, a random loopback port and verified child-process/listener ownership.
+Help/version/invalid options do not create a profile. Clean setup, fresh adds/removes,
+local artwork/NFO, direct and HLS audio/video, seeking/speed, WebVTT, favorites,
+password changes, restricted accounts/cache access, safe root removal, and resume
+after cache clear and complete server restart passed. Test media bytes/mtimes stayed
+identical; the browser made no external requests or unexpected failed HTTP requests.
+Desktop/mobile screenshots were inspected. Fixtures were synthetic and isolated.
+The ZIP tested at this checkpoint is `publish/Jigglefin-live-ui-check-20260926-r3.zip`;
+it is a development artifact, not an upgrade release or deployed installation.
+
+Latest validation: API 196 passed; server implementations 1,007 passed/17 skipped;
+server 30 passed; live HTTP browse plus two real-helper playback scenarios passed.
+A complete integration-suite run was also attempted: 91 passed, **102 failed**,
+3 skipped. Failures include old scan/type-enrichment/sidecar-import expectations,
+catalog fallback and blocked-feature status expectations, and test-only controller
+interactions with the capability boundary. Each still needs triage and appropriate
+replacement coverage; the full CI suite is explicitly NOT green. No tests were
+disabled to hide these failures.
+
 Still required before release: legacy root/bookmark migration without tree walks;
 remaining query/filter compatibility and authorization/path-open audits; complete
-native-helper/server/browser outbound verification; simplified bundled web UI;
-updated end-to-end/native-client regression; and clean/upgrade Windows packaging.
-The old scan-oriented integration suite is not yet adapted or claimed passing.
+native-helper/server/browser outbound verification; updated integration/native-client
+regression; and upgrade-profile Windows package validation. Clean-profile packaging
+and the simplified browser are now tested, but not substitutes for these gates.
 The installed server and previous release ZIP have not been replaced by this
 incomplete branch. No real Apple-device UI coverage has been added.

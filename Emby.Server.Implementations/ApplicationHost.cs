@@ -762,8 +762,10 @@ namespace Emby.Server.Implementations
 
             Resolve<IMediaSourceManager>().AddParts([]);
 
-            Resolve<ISimilarItemsManager>().AddParts(GetExports<ISimilarItemsProvider>());
-            Resolve<ISearchManager>().AddParts(GetExports<ISearchProvider>());
+            // Catalog suggestions/search are unsupported. Do not even construct
+            // providers whose constructors initialize online integrations.
+            Resolve<ISimilarItemsManager>().AddParts([]);
+            Resolve<ISearchManager>().AddParts([]);
         }
 
         /// <summary>

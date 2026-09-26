@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'none'; script-src 'self'; style-src 'self'; img-src 'self'; connect-src 'self'; media-src 'self' blob:; font-src 'self'; worker-src 'none'; object-src 'none'; base-uri 'none'; form-action 'self'">
+  <meta name="theme-color" content="#131b21">
+  <title>Jigglefin · Your folders, just playing</title>
+  <link rel="icon" href="logo.png">
+  <link rel="stylesheet" href="app.css">
+  <script src="hls.min.js" defer></script>
+  <script src="app.js" defer></script>
+</head>
+<body>
+  <header class="masthead">
+    <a class="brand" href="#/"><img src="logo.png" width="48" height="48" alt=""><span>Jigglefin<small>Your folders, just playing.</small></span></a>
+    <span class="offline-badge">Local &amp; offline</span>
+    <nav id="account-nav" hidden aria-label="Account"><button id="settings-button">Settings</button><button id="signout-button">Sign out</button></nav>
+  </header>
+  <div id="notice" class="notice" role="status" aria-live="polite" hidden></div>
+  <main id="auth" class="auth-card" hidden>
+    <p class="eyebrow">WELCOME ABOARD</p><h1 id="auth-title">Sign in</h1>
+    <p id="auth-description" class="muted">Your files and your place, on this server.</p>
+    <form id="auth-form">
+      <label id="server-name-label" hidden>Server name<input id="server-name" value="Jigglefin" maxlength="80"></label>
+      <label>Username<input id="username" autocomplete="username" required maxlength="80"></label>
+      <label>Password<input id="password" type="password" autocomplete="current-password" required></label>
+      <button class="primary" id="auth-submit" type="submit">Sign in</button>
+    </form>
+    <p class="muted fine">Media folders are read-only. There are no scans or online metadata services.</p>
+  </main>
+  <div id="workspace" class="workspace" hidden>
+    <aside class="sidebar">
+      <nav aria-label="Browse"><a href="#/" id="home-link">Folders</a><a href="#/resume">Continue listening &amp; watching</a><div id="root-links"></div></nav>
+      <p class="sidebar-note">Folders are read when you open them. No library to rebuild.</p>
+    </aside>
+    <main id="content" tabindex="-1">
+      <section id="browser-view">
+        <nav id="breadcrumbs" class="breadcrumbs" aria-label="Breadcrumb"></nav>
+        <div class="heading-row"><div><p class="eyebrow" id="location-kind">YOUR FILES</p><h1 id="folder-title">Folders</h1></div><button id="reload-button" title="Read this folder again">Reload folder</button></div>
+        <div id="folder-description" class="folder-description" hidden></div>
+        <div class="toolbar"><label class="search-label">Find in this folder<input type="search" id="file-search" placeholder="Filter filenames…"></label><label>Sort<select id="file-sort"><option value="asc">Name A–Z</option><option value="desc">Name Z–A</option></select></label><span id="file-count" class="muted"></span></div>
+        <div class="browse-layout"><div class="file-list-wrap"><div id="file-list" class="file-list" role="list" aria-label="Files and folders"></div><p id="empty-message" class="empty" hidden>This folder is empty.</p></div>
+          <section id="details" class="details" aria-label="Selected item" hidden>
+            <button id="close-details" class="close-button" aria-label="Close details">×</button>
+            <img id="detail-art" alt="Local cover artwork" hidden>
+            <p class="eyebrow" id="detail-kind"></p><h2 id="detail-title"></h2><p class="muted" id="detail-filename"></p><p id="detail-overview"></p><p id="detail-progress" class="muted"></p>
+            <div class="action-row"><button id="play-button" class="primary">Play</button><button id="restart-button">From beginning</button><button id="favorite-button">Favorite</button></div>
+            <p id="unsupported-note" class="muted" hidden>This file is visible here, but is not a supported audio or video format.</p>
+          </section>
+        </div>
+      </section>
+      <section id="settings-view" hidden>
+        <p class="eyebrow">JUST THE ESSENTIALS</p><h1>Settings</h1>
+        <section class="settings-card"><h2>Your account</h2><p id="account-name" class="muted"></p>
+          <form id="password-form" class="compact-form"><label>Current password<input id="current-password" type="password" autocomplete="current-password" required></label><label>New password<input id="new-password" type="password" autocomplete="new-password" minlength="8" required></label><button type="submit">Change password</button></form>
+        </section>
+        <div id="admin-settings" hidden>
+          <section class="settings-card"><h2>Media folders</h2><p class="muted">A name and a location. No library types, scans or metadata settings. Removing a location never deletes files.</p><div id="configured-roots"></div>
+            <form id="root-form" class="compact-form"><label>Folder group name<input id="root-name" required maxlength="80" placeholder="Audiobooks"></label><label>Folder locations, one per line<textarea id="root-paths" rows="3" required placeholder="D:\Media\Audiobooks"></textarea></label><button type="submit" class="primary">Add folder group</button></form>
+          </section>
+          <section class="settings-card"><h2>Accounts &amp; folder access</h2><label>Account<select id="user-select"></select></label>
+            <form id="access-form"><label class="check-label"><input id="access-all" type="checkbox">Allow all configured folders</label><div id="access-roots" class="check-list"></div><p class="muted fine">Saving replaces legacy metadata-based restrictions with the folder choices above.</p><button type="submit">Save folder access</button></form>
+            <details><summary>Add an account</summary><form id="user-form" class="compact-form"><label>New username<input id="new-username" autocomplete="off" required maxlength="80"></label><label>Initial password<input id="user-password" type="password" autocomplete="new-password" minlength="8" required></label><p class="muted fine">New accounts start with no folder access. Choose their folders after creating them.</p><button type="submit">Create account</button></form></details>
+          </section>
+          <section class="settings-card"><h2>Selection cache</h2><p class="muted">Clear cached NFO details and media probe results. Bookmarks, favorites and folder locations are kept. Browsing always reads the live directory.</p><button id="clear-cache-button">Clear selection cache</button></section>
+        </div>
+      </section>
+    </main>
+  </div>
+  <section id="player-panel" class="player-panel" aria-label="Playback" hidden>
+    <div class="player-heading"><div><small id="play-method" class="muted"></small><strong id="playing-title"></strong></div><button id="stop-button">Stop &amp; save place</button></div>
+    <video id="player" controls playsinline preload="metadata" controlslist="nodownload noremoteplayback" disableremoteplayback></video>
+    <div class="player-tools"><button id="back-button" aria-label="Back 30 seconds">−30s</button><button id="forward-button" aria-label="Forward 30 seconds">+30s</button><label>Speed<select id="playback-rate" aria-label="Playback speed"><option value="0.75">0.75×</option><option value="1" selected>1×</option><option value="1.25">1.25×</option><option value="1.5">1.5×</option><option value="1.75">1.75×</option><option value="2">2×</option></select></label><label id="audio-select-label" hidden>Audio<select id="audio-select" aria-label="Audio track"></select></label><label id="subtitle-select-label" hidden>Subtitles<select id="subtitle-select" aria-label="Subtitles"></select></label><span id="save-status" class="muted" role="status"></span><button id="compatible-play-button">Use compatible playback</button></div>
+  </section>
+  <noscript>Jigglefin needs JavaScript for folder navigation and playback. All scripts are served locally.</noscript>
+</body>
+</html>

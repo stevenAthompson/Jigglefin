@@ -1,7 +1,6 @@
 [CmdletBinding()]
 param(
-    [Parameter(Mandatory = $true)]
-    [string]$WebDistPath,
+    [string]$WebDistPath = (Join-Path $PSScriptRoot '../Jigglefin.Web/dist'),
 
     [Parameter(Mandatory = $true)]
     [string]$FfmpegDirectory,
@@ -13,18 +12,24 @@ $ErrorActionPreference = 'Stop'
 
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
 $webDist = (Resolve-Path -LiteralPath $WebDistPath -ErrorAction Stop).Path
-$webSource = Split-Path -Parent $webDist
-$webLicense = Join-Path $webSource 'LICENSE'
 $ffmpegSource = (Resolve-Path -LiteralPath $FfmpegDirectory -ErrorAction Stop).Path
 
-foreach ($requiredFile in @('index.html', 'config.json')) {
-    if (-not (Test-Path -LiteralPath (Join-Path $webDist $requiredFile))) {
-        throw "The Jellyfin Web build is missing $requiredFile in $webDist"
-    }
+$manifestPath = Join-Path $webDist 'jigglefin-web.manifest.json'
+if (-not (Test-Path -LiteralPath $manifestPath)) {
+    throw 'Build the offline folder UI first: cd Jigglefin.Web; npm ci --ignore-scripts --no-audit --no-fund; npm run build. The old Jellyfin Web build is not supported.'
 }
-
-if (-not (Test-Path -LiteralPath $webLicense)) {
-    throw "The Jellyfin Web source license was not found at $webLicense"
+$manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
+$webFiles = @('index.html', 'app.css', 'app.js', 'logo.png', 'hls.min.js', 'HLS-LICENSE')
+if ($manifest.name -ne 'Jigglefin folder browser' -or $manifest.offline -ne $true -or
+    @($manifest.files.PSObject.Properties).Count -ne $webFiles.Count) {
+    throw 'The web manifest is not a supported offline Jigglefin folder build.'
+}
+foreach ($requiredFile in $webFiles) {
+    $asset = Join-Path $webDist $requiredFile
+    if (-not (Test-Path -LiteralPath $asset -PathType Leaf) -or
+        (Get-FileHash -LiteralPath $asset -Algorithm SHA256).Hash -ne $manifest.files.$requiredFile) {
+        throw "The offline web asset is missing or changed: $requiredFile. Rebuild Jigglefin.Web."
+    }
 }
 
 foreach ($requiredFile in @('ffmpeg.exe', 'ffprobe.exe', 'FFMPEG-LICENSE.md', 'FFMPEG-COPYING.GPLv3')) {
@@ -63,12 +68,16 @@ if ($LASTEXITCODE -ne 0) {
     throw "Server publish failed with exit code $LASTEXITCODE"
 }
 
-Copy-Item -LiteralPath $webDist -Destination (Join-Path $outputPath 'jellyfin-web') -Recurse
+$packagedWeb = New-Item -ItemType Directory -Path (Join-Path $outputPath 'jellyfin-web')
+# Copy only manifest-listed files, never stale vendor files or a CDN configuration.
+foreach ($webFile in $webFiles + @('jigglefin-web.manifest.json')) {
+    Copy-Item -LiteralPath (Join-Path $webDist $webFile) -Destination (Join-Path $packagedWeb.FullName $webFile)
+}
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'start-win.ps1') -Destination (Join-Path $outputPath 'Start-Jigglefin.ps1')
 Copy-Item -LiteralPath (Join-Path $repositoryRoot 'README-PORTABLE.md') -Destination (Join-Path $outputPath 'README-PORTABLE.md')
 Copy-Item -LiteralPath (Join-Path $repositoryRoot 'branding/jigglefin-256.png') -Destination (Join-Path $outputPath 'Jigglefin-logo.png')
 Copy-Item -LiteralPath (Join-Path $repositoryRoot 'LICENSE') -Destination (Join-Path $outputPath 'JIGGLEFIN-LICENSE')
-Copy-Item -LiteralPath $webLicense -Destination (Join-Path $outputPath 'JELLYFIN-WEB-LICENSE')
+Copy-Item -LiteralPath (Join-Path $webDist 'HLS-LICENSE') -Destination (Join-Path $outputPath 'HLS-LICENSE')
 foreach ($ffmpegFile in @('ffmpeg.exe', 'ffprobe.exe', 'FFMPEG-LICENSE.md', 'FFMPEG-COPYING.GPLv3')) {
     Copy-Item -LiteralPath (Join-Path $ffmpegSource $ffmpegFile) -Destination (Join-Path $outputPath $ffmpegFile)
 }

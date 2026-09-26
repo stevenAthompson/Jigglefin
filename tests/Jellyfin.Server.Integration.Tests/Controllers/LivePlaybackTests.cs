@@ -96,6 +96,12 @@ public sealed class LivePlaybackTests
                 using var image = await client.GetAsync($"Items/{itemId}/Images/Primary?maxWidth=64", TestContext.Current.CancellationToken);
                 Assert.Equal(HttpStatusCode.OK, image.StatusCode);
                 Assert.StartsWith("image/", image.Content.Headers.ContentType?.MediaType, StringComparison.Ordinal);
+                // HTML image/media elements cannot supply an Authorization header.
+                using var assetClient = factory.CreateClient();
+                using var queryImage = await assetClient.GetAsync($"Items/{itemId}/Images/Primary?ApiKey={token}", TestContext.Current.CancellationToken);
+                Assert.Equal(HttpStatusCode.OK, queryImage.StatusCode);
+                using var anonymousImage = await assetClient.GetAsync($"Items/{itemId}/Images/Primary", TestContext.Current.CancellationToken);
+                Assert.Equal(HttpStatusCode.NotFound, anonymousImage.StatusCode);
 
                 var playback = await Get<PlaybackInfoResponse>(client, $"Items/{itemId}/PlaybackInfo");
                 var mediaSource = Assert.Single(playback.MediaSources);
@@ -171,7 +177,8 @@ public sealed class LivePlaybackTests
                     JsonDefaults.Options,
                     TestContext.Current.CancellationToken);
                 Assert.Equal(HttpStatusCode.NoContent, stopped.StatusCode);
-                factory.Services.GetRequiredService<ILiveItemService>().ClearCache();
+                using var cleared = await client.PostAsync("Jigglefin/Cache/Clear", null, TestContext.Current.CancellationToken);
+                Assert.Equal(HttpStatusCode.NoContent, cleared.StatusCode);
                 Assert.Equal(bookmark, (await Get<BaseItemDto>(client, $"Items/{itemId}")).UserData.PlaybackPositionTicks);
                 var resume = await Get<QueryResult<BaseItemDto>>(client, "UserItems/Resume");
                 Assert.Equal(itemId, Assert.Single(resume.Items).Id);

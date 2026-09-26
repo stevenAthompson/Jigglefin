@@ -3,7 +3,8 @@
   "version": "0.0.0",
   "private": true,
   "scripts": {
-    "test": "node smoke.cjs"
+    "test": "node smoke.cjs",
+    "test:live": "node live-folders.cjs"
   },
   "devDependencies": {
     "playwright": "1.63.0"

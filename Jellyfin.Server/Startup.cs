@@ -186,6 +186,7 @@ namespace Jellyfin.Server
                 mainApp.UseMiddleware<ExceptionMiddleware>();
 
                 mainApp.UseMiddleware<ResponseTimeMiddleware>();
+                mainApp.UseMiddleware<OfflineWebHeadersMiddleware>();
 
                 mainApp.UseWebSockets();
 

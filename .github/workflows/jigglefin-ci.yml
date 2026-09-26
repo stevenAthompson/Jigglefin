@@ -18,7 +18,6 @@ concurrency:
 
 env:
   SDK_VERSION: "10.0.x"
-  WEB_COMMIT: 839563a2d633041d5854948d680bd393423b1abb
 
 jobs:
   windows:
@@ -49,22 +48,17 @@ jobs:
         with:
           node-version: "24"
 
-      - name: Build matching Jellyfin Web
+      - name: Build offline Jigglefin folder UI
         shell: pwsh
         run: |
-          $webSource = Join-Path $env:RUNNER_TEMP 'jellyfin-web'
-          git clone --depth 1 --filter=blob:none --no-checkout https://github.com/jellyfin/jellyfin-web.git $webSource
-          if ($LASTEXITCODE -ne 0) { throw 'Jellyfin Web clone failed' }
-          git -C $webSource fetch --depth 1 origin $env:WEB_COMMIT
-          if ($LASTEXITCODE -ne 0) { throw 'Jellyfin Web commit fetch failed' }
-          git -C $webSource checkout --detach $env:WEB_COMMIT
-          if ($LASTEXITCODE -ne 0) { throw 'Jellyfin Web checkout failed' }
-          Push-Location $webSource
+          Push-Location .\Jigglefin.Web
           try {
-            npm ci --no-audit
-            if ($LASTEXITCODE -ne 0) { throw 'Jellyfin Web dependency install failed' }
-            npm run build:production
-            if ($LASTEXITCODE -ne 0) { throw 'Jellyfin Web build failed' }
+            npm ci --ignore-scripts --no-audit --no-fund
+            if ($LASTEXITCODE -ne 0) { throw 'Folder UI dependency install failed' }
+            npm run check
+            if ($LASTEXITCODE -ne 0) { throw 'Folder UI syntax check failed' }
+            npm run build
+            if ($LASTEXITCODE -ne 0) { throw 'Folder UI build failed' }
           } finally {
             Pop-Location
           }
@@ -73,9 +67,9 @@ jobs:
         shell: pwsh
         run: |
           $ffmpegPath = Join-Path $env:RUNNER_TEMP 'jellyfin-ffmpeg'
-          .\scripts\package-win.ps1 -WebDistPath (Join-Path $env:RUNNER_TEMP 'jellyfin-web/dist') -FfmpegDirectory $ffmpegPath
+          .\scripts\package-win.ps1 -FfmpegDirectory $ffmpegPath
 
-      - name: Install headless Jellyfin Web test
+      - name: Install headless folder UI test
         shell: pwsh
         run: |
           npm ci --prefix .\tests\WebClientSmoke --ignore-scripts --no-audit
@@ -85,7 +79,7 @@ jobs:
 
       - name: Smoke-test packaged Windows server
         shell: pwsh
-        run: .\scripts\smoke-package-win.ps1 -PackageDirectory .\publish\Jigglefin-win-x64 -HeadlessWebClient
+        run: .\scripts\smoke-live-package-win.ps1 -PackageDirectory .\publish\Jigglefin-win-x64
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
