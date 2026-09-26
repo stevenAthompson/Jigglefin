@@ -473,3 +473,77 @@ including locked-media migration, permissions and independent audiobook progress
 - Final upgrade fixture: `%TEMP%\jigglefin-zip-upgrade-14c40cd37ac34a54ae22895ac02f4c95`.
 - Evidence: `publish/test-results/live-storage-audit`, including the original
   failing `storage-before.trx` and the final `final-*` package reports.
+
+### Stock Android compatibility checkpoint
+
+Unmodified official Android TV 0.19.10 and Android 2.7.3 libre APKs are now exercised
+in an owned, windowless Android 34 guest. `tests/NativeClientSmoke` pins their release
+hashes, uses a separate ADB server/AVD/profile and synthetic media, denies guest
+internet access and checks media hashes/mtimes on cleanup. It does not use the
+user's AVD, default ADB listener, desktop input, installed server or `Z:\Media`.
+An extrapolated session clock is not accepted as playback proof: the harness
+requires actual client-reported durable positions and captures rendered frames.
+
+The tests found and corrected three concrete compatibility failures:
+
+- Android TV constructed anonymous direct-stream URLs. For an authenticated TV
+  request whose profile already supports direct playback, negotiation supplies an
+  authenticated static-byte URL through the client's alternate stream branch.
+  This does not enable anonymous access or actually transcode. Tokens stay in the
+  per-request source clone, never in the shared probe cache.
+- Immediate video Resume crashed the TV app when it inspected an absent source
+  before `PlaybackInfo`. Physical media DTOs now include an identity-only source
+  with empty streams. This uses existing directory attributes, without probing or
+  reading sidecars. Locked-content/no-enumeration tests retain those assertions;
+  selected details may reuse a probe already in cache.
+- The phone shell recognizes a `main.*.bundle.js` request as its ready signal and
+  injects globals before that script. The small offline UI now uses that bootstrap
+  name and an isolated scope. Its hardware-Back hook saves/stops playback, closes
+  details, navigates parents and exits at the root. No catalog/cast/download plugins
+  are loaded. This tests the official app hosting our WebView player, not native
+  ExoPlayer integration, background audio or Android media-session controls.
+
+Video testing also exposed an ignored subtitles-Off choice when a client omitted
+`MediaSourceId`: the default local subtitle could be burned into an unnecessary
+conversion. A live item has one source, so explicit track choices now apply to
+that source without a redundant ID. Four actual HTTP/helper cases cover ordinary
+and long-path audio/video. The original failing tests are retained as local evidence.
+
+Finally, complete integration runs exposed an async-void notification callback
+outliving service disposal. Shutdown now stops queued work and waits for in-flight
+notifications; dedicated queued/in-flight regressions pass, and the full integration
+process exits cleanly. This changes notification lifetime, not bookmark persistence.
+
+Android TV folder-audio reopening still starts from zero despite a saved bookmark;
+this is an explicitly recorded stock-client limitation, not claimed auto-resume
+coverage. TV video stop/immediate Resume and the phone WebView's audiobook
+stop/app-restart/Resume have been demonstrated. Apple-device UI testing is still
+deferred, and physical Android/background behavior is not established by an emulator.
+
+Source verification: **1,970 passing tests, 21 existing skips**, across implementations
+(1,016/17), server (84), controller (224), media encoding (100/1), networking (153),
+API (203) and HTTP integration (190/3). The integration and API suites were rerun
+after the final track-choice fix. Two Node checks cover shell globals/bootstrap.
+The final package's headless Web/native-outbound audit and actual older-ZIP upgrade
+also pass: zero external browser requests, zero observed outbound attempts across
+55 native helpers/two startups, unchanged synthetic media and clean shutdowns.
+
+- Tested ZIP: `publish/Jigglefin-live-native-check-20260926-r6.zip`.
+- SHA-256: `B97624F663D5643AF8667E6A11D869CE59822727D1A5AFDA5835532B45F01D6E`.
+- Web/native-network fixture: `%TEMP%\jigglefin-folder-web-FROkbU`.
+- Actual older-ZIP upgrade fixture: `%TEMP%\jigglefin-zip-upgrade-c94869cf477347a0a61a6ee9ee90fe78`.
+- Official Android guest fixture: `%TEMP%\jigglefin-native-client-pdQiYP`.
+- Evidence: `publish/test-results/live-native-client`; retain final `r6-*` reports
+  separately from earlier failing regression/driver-diagnostic reports.
+
+Both official-client runs completed on that r6 package without guest crashes.
+The phone resumed its audiobook from 7.68 seconds to 15.13 after reopening and
+played the video directly with `SubtitleStreamIndex=-1`; the rendered frame confirms
+no burned-in text. TV video resumed from 10.65 seconds to 13.24. Owned-fixture
+shutdown completed with unchanged media and no cleanup errors. The first phone
+driver attempt had not focused the host field; the corrected fresh-login run
+verifies focus and entered address rather than accepting that attempt as a pass.
+
+This checkpoint does not close the remaining storage-alias/real-SMB and final
+API/path-open review gates described above. The installed profile is unchanged;
+the ZIP is a development checkpoint, not production-upgrade approval.

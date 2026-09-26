@@ -215,9 +215,12 @@ public class MediaInfoHelper
             AlwaysBurnInSubtitleWhenTranscoding = alwaysBurnInSubtitleWhenTranscoding,
         };
 
-        if (string.Equals(mediaSourceId, mediaSource.Id, StringComparison.OrdinalIgnoreCase))
+        // A live item has one physical source, so omitted source IDs are not
+        // ambiguous. Honor explicit track choices (including subtitles Off).
+        if (string.Equals(mediaSourceId, mediaSource.Id, StringComparison.OrdinalIgnoreCase)
+            || (item.LiveContext is not null && string.IsNullOrEmpty(mediaSourceId)))
         {
-            options.MediaSourceId = mediaSourceId;
+            options.MediaSourceId = mediaSource.Id;
             options.AudioStreamIndex = audioStreamIndex;
             options.SubtitleStreamIndex = subtitleStreamIndex;
         }
@@ -339,6 +342,24 @@ public class MediaInfoHelper
                         mediaSource.TranscodingUrl += "&alwaysBurnInSubtitleWhenTranscoding=true";
                     }
                 }
+            }
+
+            if (item.LiveContext is not null && item.MediaType is MediaType.Audio or MediaType.Video
+                && mediaSource.Protocol == MediaProtocol.File && mediaSource.SupportsDirectPlay
+                && enableDirectStream && !string.IsNullOrEmpty(claimsPrincipal.GetToken())
+                && string.Equals(claimsPrincipal.GetClient(), "Jellyfin Android TV", StringComparison.OrdinalIgnoreCase))
+            {
+                // Android TV 0.19's players build direct URLs without
+                // credentials, but honor the supplied URL in their stream branch.
+                // Send the exact original bytes through that branch; do not enable
+                // anonymous reads, change the file type, or actually transcode.
+                // This is a per-request clone, never the shared probe/cache source.
+                mediaSource.SupportsDirectPlay = false;
+                mediaSource.SupportsDirectStream = true;
+                var route = item.MediaType == MediaType.Audio ? "Audio" : "Videos";
+                mediaSource.TranscodingUrl = string.Create(
+                    CultureInfo.InvariantCulture,
+                    $"/{route}/{item.Id:N}/stream?Static=true&MediaSourceId={Uri.EscapeDataString(mediaSource.Id)}&ApiKey={Uri.EscapeDataString(claimsPrincipal.GetToken()!)}");
             }
 
             // Do this after the above so that StartPositionTicks is set

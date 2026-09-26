@@ -65,7 +65,7 @@ public sealed class LiveFolderQueryTests
                 Assert.All(inNovel.Items, item =>
                 {
                     Assert.Null(item.Overview);
-                    Assert.Null(item.MediaSources);
+                    LiveFolderFixture.AssertUnprobedSource(item);
                     Assert.Null(item.MediaStreams);
                     Assert.Equal(12_000_000, item.UserData.PlaybackPositionTicks);
                 });

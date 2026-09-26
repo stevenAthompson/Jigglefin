@@ -17,6 +17,7 @@ using MediaBrowser.Controller.Session;
 using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Dto;
 using MediaBrowser.Model.Entities;
+using MediaBrowser.Model.MediaInfo;
 using MediaBrowser.Model.Querying;
 using MediaBrowser.Model.Search;
 using Microsoft.AspNetCore.Mvc;
@@ -353,6 +354,10 @@ public sealed class LiveFolderApiFilter : IActionFilter
             dto.Container = selected.Container;
             dto.Chapters = selected.LiveContext.Chapters.ToList();
             dto.MediaStreams = selected.LiveContext.Source?.MediaStreams.ToArray();
+            if (selected.LiveContext.Source is { } source)
+            {
+                dto.MediaSources = [source];
+            }
             dto.ImageTags = selected.LiveContext.ImageTags.Where(image => image.Key != ImageType.Backdrop).ToDictionary();
             dto.BackdropImageTags = selected.LiveContext.ImageTags.TryGetValue(ImageType.Backdrop, out var backdrop) ? [backdrop] : [];
             return WithUserData(dto, user);
@@ -489,6 +494,26 @@ public sealed class LiveFolderApiFilter : IActionFilter
         {
             dto.Overview = "Link/reparse entries are visible but cannot be opened.";
             dto.MediaType = MediaType.Unknown;
+        }
+
+        if (!entry.File.IsDirectory && dto.MediaType is MediaType.Audio or MediaType.Video)
+        {
+            // Stock clients may inspect a source before requesting PlaybackInfo
+            // (Android TV does so when reusing the last audio language). Supply
+            // only physical identity here: no probe, sidecar read or fake tracks.
+            // PlaybackInfo still performs the real selected-file negotiation.
+            dto.MediaSources =
+            [
+                new MediaSourceInfo
+                {
+                    Id = entry.Id.ToString("N"),
+                    Path = entry.File.FullPath,
+                    Name = entry.Name,
+                    Protocol = MediaProtocol.File,
+                    Type = MediaSourceType.Default,
+                    Size = entry.File.Length
+                }
+            ];
         }
 
         return dto;

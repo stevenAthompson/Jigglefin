@@ -19,7 +19,7 @@ if (-not (Test-Path -LiteralPath $manifestPath)) {
     throw 'Build the offline folder UI first: cd Jigglefin.Web; npm ci --ignore-scripts --no-audit --no-fund; npm run build. The old Jellyfin Web build is not supported.'
 }
 $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
-$webFiles = @('index.html', 'app.css', 'app.js', 'logo.png', 'hls.min.js', 'HLS-LICENSE')
+$webFiles = @('index.html', 'app.css', 'main.jigglefin.bundle.js', 'logo.png', 'hls.min.js', 'HLS-LICENSE')
 if ($manifest.name -ne 'Jigglefin folder browser' -or $manifest.offline -ne $true -or
     @($manifest.files.PSObject.Properties).Count -ne $webFiles.Count) {
     throw 'The web manifest is not a supported offline Jigglefin folder build.'

@@ -57,7 +57,7 @@ public sealed class LocalSidecarLibraryTests
             Assert.Equal(2022, selected.ProductionYear);
             Assert.Contains("Test genre", selected.Genres);
             Assert.Null(selected.RunTimeTicks);
-            Assert.True(selected.MediaSources is null or { Length: 0 });
+            LiveFolderFixture.AssertUnprobedSource(selected);
             Assert.True(selected.ProviderIds is null or { Count: 0 });
             Assert.Equal(6500000, selected.UserData.PlaybackPositionTicks);
             if (format == "audio")

@@ -1,3 +1,5 @@
+// Keep our state separate from globals injected by stock mobile client shells.
+(() => {
 'use strict';
 
 // No discovery of other servers, external URLs, analytics, CDN assets or service
@@ -343,6 +345,21 @@ on('user-form', 'submit', async () => {
 on('clear-cache-button', 'click', async () => { await api('Jigglefin/Cache/Clear', { method: 'POST' }); notice('Selection cache cleared. Saved places and favorites are kept.'); });
 window.addEventListener('hashchange', () => route().catch(error => notice(error.message, true)));
 $('detail-art').addEventListener('error', () => { $('detail-art').hidden = true; });
+// The stock Android shell calls this hook for its hardware Back button. Its
+// optional catalog/cast/download plugins are not loaded by the folder client.
+if (typeof window.NativeInterface?.exitApp === 'function') {
+  window.NavigationHelper = {
+    goBack() {
+      (async () => {
+        if (playback) { ++playVersion; await stop({ refresh: true }); }
+        else if (selected) { ++selectionVersion; selected = null; $('details').hidden = true; renderList(); }
+        else if (currentRoute().length) {
+          location.hash = currentRoute()[0] === 'folder' ? [...$('breadcrumbs').querySelectorAll('a')].at(-1)?.hash || '#/' : '#/';
+        } else window.NativeInterface.exitApp();
+      })().catch(error => notice(error.message, true));
+    }
+  };
+}
 (async () => {
   try {
     const info = await api('System/Info/Public', { accessToken: null });
@@ -350,4 +367,5 @@ $('detail-art').addEventListener('error', () => { $('detail-art').hidden = true;
     if (token) { try { await enter(); return; } catch (error) { if (error.status !== 401) throw error; setToken(null); } }
     showAuth(false);
   } catch (error) { notice(`Cannot open Jigglefin: ${error.message}`, true); showAuth(false); }
+})();
 })();

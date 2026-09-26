@@ -101,7 +101,9 @@ public sealed class LivePlaybackTests
                 itemId = file.Id;
                 Assert.Null(file.RunTimeTicks);
                 Assert.Empty(file.ImageTags);
+                Assert.Empty(Assert.Single(file.MediaSources).MediaStreams);
                 var details = await Get<BaseItemDto>(client, $"Items/{itemId}");
+                Assert.Empty(Assert.Single(details.MediaSources).MediaStreams);
                 Assert.Equal("Selected title", details.Name);
                 Assert.Equal("Local description", details.Overview);
                 Assert.Equal(0, details.UserData.PlaybackPositionTicks);
@@ -121,6 +123,36 @@ public sealed class LivePlaybackTests
                 Assert.True(mediaSource.RunTimeTicks > bookmark);
                 Assert.NotEmpty(mediaSource.MediaStreams);
                 Assert.Equal(MediaProtocol.File, mediaSource.Protocol);
+                var cachedDetails = await Get<BaseItemDto>(client, $"Items/{itemId}");
+                Assert.Equal(mediaSource.Id, Assert.Single(cachedDetails.MediaSources).Id);
+                Assert.NotEmpty(cachedDetails.MediaSources[0].MediaStreams);
+                Assert.Null(cachedDetails.MediaSources[0].TranscodingUrl);
+                // A live item has exactly one physical source. Standard clients
+                // can select subtitles/audio without redundantly sending its ID.
+                using (var noSubtitleResponse = await client.PostAsJsonAsync(
+                    $"Items/{itemId}/PlaybackInfo",
+                    new PlaybackInfoDto
+                    {
+                        SubtitleStreamIndex = -1,
+                        EnableDirectPlay = true,
+                        DeviceProfile = new DeviceProfile
+                        {
+                            DirectPlayProfiles = [new DirectPlayProfile { Type = extension == "m4b" ? DlnaProfileType.Audio : DlnaProfileType.Video, Container = "mp4,m4a,m4b,mov", AudioCodec = "aac", VideoCodec = "h264" }]
+                        }
+                    },
+                    JsonDefaults.Options,
+                    TestContext.Current.CancellationToken))
+                {
+                    Assert.Equal(HttpStatusCode.OK, noSubtitleResponse.StatusCode);
+                    var noSubtitles = await noSubtitleResponse.Content.ReadFromJsonAsync<PlaybackInfoResponse>(JsonDefaults.Options, TestContext.Current.CancellationToken);
+                    var noSubtitleSource = Assert.Single(noSubtitles!.MediaSources);
+                    Assert.True(noSubtitleSource.SupportsDirectPlay);
+                    if (extension == "mp4")
+                    {
+                        Assert.Equal(-1, noSubtitleSource.DefaultSubtitleStreamIndex);
+                    }
+                }
+
                 if (extension == "mp4")
                 {
                     var subtitle = Assert.Single(mediaSource.MediaStreams, stream => stream.Type == MediaStreamType.Subtitle && stream.IsExternal);
@@ -139,6 +171,41 @@ public sealed class LivePlaybackTests
                 using var range = await client.SendAsync(rangeRequest, TestContext.Current.CancellationToken);
                 Assert.Equal(HttpStatusCode.PartialContent, range.StatusCode);
                 Assert.Equal(source[100..200], await range.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken));
+
+                // The stock Android TV backends build anonymous direct URLs.
+                // Their alternate stream branch uses the authenticated URL
+                // supplied by PlaybackInfo. Keep the bytes static and protected.
+                using (var tvRequest = new HttpRequestMessage(HttpMethod.Post, $"Items/{itemId}/PlaybackInfo"))
+                {
+                    tvRequest.Headers.Add("Authorization", $"MediaBrowser Client=\"Jellyfin Android TV\", DeviceId=\"native-tv\", Device=\"TV\", Version=\"0.19.10\", Token=\"{token}\"");
+                    tvRequest.Content = JsonContent.Create(
+                        new PlaybackInfoDto
+                        {
+                            EnableDirectPlay = true,
+                            EnableDirectStream = true,
+                            MediaSourceId = mediaSource.Id,
+                            SubtitleStreamIndex = -1,
+                            DeviceProfile = new DeviceProfile
+                            {
+                                DirectPlayProfiles = [new DirectPlayProfile { Type = extension == "m4b" ? DlnaProfileType.Audio : DlnaProfileType.Video }]
+                            }
+                        },
+                        options: JsonDefaults.Options);
+                    using var tvResponse = await client.SendAsync(tvRequest, TestContext.Current.CancellationToken);
+                    Assert.Equal(HttpStatusCode.OK, tvResponse.StatusCode);
+                    var tvPlayback = await tvResponse.Content.ReadFromJsonAsync<PlaybackInfoResponse>(JsonDefaults.Options, TestContext.Current.CancellationToken);
+                    var tvSource = Assert.Single(tvPlayback!.MediaSources);
+                    Assert.False(tvSource.SupportsDirectPlay);
+                    Assert.True(tvSource.SupportsDirectStream);
+                    Assert.Contains("Static=true", tvSource.TranscodingUrl, StringComparison.Ordinal);
+                    using var tvStream = await assetClient.GetAsync(tvSource.TranscodingUrl, TestContext.Current.CancellationToken);
+                    Assert.Equal(HttpStatusCode.OK, tvStream.StatusCode);
+                    Assert.Equal(source, await tvStream.Content.ReadAsByteArrayAsync(TestContext.Current.CancellationToken));
+                    using var anonymousStream = await assetClient.GetAsync($"{streamRoute}/{itemId}/stream?static=true", TestContext.Current.CancellationToken);
+                    Assert.Equal(HttpStatusCode.NotFound, anonymousStream.StatusCode);
+                    // Per-request credentials never leak back into the shared probe.
+                    Assert.Null(Assert.Single((await Get<PlaybackInfoResponse>(client, $"Items/{itemId}/PlaybackInfo")).MediaSources).TranscodingUrl);
+                }
 
                 if (extension == "m4b")
                 {
@@ -193,6 +260,7 @@ public sealed class LivePlaybackTests
                 using var cleared = await client.PostAsync("Jigglefin/Cache/Clear", null, TestContext.Current.CancellationToken);
                 Assert.Equal(HttpStatusCode.NoContent, cleared.StatusCode);
                 Assert.Equal(bookmark, (await Get<BaseItemDto>(client, $"Items/{itemId}")).UserData.PlaybackPositionTicks);
+                Assert.Empty(Assert.Single((await Get<BaseItemDto>(client, $"Items/{itemId}")).MediaSources).MediaStreams);
                 var resume = await Get<QueryResult<BaseItemDto>>(client, "UserItems/Resume");
                 Assert.Equal(itemId, Assert.Single(resume.Items).Id);
                 Assert.Equal(initialCount, await database.BaseItems.CountAsync(TestContext.Current.CancellationToken));
@@ -250,6 +318,7 @@ public sealed class LivePlaybackTests
                 client.DefaultRequestHeaders.AddAuthHeader(token);
                 var details = await Get<BaseItemDto>(client, $"Items/{itemId}");
                 Assert.Equal(bookmark, details.UserData.PlaybackPositionTicks);
+                Assert.Empty(Assert.Single(details.MediaSources).MediaStreams);
                 Assert.True(details.RunTimeTicks > bookmark);
                 Assert.True(details.UserData.PlayedPercentage > 0);
                 var resume = await Get<QueryResult<BaseItemDto>>(client, "UserItems/Resume");

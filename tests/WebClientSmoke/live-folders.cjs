@@ -264,7 +264,10 @@ async function main() {
   await page.getByRole('button', { name: 'Create account', exact: true }).click(); await page.getByText('Account created with no folder access. Choose the folders it may open.').waitFor();
   const restrictedContext = await browser.newContext({ viewport: { width: 390, height: 844 } }); const restricted = await newPage(restrictedContext); await login(restricted, 'LimitedReader');
   await restricted.getByText('No folders are available to this account. Ask the administrator for folder access.').waitFor();
-  assert.equal(await restricted.evaluate(() => fetch(localUrl('Jigglefin/Cache/Clear'), { method: 'POST', headers: { Authorization: authHeader() } }).then(response => response.status)), 403);
+  assert.equal(await restricted.evaluate(() => {
+    const base = new URL('../', location.href), key = `jigglefin:${base.pathname}:`;
+    return fetch(new URL('Jigglefin/Cache/Clear', base), { method: 'POST', headers: { Authorization: `MediaBrowser Client="Browser authorization test", Device="CLI", DeviceId="restricted-test", Version="1", Token="${localStorage.getItem(key + 'token')}"` } }).then(response => response.status);
+  }), 403);
   assert.equal((await fetch(base + '/Jigglefin/Cache/Clear', { method: 'POST' })).status, 401);
   await page.locator('#access-roots').getByLabel('Test Media', { exact: true }).check(); await page.getByRole('button', { name: 'Save folder access' }).click(); await page.getByText('Folder access saved.').waitFor();
   await restricted.getByRole('button', { name: 'Reload folder', exact: true }).click(); await restricted.getByRole('button', { name: 'Open folder Test Media', exact: true }).click();

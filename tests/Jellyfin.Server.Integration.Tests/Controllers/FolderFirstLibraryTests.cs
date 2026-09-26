@@ -110,7 +110,7 @@ public sealed class FolderFirstLibraryTests
                     Assert.Equal(Path.GetFileName(child.Path), child.Name);
                     Assert.Null(child.Overview);
                     Assert.Null(child.ChildCount);
-                    Assert.True(child.MediaSources is null or { Length: 0 });
+                    LiveFolderFixture.AssertUnprobedSource(child);
                     Assert.True(child.MediaStreams is null or { Length: 0 });
                     Assert.Empty(child.ImageTags);
                     Assert.False(child.CanDelete);

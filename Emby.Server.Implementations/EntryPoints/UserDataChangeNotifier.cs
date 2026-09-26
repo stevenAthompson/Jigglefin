@@ -9,6 +9,7 @@ using MediaBrowser.Controller.Session;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Session;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Logging;
 
 namespace Emby.Server.Implementations.EntryPoints
 {
@@ -23,12 +24,15 @@ namespace Emby.Server.Implementations.EntryPoints
         private readonly ISessionManager _sessionManager;
         private readonly IUserDataManager _userDataManager;
         private readonly IUserManager _userManager;
+        private readonly ILogger<UserDataChangeNotifier> _logger;
 
         private readonly Dictionary<Guid, Dictionary<Guid, BaseItem>> _changedItems = [];
         private readonly Lock _syncLock = new();
 
         private Timer? _updateTimer;
         private int _changedItemCount;
+        private bool _stopping;
+        private Task _pendingUpdates = Task.CompletedTask;
 
         /// <summary>
         /// Initializes a new instance of the <see cref="UserDataChangeNotifier"/> class.
@@ -36,14 +40,17 @@ namespace Emby.Server.Implementations.EntryPoints
         /// <param name="userDataManager">The <see cref="IUserDataManager"/>.</param>
         /// <param name="sessionManager">The <see cref="ISessionManager"/>.</param>
         /// <param name="userManager">The <see cref="IUserManager"/>.</param>
+        /// <param name="logger">The logger.</param>
         public UserDataChangeNotifier(
             IUserDataManager userDataManager,
             ISessionManager sessionManager,
-            IUserManager userManager)
+            IUserManager userManager,
+            ILogger<UserDataChangeNotifier> logger)
         {
             _userDataManager = userDataManager;
             _sessionManager = sessionManager;
             _userManager = userManager;
+            _logger = logger;
         }
 
         /// <inheritdoc />
@@ -55,11 +62,29 @@ namespace Emby.Server.Implementations.EntryPoints
         }
 
         /// <inheritdoc />
-        public Task StopAsync(CancellationToken cancellationToken)
+        public async Task StopAsync(CancellationToken cancellationToken)
         {
             _userDataManager.UserDataSaved -= OnUserDataManagerUserDataSaved;
+            Timer? timer;
+            Task pending;
+            lock (_syncLock)
+            {
+                _stopping = true;
+                timer = _updateTimer;
+                _updateTimer = null;
+                _changedItems.Clear();
+                _changedItemCount = 0;
+                // Hosted services stop before their dependencies are disposed.
+                // Timer.Dispose alone does not wait for async notification work.
+                pending = _pendingUpdates;
+            }
 
-            return Task.CompletedTask;
+            if (timer is not null)
+            {
+                await timer.DisposeAsync().ConfigureAwait(false);
+            }
+
+            await pending.ConfigureAwait(false);
         }
 
         private void OnUserDataManagerUserDataSaved(object? sender, UserDataSaveEventArgs e)
@@ -71,6 +96,11 @@ namespace Emby.Server.Implementations.EntryPoints
 
             lock (_syncLock)
             {
+                if (_stopping)
+                {
+                    return;
+                }
+
                 // The window runs from the first change of a batch and is never extended, so a stream
                 // of changes that never pauses - a library scan - still closes its batches instead of
                 // holding every item it touched alive until the stream stops.
@@ -121,12 +151,16 @@ namespace Emby.Server.Implementations.EntryPoints
             }
         }
 
-        private async void UpdateTimerCallback(object? state)
+        private void UpdateTimerCallback(object? state)
         {
-            List<KeyValuePair<Guid, Dictionary<Guid, BaseItem>>> changes;
             lock (_syncLock)
             {
-                changes = _changedItems.ToList();
+                if (_stopping)
+                {
+                    return;
+                }
+
+                var changes = _changedItems.ToList();
                 _changedItems.Clear();
                 _changedItemCount = 0;
 
@@ -135,20 +169,29 @@ namespace Emby.Server.Implementations.EntryPoints
                     _updateTimer.Dispose();
                     _updateTimer = null;
                 }
-            }
 
-            if (changes.Count == 0)
-            {
-                return;
+                // Publish the task while holding the same lock as StopAsync.
+                var update = SendChangesAsync(changes);
+                _pendingUpdates = _pendingUpdates.IsCompleted ? update : Task.WhenAll(_pendingUpdates, update);
             }
+        }
 
-            foreach (var (userId, changedItems) in changes)
+        private async Task SendChangesAsync(List<KeyValuePair<Guid, Dictionary<Guid, BaseItem>>> changes)
+        {
+            try
             {
-                await _sessionManager.SendMessageToUserSessions(
-                    [userId],
-                    SessionMessageType.UserDataChanged,
-                    () => GetUserDataChangeInfo(userId, changedItems.Values),
-                    default).ConfigureAwait(false);
+                foreach (var (userId, changedItems) in changes)
+                {
+                    await _sessionManager.SendMessageToUserSessions(
+                        [userId],
+                        SessionMessageType.UserDataChanged,
+                        () => GetUserDataChangeInfo(userId, changedItems.Values),
+                        default).ConfigureAwait(false);
+                }
+            }
+            catch (Exception exception)
+            {
+                _logger.LogError(exception, "Unable to send a user-data notification batch");
             }
         }
 
@@ -180,8 +223,7 @@ namespace Emby.Server.Implementations.EntryPoints
         /// <inheritdoc />
         public void Dispose()
         {
-            _updateTimer?.Dispose();
-            _updateTimer = null;
+            StopAsync(CancellationToken.None).GetAwaiter().GetResult();
         }
     }
 }

@@ -9,11 +9,13 @@ using System.Threading;
 using System.Threading.Tasks;
 using Emby.Server.Implementations.Library.Live;
 using Jellyfin.Api.Models.LibraryStructureDto;
+using Jellyfin.Data.Enums;
 using Jellyfin.Database.Implementations;
 using Jellyfin.Extensions.Json;
 using MediaBrowser.Controller.Library;
 using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Dto;
+using MediaBrowser.Model.MediaInfo;
 using MediaBrowser.Model.Querying;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Mvc.Testing;
@@ -50,6 +52,25 @@ internal sealed class LiveFolderFixture : IDisposable
     public IServiceProvider Services => _configured!.Services;
 
     public RecordingReader Reader { get; } = new();
+
+    public static void AssertUnprobedSource(BaseItemDto item)
+    {
+        if (item.IsFolder != true && item.MediaType is MediaType.Audio or MediaType.Video)
+        {
+            var source = Assert.Single(item.MediaSources);
+            Assert.Equal(item.Id.ToString("N"), source.Id);
+            Assert.Equal(item.Path, source.Path);
+            Assert.Equal(MediaProtocol.File, source.Protocol);
+            Assert.Empty(source.MediaStreams);
+            Assert.Null(source.RunTimeTicks);
+            Assert.Null(source.Container);
+            Assert.Null(source.TranscodingUrl);
+        }
+        else
+        {
+            Assert.True(item.MediaSources is null or { Length: 0 });
+        }
+    }
 
     public async Task Start()
     {

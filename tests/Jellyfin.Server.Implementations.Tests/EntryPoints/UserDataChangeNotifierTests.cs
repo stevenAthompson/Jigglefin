@@ -8,6 +8,7 @@ using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Session;
 using MediaBrowser.Model.Entities;
 using MediaBrowser.Model.Session;
+using Microsoft.Extensions.Logging;
 using Moq;
 using Xunit;
 
@@ -61,7 +62,41 @@ public class UserDataChangeNotifierTests
     }
 
     private UserDataChangeNotifier CreateNotifier()
-        => new(_userDataManager.Object, _sessionManager.Object, _userManager.Object);
+        => new(_userDataManager.Object, _sessionManager.Object, _userManager.Object, Mock.Of<ILogger<UserDataChangeNotifier>>());
+
+    [Fact]
+    public async Task StopAsync_DropsQueuedNotificationBeforeServicesAreDisposed()
+    {
+        using var notifier = CreateNotifier();
+        await notifier.StartAsync(TestContext.Current.CancellationToken);
+        RaiseUserDataSaved(Guid.NewGuid());
+        await notifier.StopAsync(TestContext.Current.CancellationToken);
+        await Task.Delay(750, TestContext.Current.CancellationToken);
+        Assert.Equal(0, Volatile.Read(ref _flushCount));
+    }
+
+    [Fact]
+    public async Task StopAsync_WaitsForNotificationAlreadyInFlight()
+    {
+        var started = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var release = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _sessionManager.Setup(e => e.SendMessageToUserSessions(
+                It.IsAny<System.Collections.Generic.List<Guid>>(),
+                SessionMessageType.UserDataChanged,
+                It.IsAny<Func<UserDataChangeInfo>>(),
+                It.IsAny<CancellationToken>()))
+            .Callback(() => started.TrySetResult())
+            .Returns(release.Task);
+        using var notifier = CreateNotifier();
+        await notifier.StartAsync(TestContext.Current.CancellationToken);
+        RaiseUserDataSaved(Guid.NewGuid());
+        await started.Task.WaitAsync(_flushTimeout, TestContext.Current.CancellationToken);
+        var stopped = notifier.StopAsync(TestContext.Current.CancellationToken);
+        var completedBeforeSend = stopped.IsCompleted;
+        release.SetResult();
+        await stopped;
+        Assert.False(completedBeforeSend);
+    }
 
     // A folder needs none of BaseItem's static services, and PlaybackProgress is the one reason the
     // notifier ignores outright.

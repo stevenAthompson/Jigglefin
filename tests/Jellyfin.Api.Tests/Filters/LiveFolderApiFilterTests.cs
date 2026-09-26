@@ -17,6 +17,7 @@ using MediaBrowser.Controller.Library;
 using MediaBrowser.Controller.Session;
 using MediaBrowser.Model.Configuration;
 using MediaBrowser.Model.Dto;
+using MediaBrowser.Model.MediaInfo;
 using MediaBrowser.Model.Querying;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
@@ -179,6 +180,27 @@ public sealed class LiveFolderApiFilterTests
         var id = Guid.NewGuid();
         _library.Setup(library => library.FindLibrary(id)).Returns((LiveLibraryDefinition?)null);
         Assert.IsType<NotFoundResult>(Apply<UserLibraryController>("GetItem", new() { ["itemId"] = id }));
+    }
+
+    [Theory]
+    [InlineData("Film.mp4")]
+    [InlineData("Book.m4b")]
+    public void FileListing_HasUnprobedSourceIdentityWithoutLoadingMedia(string name)
+    {
+        var entry = Entry(name, false);
+        _library.Setup(library => library.FindLibrary(_definition.Id)).Returns(_definition);
+        _library.Setup(library => library.Browse(_definition.Id, It.IsAny<CancellationToken>())).Returns([entry]);
+        var result = Apply<ItemsController>("GetItems", new() { ["parentId"] = _definition.Id });
+        var dto = Assert.Single(Assert.IsType<QueryResult<BaseItemDto>>(Assert.IsType<OkObjectResult>(result).Value).Items);
+        var source = Assert.Single(dto.MediaSources);
+        Assert.Equal(entry.Id.ToString("N"), source.Id);
+        Assert.Equal(MediaProtocol.File, source.Protocol);
+        Assert.Empty(source.MediaStreams);
+        Assert.Null(source.RunTimeTicks);
+        Assert.Null(source.TranscodingUrl);
+        _library.Verify(library => library.FindLibrary(_definition.Id), Times.Once);
+        _library.Verify(library => library.Browse(_definition.Id, It.IsAny<CancellationToken>()), Times.Once);
+        _library.VerifyNoOtherCalls();
     }
 
     [Fact]

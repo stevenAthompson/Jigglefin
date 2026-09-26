@@ -20,7 +20,7 @@ if ($manifest.name -ne 'Jigglefin folder browser' -or $manifest.offline -ne $tru
     throw 'The package must contain only the six offline web assets and their manifest.'
 }
 foreach ($property in $manifest.files.PSObject.Properties) {
-    if ($property.Name -notin @('index.html', 'app.css', 'app.js', 'logo.png', 'hls.min.js', 'HLS-LICENSE') -or
+    if ($property.Name -notin @('index.html', 'app.css', 'main.jigglefin.bundle.js', 'logo.png', 'hls.min.js', 'HLS-LICENSE') -or
         (Get-FileHash -LiteralPath (Join-Path $webPath $property.Name) -Algorithm SHA256).Hash -ne $property.Value) {
         throw "Packaged web asset verification failed: $($property.Name)"
     }
