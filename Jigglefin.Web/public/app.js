@@ -16,6 +16,8 @@ let me, setup = false, roots = [], configuredRoots = [], accounts = [], currentI
 let routeVersion = 0, selectionVersion = 0, playVersion = 0, playback = null;
 let reportQueue = Promise.resolve();
 let currentFolder = null, playlistItems = [], playlistVersion = 0, queue = null, pickerPath = null, pickerVersion = 0;
+const maximumQueueItems = 500;
+let folderRequest = null;
 const player = $('player');
 player.disableRemotePlayback = true;
 
@@ -27,10 +29,10 @@ function localUrl(value) {
 function authHeader(accessToken = token) {
   return `MediaBrowser Client="Jigglefin Web", Device="Browser", DeviceId="${deviceId}", Version="0.1.0"${accessToken ? `, Token="${accessToken}"` : ''}`;
 }
-async function api(path, { method = 'GET', body, accessToken = token, keepalive = false } = {}) {
+async function api(path, { method = 'GET', body, accessToken = token, keepalive = false, signal } = {}) {
   const headers = { Authorization: authHeader(accessToken), Accept: 'application/json' };
   if (body !== undefined) headers['Content-Type'] = 'application/json';
-  const response = await fetch(localUrl(path), { method, headers, body: body === undefined ? undefined : JSON.stringify(body), cache: 'no-store', credentials: 'omit', keepalive });
+  const response = await fetch(localUrl(path), { method, headers, body: body === undefined ? undefined : JSON.stringify(body), cache: 'no-store', credentials: 'omit', keepalive, signal });
   if (!response.ok) {
     let message = response.status === 401 ? 'Your session expired. Please sign in again.' : response.status === 403 ? 'This account does not have permission for that action.' : response.status === 404 ? 'This item is no longer available or this account cannot open it.' : `The server could not complete the request (${response.status}).`;
     const contentType = response.headers.get('content-type') || '';
@@ -55,6 +57,39 @@ function node(tag, text, className) {
   if (className) element.className = className;
   return element;
 }
+// Small local SVGs: no icon fonts, image downloads or external dependencies.
+const iconPaths = {
+  play: 'M8 5L19 12L8 19Z', pause: 'M8 5V19M16 5V19', stop: 'M6 6H18V18H6Z',
+  previous: 'M5 5V19M19 5L8 12L19 19Z', next: 'M19 5V19M5 5L16 12L5 19Z',
+  back: 'M7 4L3 8L7 12M3 8H13A7 7 0 0 1 20 15', forward: 'M17 4L21 8L17 12M21 8H11A7 7 0 0 0 4 15',
+  shuffle: 'M3 6H6C11 6 13 18 18 18H21M18 15L21 18L18 21M3 18H6C8 18 9 16 10 14M14 10C16 6 17 6 21 6M18 3L21 6L18 9',
+  repeat: 'M4 10V7H20M17 4L20 7L17 10M20 14V17H4M7 14L4 17L7 20',
+  restart: 'M4 10A8 8 0 1 1 5 17M4 4V10H10',
+  from: 'M3 5L12 12L3 19ZM16 6H21M16 12H21M16 18H21'
+};
+function mediaIcon(name) {
+  const ns = 'http://www.w3.org/2000/svg', svg = document.createElementNS(ns, 'svg');
+  for (const [key, value] of Object.entries({ viewBox: '0 0 24 24', fill: 'none', stroke: 'currentColor', 'stroke-width': '2', 'stroke-linecap': 'round', 'stroke-linejoin': 'round', 'aria-hidden': 'true', focusable: 'false', class: 'media-icon' })) svg.setAttribute(key, value);
+  const path = document.createElementNS(ns, 'path'); path.setAttribute('d', iconPaths[name]); svg.append(path);
+  if (['play', 'stop', 'previous', 'next'].includes(name)) path.setAttribute('fill', 'currentColor');
+  if (name === 'back' || name === 'forward') {
+    const text = document.createElementNS(ns, 'text'); text.setAttribute('x', '12'); text.setAttribute('y', '22'); text.setAttribute('text-anchor', 'middle'); text.setAttribute('stroke', 'none'); text.setAttribute('fill', 'currentColor'); text.setAttribute('font-size', '10'); text.setAttribute('font-weight', '700'); text.textContent = '30'; svg.append(text);
+  }
+  return svg;
+}
+function iconButton(button, icon, label, visibleLabel = false) {
+  button.replaceChildren(mediaIcon(icon)); if (visibleLabel) button.append(node('span', label));
+  button.classList.add('media-button'); button.classList.toggle('icon-only', !visibleLabel);
+  button.setAttribute('aria-label', label); button.title = label;
+}
+for (const [id, icon, label, visible] of [
+  ['folder-play', 'play', 'Play', true], ['folder-shuffle', 'shuffle', 'Shuffle', true],
+  ['play-button', 'play', 'Play', true], ['play-from-here', 'from', 'Play from here', true], ['restart-button', 'restart', 'Restart', true],
+  ['stop-button', 'stop', 'Stop'], ['previous-button', 'previous', 'Previous track'], ['back-button', 'back', 'Back 30 seconds'],
+  ['pause-button', 'pause', 'Pause'], ['forward-button', 'forward', 'Forward 30 seconds'], ['next-button', 'next', 'Next track'], ['shuffle-button', 'shuffle', 'Shuffle']
+]) iconButton($(id), icon, label, visible);
+$('stop-button').title = 'Stop playback. Your place is saved automatically.';
+$('repeat-mode').parentElement.prepend(mediaIcon('repeat'));
 function link(label, hash) { const anchor = node('a', label); anchor.href = hash; return anchor; }
 function on(id, event, handler) {
   $(id).addEventListener(event, async e => {
@@ -179,6 +214,12 @@ function renderList() {
     button.addEventListener('click', () => item.IsFolder ? (location.hash = `#/folder/${item.Id}`) : currentRoute()[0] === 'favorites' && item.ParentId ? (location.hash = `#/folder/${item.ParentId}/${item.Id}`) : select(item).catch(error => notice(error.message, true)));
     const row = node('div', undefined, 'file-entry'); row.setAttribute('role', 'listitem'); row.append(button);
     const actions = node('div', undefined, 'row-actions');
+    if (item.IsFolder) {
+      const playFolder = node('button', undefined, 'play-folder'); iconButton(playFolder, 'play', 'Play Folder', true);
+      playFolder.setAttribute('aria-label', `Play folder ${item.Name}`); playFolder.title = `Play ${item.Name} and subfolders (up to ${maximumQueueItems} tracks)`;
+      playFolder.disabled = item.LocationType === 'Offline';
+      playFolder.addEventListener('click', () => playFolderItem(item).catch(error => notice(error.message, true))); actions.append(playFolder);
+    }
     const favorite = node('button', item.UserData?.IsFavorite ? '★' : '☆'); favorite.setAttribute('aria-label', `${item.UserData?.IsFavorite ? 'Unfavorite' : 'Favorite'} ${item.Name}`); favorite.setAttribute('aria-pressed', String(Boolean(item.UserData?.IsFavorite)));
     favorite.addEventListener('click', () => toggleFavorite(item).catch(error => notice(error.message, true))); actions.append(favorite);
     if (currentRoute()[0] === 'resume') {
@@ -202,7 +243,7 @@ async function select(file) {
   $('detail-overview').textContent = selected.Overview || '';
   const position = selected.UserData?.PlaybackPositionTicks || 0;
   $('detail-progress').textContent = position ? `Saved place: ${time(position / ticksPerSecond)}${selected.RunTimeTicks ? ` of ${time(selected.RunTimeTicks / ticksPerSecond)}` : ''}` : selected.UserData?.Played ? 'Finished' : 'Not started';
-  $('play-button').hidden = !playable(selected) && !isPlaylist(selected); $('play-button').textContent = position ? `Resume at ${time(position / ticksPerSecond)}` : 'Play';
+  $('play-button').hidden = !playable(selected) && !isPlaylist(selected); iconButton($('play-button'), 'play', position ? `Resume at ${time(position / ticksPerSecond)}` : 'Play', true);
   $('play-from-here').hidden = !playable(selected) || !currentFolder;
   $('open-parent').hidden = !selected.ParentId;
   $('restart-button').hidden = !playable(selected) || !position;
@@ -259,11 +300,31 @@ function renderQueue() {
   $('queue-list').replaceChildren(...(queue?.entries || []).map((entry, index) => { const li = node('li'); const button = node('button', entry.Name); if (index === queue.index) button.setAttribute('aria-current', 'true'); button.addEventListener('click', () => { queue.index = index; play(entry).catch(error => notice(error.message, true)); }); li.append(button); return li; }));
 }
 async function startQueue(items, { from = 0, shuffled = false, fromBeginning = false } = {}) {
+  cancelFolderRequest();
   if (!items.length) throw new Error('There are no playable files in this selection.');
-  const original = items.slice(from).map((item, index) => ({ ...item, queueKey: index }));
+  const limited = items.length - from > maximumQueueItems;
+  const original = items.slice(from, from + maximumQueueItems).map((item, index) => ({ ...item, queueKey: index }));
   queue = { original, entries: [...original], index: 0, shuffled };
   if (shuffled) shuffleRemaining(queue.entries, 0);
   await play(queue.entries[0], { fromBeginning });
+  if (limited) notice(`Queue limited to the first ${maximumQueueItems} tracks. Open a smaller folder or use Play from here for the rest.`);
+}
+function cancelFolderRequest() {
+  folderRequest?.abort(); folderRequest = null; $('queue-build').hidden = true;
+}
+async function playFolderItem(item) {
+  cancelFolderRequest();
+  const request = new AbortController(); folderRequest = request;
+  $('queue-build').hidden = false; $('queue-build-status').textContent = `Building a queue for ${item.Name}… Up to ${maximumQueueItems} tracks, including subfolders.`;
+  try {
+    const result = await api(`Jigglefin/Folders/${encodeURIComponent(item.Id)}/Queue?limit=${maximumQueueItems}&sort=${encodeURIComponent($('file-sort').value)}`, { signal: request.signal });
+    if (folderRequest !== request) return;
+    folderRequest = null; $('queue-build').hidden = true;
+    if (!result.Items?.length) throw new Error(`No playable files found${result.LimitReached ? ' within the safety limits. Choose a smaller subfolder' : ''}${result.SkippedEntries ? '; some folders or playlists could not be read' : ''}.`);
+    await startQueue(result.Items);
+    if (result.LimitReached || result.SkippedEntries) notice(`Queued ${result.Items.length} tracks.${result.LimitReached ? ' A safety limit was reached (500 tracks, 100 folders, 10,000 entries or 16 levels). Choose a smaller subfolder for the rest.' : ''}${result.SkippedEntries ? ' Unreadable folders or playlists were skipped.' : ''}`);
+  } catch (error) { if (error.name !== 'AbortError' && !request.signal.aborted) throw error; }
+  finally { if (folderRequest === request) { folderRequest = null; $('queue-build').hidden = true; } }
 }
 async function nextTrack(direction = 1, ended = false) {
   const current = queue; if (!current) return;
@@ -312,6 +373,7 @@ async function stop({ ended = false, refresh = false } = {}) {
   if (refresh && selected?.Id === context.item.Id) await select(selected);
 }
 async function play(file, { fromBeginning = false, compatible = false, position, audioIndex } = {}) {
+  cancelFolderRequest();
   const version = ++playVersion; await stop(); notice('');
   const item = await api(`Items/${encodeURIComponent(file.Id)}`);
   const start = position ?? (fromBeginning ? 0 : (item.UserData?.PlaybackPositionTicks || 0) / ticksPerSecond);
@@ -370,8 +432,8 @@ async function play(file, { fromBeginning = false, compatible = false, position,
   context.interval = setInterval(() => { if (playback === context && context.ready && !player.paused && !player.seeking) report(context, 'Progress').catch(() => {}); }, 5000);
 }
 player.addEventListener('timeupdate', () => { if (playback?.ready && !player.seeking && Number.isFinite(player.currentTime)) playback.position = player.currentTime; });
-player.addEventListener('pause', () => { $('pause-button').textContent = 'Play'; if (playback?.ready && !player.ended) report(playback, 'Progress').catch(() => {}); });
-player.addEventListener('play', () => { $('pause-button').textContent = 'Pause'; });
+player.addEventListener('pause', () => { iconButton($('pause-button'), 'play', 'Play'); if (playback?.ready && !player.ended) report(playback, 'Progress').catch(() => {}); });
+player.addEventListener('play', () => { iconButton($('pause-button'), 'pause', 'Pause'); });
 player.addEventListener('seeked', () => { if (playback?.ready) { playback.position = player.currentTime; report(playback, 'Progress').catch(() => {}); } });
 player.addEventListener('error', () => { if (playback) notice('The browser could not play this stream. Try Convert for a browser-friendly local stream; your saved place is kept.', true); });
 player.addEventListener('ended', () => { if (playback?.ready) nextTrack(1, true).catch(error => notice(error.message, true)); });
@@ -471,6 +533,7 @@ on('auth-form', 'submit', async () => {
   setToken(login.AccessToken); await enter();
 });
 on('signout-button', 'click', async () => {
+  cancelFolderRequest();
   ++playVersion; queue = null; renderQueue(); await stop(); await api('Sessions/Logout', { method: 'POST' }); setToken(null); me = null; selected = null; currentItems = [];
   $('username').value = ''; notice(''); showAuth(false);
 });
@@ -485,7 +548,8 @@ on('playlist-select', 'change', () => loadPlaylist());
 on('favorite-button', 'click', () => toggleFavorite(selected)); on('folder-favorite', 'click', () => toggleFavorite(currentFolder));
 on('open-parent', 'click', () => { location.hash = `#/folder/${selected.ParentId}/${selected.Id}`; });
 on('clear-continue', 'click', () => dismissContinue());
-on('stop-button', 'click', async () => { ++playVersion; queue = null; renderQueue(); await stop({ refresh: true }); });
+on('cancel-folder-play', 'click', () => { cancelFolderRequest(); notice('Folder queue cancelled.'); });
+on('stop-button', 'click', async () => { cancelFolderRequest(); ++playVersion; queue = null; renderQueue(); await stop({ refresh: true }); });
 on('pause-button', 'click', async () => { if (!playback?.ready) return; if (player.paused) await player.play(); else player.pause(); });
 on('previous-button', 'click', () => nextTrack(-1)); on('next-button', 'click', () => nextTrack());
 on('repeat-mode', 'change', () => renderQueue());

@@ -127,24 +127,39 @@ public sealed class LiveDirectoryBrowser
     /// <param name="relativePath">The relative directory path, or empty for the root.</param>
     /// <param name="cancellationToken">The cancellation token.</param>
     /// <param name="validateReadRoot">Optional private-storage check of the resolved root, before enumeration.</param>
+    /// <param name="maximumEntries">Maximum entries to enumerate, including non-media files.</param>
     /// <returns>The immediate filesystem entries, with no cached membership.</returns>
-    public IReadOnlyList<LiveDirectoryEntry> Browse(LiveMediaRoot root, string relativePath, CancellationToken cancellationToken = default, Action<string>? validateReadRoot = null)
+    public IReadOnlyList<LiveDirectoryEntry> Browse(LiveMediaRoot root, string relativePath, CancellationToken cancellationToken = default, Action<string>? validateReadRoot = null, int maximumEntries = int.MaxValue)
     {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maximumEntries);
         cancellationToken.ThrowIfCancellationRequested();
         var fullPath = ResolveWithinRoot(root, relativePath);
         var (readRoot, directory) = StatWithoutFollowingLinks(root, fullPath, validateReadRoot);
         RequireDirectory(directory);
         var readPath = directory.ReadPath ?? directory.FullPath;
         var entries = new List<LiveDirectoryEntry>();
-        foreach (var info in _reader.EnumerateDirectory(readPath, cancellationToken))
+        var examined = 0;
+        try
         {
-            cancellationToken.ThrowIfCancellationRequested();
-            if (!string.Equals(Path.GetDirectoryName(info.FullPath), Path.TrimEndingDirectorySeparator(readPath), _pathComparison))
+            foreach (var info in _reader.EnumerateDirectory(readPath, cancellationToken))
             {
-                throw new IOException("The directory reader returned an entry outside the requested directory.");
-            }
+                examined++;
+                cancellationToken.ThrowIfCancellationRequested();
+                if (!string.Equals(Path.GetDirectoryName(info.FullPath), Path.TrimEndingDirectorySeparator(readPath), _pathComparison))
+                {
+                    throw new IOException("The directory reader returned an entry outside the requested directory.");
+                }
 
-            entries.Add(Describe(readRoot, info with { FullPath = Path.Combine(fullPath, Path.GetFileName(info.FullPath)) }));
+                entries.Add(Describe(readRoot, info with { FullPath = Path.Combine(fullPath, Path.GetFileName(info.FullPath)) }));
+                if (entries.Count >= maximumEntries)
+                {
+                    break;
+                }
+            }
+        }
+        catch (Exception error) when (maximumEntries < int.MaxValue && error is IOException or UnauthorizedAccessException)
+        {
+            throw new LiveDirectoryReadException(examined, error);
         }
 
         return entries;

@@ -926,3 +926,52 @@ Verification for this pass:
 
 No installed profile, production server, user drive mapping or `Z:\Media` content
 was changed. The ZIP is a separate portable build, not an automatic installation.
+
+## Transport icons and explicit bounded folder playback
+
+Folder rows now expose Play Folder without requiring navigation first. This is the
+only new recursive operation, invoked explicitly rather than on startup, refresh,
+ordinary navigation, or adding a root. `GET Jigglefin/Folders/{id}/Queue` authorizes
+the owning library before touching paths. It returns transient playable addresses,
+not metadata or a persistent playlist. Standard Jellyfin playback routes are unchanged.
+
+Server budgets are 500 queue entries (including playlist duplicates), 100 attempted
+directory reads, 10,000 raw entries, and 16 descendant levels. The filesystem reader
+stops enumeration at its remaining budget; applying Take after an unbounded listing
+would not provide this protection. Playlist references share the same directory,
+entry and depth budgets and request cache. Root aliases reuse their physical listing.
+Links, parent escapes, URLs, and private storage remain forbidden. No media/NFO probing
+is needed to assemble a queue. Cancellation is cooperative between filesystem calls.
+
+Files use the chosen sort, followed by naturally ordered child folders. Playlist sort
+uses the first alphabetical M3U/M3U8/PLS file in each folder, preserving intentional
+duplicates and avoiding extra copies of referenced files during descendant traversal.
+Truncated listings are sorted within the bounded subset, not the entire unseen folder.
+The client shows a safety-limit notice, caps its other queues at 500 as well, and
+provides Cancel with stale-response suppression. Play/pause/stop/next/previous/skip,
+shuffle and repeat have local SVG icons, tooltips and screen-reader labels.
+
+Verification for this pass:
+
+- Portable ZIP: `publish/Jigglefin-folder-icons-20260926.zip`, SHA-256
+  `53D30466A17DAE1AC5D7DA367DE92B5C89636CBA1AC0F0D9BFCEB842A8F6AA7C`.
+- Full Release solution: 4,338 passed, 21 existing skips, 17 suites, zero failures,
+  with real FFmpeg and local SMB coverage enabled. Final partial-read-budget and
+  extension-sort guards add three tests; all 65 focused API/store/browser/HTTP tests
+  passed after those changes. Both Android shell syntax/bootstrap tests passed.
+- Packaged headless/native audit: `%TEMP%\jigglefin-folder-web-smaizP`, two server
+  starts, 60 native media helpers, zero outbound attempts or external browser requests,
+  no browser/CSP errors, unchanged synthetic media bytes/timestamps, clean shutdowns.
+  Desktop and 390-pixel mobile screenshots were reviewed. Positive controls passed.
+- Older catalog ZIP upgrade: `%TEMP%\jigglefin-zip-upgrade-08f45042883144bab435bee1be12e4ef`.
+  Accounts, permissions and saved positions survived; fresh-browser resume and the
+  newer stopped position after restart passed. This harness requires the catalog-era
+  `7d5e6d75` ZIP: an initial run against the already-live folder-controls ZIP correctly
+  failed its catalog-baseline assertion, not the new package's upgrade behavior.
+- Reports/screenshots: `publish/test-results/folder-icons/package`; full TRX files
+  under `release`, final focused runs under `final-guards`. An initial headless check
+  sampled the pause icon before the browser dispatched its pause event; the test now
+  waits for that event's UI state, and both source and packaged checks pass.
+
+Tests stayed in isolated profiles and synthetic media. No installed server/profile,
+user drive mapping, or `Z:\Media` files were changed.

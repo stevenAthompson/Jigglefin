@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using Jellyfin.Api.Extensions;
+using Jellyfin.Api.Helpers;
 using Jellyfin.Api.Models.LiveFolderDtos;
 using Jellyfin.Data.Enums;
 using MediaBrowser.Controller.Library;
@@ -12,7 +13,7 @@ using Microsoft.AspNetCore.Mvc;
 
 namespace Jellyfin.Api.Controllers;
 
-/// <summary>Personal folder-player operations. No media mutation or recursive discovery.</summary>
+/// <summary>Personal folder-player operations. No media mutation; folder queues are explicitly requested and bounded.</summary>
 [Authorize]
 [Route("Jigglefin")]
 public sealed class FolderPlaybackController : BaseJellyfinApiController
@@ -51,6 +52,37 @@ public sealed class FolderPlaybackController : BaseJellyfinApiController
         }
 
         return NoContent();
+    }
+
+    /// <summary>Builds a bounded recursive queue only for an explicit Play Folder action.</summary>
+    /// <param name="id">The selected folder or configured group.</param>
+    /// <param name="limit">Maximum playable entries, capped at 500.</param>
+    /// <param name="sort">Folder ordering; Playlist uses the first local playlist in each directory.</param>
+    /// <returns>The transient queue and safety-limit status.</returns>
+    [HttpGet("Folders/{id}/Queue")]
+    public ActionResult<FolderQueueDto> ReadFolderQueue([FromRoute] Guid id, [FromQuery] int limit = 500, [FromQuery] string sort = "playlist")
+    {
+        var userId = User.GetUserId();
+        if (userId.Equals(Guid.Empty))
+        {
+            return NotFound();
+        }
+
+        var user = _users.GetUserById(userId);
+        var library = _library.FindLibrary(id);
+        if (user is null || library is null || !LiveLibraryAccess.CanAccess(user, library))
+        {
+            return NotFound();
+        }
+
+        try
+        {
+            return new LiveFolderQueueBuilder(_library, limit, sort, HttpContext.RequestAborted).Build(id);
+        }
+        catch (ArgumentException error)
+        {
+            return BadRequest(error.Message);
+        }
     }
 
     /// <summary>Resolves an explicitly selected local playlist, not a catalog playlist.</summary>

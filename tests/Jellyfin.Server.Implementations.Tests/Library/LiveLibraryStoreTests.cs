@@ -25,6 +25,23 @@ public sealed class LiveLibraryStoreTests : IDisposable
     }
 
     [Fact]
+    public void BrowseLimited_RemembersOnlyTheBoundedEntriesAndDoesNotStatUnselectedMounts()
+    {
+        File.WriteAllText(Path.Combine(_media, "A.mp3"), "a");
+        File.WriteAllText(Path.Combine(_media, "B.mp3"), "b");
+        var group = _store.AddLibrary("Media", [_media]);
+        var entry = Assert.Single(_store.BrowseLimited(group.Id, 1, TestContext.Current.CancellationToken));
+        Assert.NotNull(_store.FindLibrary(entry.Id));
+        var other = entry.Name == "A.mp3" ? "B.mp3" : "A.mp3";
+        Assert.Null(_store.FindLibrary(LiveDirectoryBrowser.EntryId(group.Roots[0], other)));
+        _store.AddPath("Media", Path.Combine(_fixture.FullName, "Offline"));
+        _reader.StatCalls.Clear();
+        var mount = Assert.Single(_store.BrowseLimited(group.Id, 1, TestContext.Current.CancellationToken));
+        Assert.True(mount.File.IsDirectory);
+        Assert.DoesNotContain(_reader.StatCalls, path => path.Contains("Offline", StringComparison.Ordinal));
+    }
+
+    [Fact]
     public void Migration_ImportsOfflineRootsAndOnlySavedAddressesWithoutAnyMediaAccess()
     {
         var offline = LiveDirectoryBrowser.DescribeRoot("Offline", Path.Combine(_fixture.FullName, "Disconnected"));

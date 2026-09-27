@@ -15,6 +15,34 @@ public sealed class LiveDirectoryBrowserTests
     private static readonly string _rootPath = Path.Combine(Path.GetTempPath(), "jigglefin-live-fixture");
 
     [Fact]
+    public void Browse_WithBudgetStopsEnumerationBeforeReadingOrStoringTheRemainingEntries()
+    {
+        var reader = new RecordingReader();
+        reader.Children.AddRange(Enumerable.Range(0, 501).Select(index => FileEntry(index + ".mp3")));
+        var browser = new LiveDirectoryBrowser(reader);
+        var root = browser.Mount("Media", _rootPath);
+        var entries = browser.Browse(root, string.Empty, TestContext.Current.CancellationToken, maximumEntries: 3);
+        Assert.Equal(3, entries.Count);
+        Assert.Equal(3, reader.EntriesYielded);
+        Assert.True(reader.EnumeratorDisposed);
+        Assert.Throws<ArgumentOutOfRangeException>(() => browser.Browse(root, string.Empty, TestContext.Current.CancellationToken, maximumEntries: 0));
+        Assert.Equal(3, reader.EntriesYielded);
+    }
+
+    [Fact]
+    public void Browse_PartialFailurePreservesTheSpentEntryBudgetAndDisposesTheIterator()
+    {
+        var reader = new RecordingReader { FailAfter = 3 };
+        reader.Children.AddRange(Enumerable.Range(0, 10).Select(index => FileEntry(index + ".txt")));
+        var browser = new LiveDirectoryBrowser(reader);
+        var root = browser.Mount("Media", _rootPath);
+        var error = Assert.Throws<LiveDirectoryReadException>(() => browser.Browse(root, string.Empty, TestContext.Current.CancellationToken, maximumEntries: 100));
+        Assert.Equal(3, error.EntriesExamined);
+        Assert.IsType<IOException>(error.InnerException);
+        Assert.True(reader.EnumeratorDisposed);
+    }
+
+    [Fact]
     public void Mount_ReadsOnlyRootAttributes_NoDirectoryEnumeration()
     {
         var reader = new RecordingReader();
@@ -339,6 +367,12 @@ public sealed class LiveDirectoryBrowserTests
 
         public List<string> EnumerationCalls { get; } = [];
 
+        public int EntriesYielded { get; private set; }
+
+        public bool EnumeratorDisposed { get; private set; }
+
+        public int FailAfter { get; init; } = int.MaxValue;
+
         public LiveFileInfo Stat(string path)
         {
             StatCalls.Add(path);
@@ -349,7 +383,23 @@ public sealed class LiveDirectoryBrowserTests
         {
             EnumerationCalls.Add(path);
             Assert.Equal(_rootPath, path);
-            return Children.ToArray();
+            try
+            {
+                foreach (var child in Children)
+                {
+                    if (EntriesYielded >= FailAfter)
+                    {
+                        throw new IOException("Synthetic interrupted directory read.");
+                    }
+
+                    EntriesYielded++;
+                    yield return child;
+                }
+            }
+            finally
+            {
+                EnumeratorDisposed = true;
+            }
         }
     }
 }

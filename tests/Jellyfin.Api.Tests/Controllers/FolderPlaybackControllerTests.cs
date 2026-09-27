@@ -21,6 +21,7 @@ public sealed class FolderPlaybackControllerTests
             ControllerContext = new ControllerContext { HttpContext = new DefaultHttpContext() }
         };
         Assert.IsType<NotFoundResult>(controller.ReadPlaylist(Guid.NewGuid()).Result);
+        Assert.IsType<NotFoundResult>(controller.ReadFolderQueue(Guid.NewGuid()).Result);
         Assert.IsType<NotFoundResult>(controller.DismissContinue());
         library.VerifyNoOtherCalls();
         state.VerifyNoOtherCalls();

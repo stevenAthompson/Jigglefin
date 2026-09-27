@@ -163,6 +163,12 @@ async function main() {
   }
   await fs.writeFile(path.join(tracks, 'Order.m3u'), '#EXTM3U\nB.m4b\nA.m4b\nB.m4b\nhttps://never-resolve.invalid/remote.mp3\n');
   await fs.writeFile(path.join(tracks, 'Second.pls'), '[playlist]\nFile2=C.m4b\nFile1=A.m4b\nNumberOfEntries=2\n');
+  await fs.mkdir(path.join(media, 'Tree/Leaf'), { recursive: true });
+  await fs.copyFile(path.join(tracks, 'A.m4b'), path.join(media, 'Tree/A.m4b'));
+  await fs.copyFile(path.join(tracks, 'C.m4b'), path.join(media, 'Tree/Leaf/D.m4b'));
+  await fs.mkdir(path.join(media, 'Capped'));
+  await fs.copyFile(path.join(tracks, 'A.m4b'), path.join(media, 'Capped/A.m4b'));
+  await fs.writeFile(path.join(media, 'Capped/Order.m3u'), 'A.m4b\n'.repeat(501));
   await fs.writeFile(path.join(media, 'notes.txt'), 'Visible but not media.');
   if (networkAudit) closeNativeTrap = await networkAudit.fixtureTrap(media);
   const before = await snapshot(media);
@@ -320,6 +326,54 @@ async function main() {
   await stopped(page);
   console.log('Video direct/compatible playback and local WebVTT passed.');
   await page.locator('.sidebar').getByRole('link', { name: 'Test Media', exact: true }).click();
+  await page.getByRole('button', { name: 'Play folder Tree', exact: true }).waitFor();
+  assert.ok(!requests.some(url => /Jigglefin\/Folders\/[^/]+\/Queue/.test(url)), 'Normal navigation must not build recursive queues.');
+  const parentHash = new URL(page.url()).hash;
+  await page.getByRole('button', { name: 'Play folder Tree', exact: true }).click(); await playing(page);
+  assert.equal(new URL(page.url()).hash, parentHash, 'Play Folder must not navigate away.');
+  assert.deepEqual(await page.locator('#queue-list button').allTextContents(), ['A.m4b', 'D.m4b']);
+  for (const id of ['stop-button', 'previous-button', 'back-button', 'pause-button', 'forward-button', 'next-button', 'shuffle-button']) {
+    assert.equal(await page.locator(`#${id} svg[aria-hidden=true]`).count(), 1);
+    assert.ok(await page.locator('#' + id).getAttribute('aria-label'));
+    assert.ok(await page.locator('#' + id).getAttribute('title'));
+  }
+  await page.locator('#pause-button').click(); await page.waitForFunction(() => document.querySelector('#pause-button').getAttribute('aria-label') === 'Play');
+  await page.locator('#pause-button').click(); await playing(page); await page.waitForFunction(() => document.querySelector('#pause-button').getAttribute('aria-label') === 'Pause');
+  await page.screenshot({ path: path.join(fixture, 'folder-icons-desktop.png'), fullPage: true });
+  const desktopSize = page.viewportSize(); await page.setViewportSize({ width: 390, height: 844 });
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'Mobile controls must not cause horizontal overflow.');
+  await page.screenshot({ path: path.join(fixture, 'folder-icons-mobile.png'), fullPage: true });
+  await page.setViewportSize(desktopSize); await stopped(page);
+  await page.getByRole('button', { name: 'Play folder Capped', exact: true }).click(); await playing(page);
+  await page.getByText(/Queued 500 tracks.*safety limit/).waitFor();
+  assert.equal(await page.locator('#queue-list button').count(), 500); await stopped(page);
+  // Simulate a slow queue response. Cancel must remain available without waiting
+  // for disk I/O, and a late response must never start playback.
+  let releaseFolder, sawFolder;
+  const folderHeld = new Promise(resolve => { releaseFolder = resolve; });
+  const folderReached = new Promise(resolve => { sawFolder = resolve; });
+  await page.route('**/Jigglefin/Folders/*/Queue?**', async route => {
+    sawFolder(); await folderHeld;
+    await route.fulfill({ json: { Items: [{ Id: bookId, Name: 'Late response', MediaType: 'Audio' }] } }).catch(() => {});
+  }, { times: 1 });
+  await page.getByRole('button', { name: 'Play folder Tree', exact: true }).click(); await folderReached;
+  await page.locator('#cancel-folder-play').click(); releaseFolder();
+  await page.getByText('Folder queue cancelled.', { exact: true }).waitFor();
+  await delay(200); assert.ok(await page.locator('#player-panel').isHidden()); assert.ok(await page.locator('#queue-build').isHidden());
+  await page.getByRole('button', { name: 'Play folder Queue', exact: true }).click(); await playing(page);
+  assert.deepEqual(await page.locator('#queue-list button').allTextContents(), ['B.m4b', 'A.m4b', 'B.m4b', 'C.m4b']);
+  let releaseStoppedFolder, sawStoppedFolder;
+  const stoppedFolderHeld = new Promise(resolve => { releaseStoppedFolder = resolve; });
+  const stoppedFolderReached = new Promise(resolve => { sawStoppedFolder = resolve; });
+  await page.route('**/Jigglefin/Folders/*/Queue?**', async route => {
+    sawStoppedFolder(); await stoppedFolderHeld;
+    await route.fulfill({ json: { Items: [{ Id: bookId, Name: 'After Stop', MediaType: 'Audio' }] } }).catch(() => {});
+  }, { times: 1 });
+  await page.getByRole('button', { name: 'Play folder Tree', exact: true }).click(); await stoppedFolderReached;
+  await stopped(page); releaseStoppedFolder(); await delay(200);
+  assert.ok(await page.locator('#player-panel').isHidden()); assert.ok(await page.locator('#queue-build').isHidden());
+  assert.equal(await page.locator('#queue-list button').count(), 0, 'Stop must also invalidate a pending folder queue.');
+  console.log('Accessible SVG transport icons, mobile layout, recursive Play Folder, playlist ordering, 500-track cap and cancellation passed.');
   await page.getByRole('button', { name: 'Open folder Queue', exact: true }).click();
   await page.getByText(/Order.m3u: 3 tracks; 1 unavailable/).waitFor();
   const displayedTracks = () => page.locator('#file-list .file-name').allTextContents().then(names => names.filter(name => name.endsWith('.m4b')));
@@ -454,7 +508,7 @@ main().catch(async error => {
   if (successful) {
     await fs.writeFile(path.join(fixture, 'web-smoke-report.json'), JSON.stringify({
       pass: true, packageDirectory: packageDirectory || null, externalRequests, failures, violations, nativeResults,
-      checks: ['Picker-based setup without typed paths; live navigation without scans; Favorites shortcuts; Continue single/all dismissal; playlist/date/size/name sorting; M3U/PLS queues and duplicates; Play from here; pause/stop/next/previous/skip/shuffle/repeat/automatic advance; delayed Stop/new queue race; direct/HLS audio and video; subtitles; per-account bookmarks; cache eviction; restart/resume; disconnected roots; unchanged media bytes and timestamps; clean server shutdown.']
+      checks: ['Picker-based setup without typed paths; live navigation without scans; Favorites shortcuts; Continue single/all dismissal; playlist/date/size/name sorting; M3U/PLS queues and duplicates; Play from here; accessible SVG transport icons and mobile layout; explicit recursive Play Folder without navigation; 500-track limit notice; Cancel and Stop reject late folder queue responses; pause/stop/next/previous/skip/shuffle/repeat/automatic advance; delayed Stop/new queue race; direct/HLS audio and video; subtitles; per-account bookmarks; cache eviction; restart/resume; disconnected roots; unchanged media bytes and timestamps; clean server shutdown.']
     }, null, 2) + '\n');
     console.log('PASS. Isolated fixture retained for visual review:', fixture);
   }

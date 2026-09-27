@@ -199,7 +199,7 @@ public sealed class LiveCapabilityFilter : IActionFilter, IOrderedFilter
             nameof(ActivityLogController) => method == "GetLogEntries",
             nameof(ClientLogController) => method == "LogFile",
             nameof(JigglefinController) => method is "ClearSelectionCache" or "SetFolderEnabled",
-            nameof(FolderPlaybackController) => method is "DismissContinue" or "ReadPlaylist",
+            nameof(FolderPlaybackController) => method is "DismissContinue" or "ReadPlaylist" or "ReadFolderQueue",
             // These routes are wholly replaced by LiveFolderApiFilter.
             nameof(LibraryStructureController) or nameof(UserViewsController) or nameof(SearchController)
                 or nameof(ArtistsController) or nameof(GenresController) or nameof(MusicGenresController)

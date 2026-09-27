@@ -3,7 +3,8 @@
 This is Jigglefin's bundled, offline web UI, not a fork of the full Jellyfin Web dashboard.
 It uses standard Jellyfin authentication, live folder/item DTOs, playback negotiation,
 stream/subtitle endpoints and playback reports. Cache clearing and enabling/disabling a
-folder group, dismissing Continue and resolving local playlist files are small Jigglefin-specific operations. Native Jellyfin
+folder group, dismissing Continue, resolving local playlist files and explicitly building
+bounded folder queues are small Jigglefin-specific operations. Native Jellyfin
 clients do not need them.
 
 ## Build and test
@@ -53,7 +54,20 @@ any attempt. This is browser evidence, not proof of the complete server/helper o
   size (largest/smallest) and type sorting. Folder sizes are not recursively calculated.
 - Folder Play/Shuffle; selected-file Play plays that file, while Play from here queues
   the displayed order starting at the selection. Next/Previous, pause, Stop, ±30 seconds,
-  shuffle, repeat-track/repeat-queue and a clickable queue are available.
+  shuffle, repeat-track/repeat-queue and a clickable queue are available. Transport
+  controls use bundled SVG icons with tooltips and accessible names.
+- Each folder row has Play Folder, including folder favorites and configured groups.
+  This explicit action includes subfolders without navigating away. It plays direct
+  files first, then visits child folders in natural name order. The selected sort
+  applies to files within each folder; Playlist uses the first alphabetical local
+  playlist, preserves duplicates, and appends unlisted files without adding referenced
+  child tracks twice. Cancel abandons a pending queue without stopping current playback.
+- All queues are capped at 500 tracks. Recursive Play Folder also caps directory reads
+  at 100, raw entries at 10,000 (including non-media), and depth at 16 below the selected
+  folder. Enumeration actually stops at the entry budget. A notice explains partial
+  queues; open a smaller subfolder for the rest. A truncated directory is sorted only
+  within the entries read. Cancellation is checked between filesystem operations;
+  it cannot interrupt an operating-system call stalled on an unavailable share.
 - Direct browser playback and local HLS conversion, local text subtitles, audio-track choice,
   playback speed, seek controls, and durable resume after cache clear and restart.
 - Convert requests a browser-friendly stream from this server (local conversion can use
@@ -71,8 +85,10 @@ are separate release gates; see `../JIGGLEFIN-LIVE-DESIGN.md`.
 Opening a folder with M3U, M3U8 or PLS files loads the first alphabetically; a selector
 lets you choose another. Playlist sort shows referenced immediate files in playlist
 order, followed by unlisted files. The playback queue preserves duplicate tracks and
-explicitly referenced child-directory tracks (shown in Queue); it never recursively
-discovers media. Choosing another sort uses only displayed playable files in that order.
+explicitly referenced child-directory tracks (shown in Queue). Normal browsing and the
+in-folder Play/Shuffle controls do not recursively discover media; the separate Play
+Folder row action is the bounded, explicit exception described above. Choosing another
+sort uses only displayed playable files in that order for the in-folder controls.
 Selecting a playlist and pressing Play plays just its entries, not unlisted files.
 
 Only UTF-8 relative local paths are accepted. URLs, absolute paths, parent (`..`)

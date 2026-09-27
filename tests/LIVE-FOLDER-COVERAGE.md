@@ -105,3 +105,16 @@ For reproducible server/native-helper/browser outbound checks, see
 `OfflineNetworkAudit/README.md` and `scripts/audit-offline-win.ps1`. This extends the
 browser's own request interception with native process-tree observation; it does
 not silently turn off an existing system-wide network capture or inspect other apps.
+
+## Explicit Play Folder and transport icons
+
+- `LiveFolderQueueBuilderTests`: hard 500-track cap, natural and selected sort orders,
+  10,000 raw-entry budget shared across folders, 100-folder and 16-level limits,
+  cancellation, unreadable folders, links and unavailable mounts.
+- `LiveDirectoryBrowserTests` / `LiveLibraryStoreTests`: enumeration stops and disposes
+  at the limit; only encountered addresses are remembered; unselected roots are not statted.
+- `FolderPlaybackTests`: real HTTP authorization, M3U/PLS duplicates and child references,
+  metadata/media held exclusively locked, invalid requests without I/O, no catalog import.
+- Headless web harness: SVG/accessible labels, play/pause icon state, desktop/mobile
+  layout, row playback without navigation, nested queues, 500-entry notice, cancellation
+  and late-response suppression. Normal browsing never requests a recursive queue.

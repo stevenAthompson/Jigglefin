@@ -20,6 +20,47 @@ namespace Jellyfin.Server.Integration.Tests.Controllers;
 
 public sealed class FolderPlaybackTests
 {
+    [Theory]
+    [InlineData("m3u", "B.mp3\nA.mp3\nB.mp3\nChild/C.mp4\nhttps://never-resolve.invalid/no.mp3\n../escape.mp3")]
+    [InlineData("pls", "[playlist]\nFile1=B.mp3\nFile2=A.mp3\nFile3=B.mp3\nFile4=Child/C.mp4")]
+    public async Task FolderQueue_IsExplicitReadOnlyBoundedAndHonorsLocalPlaylists(string extension, string content)
+    {
+        using var fixture = new LiveFolderFixture();
+        var a = fixture.Write("A.mp3", [1]);
+        var b = fixture.Write("B.mp3", [2]);
+        var c = fixture.Write("Child/C.mp4", [3]);
+        var d = fixture.Write("Child/D.mp3", [4]);
+        var nfo = fixture.Write("Child/D.nfo", Encoding.UTF8.GetBytes("<movie><title>Never read for queues</title></movie>"));
+        fixture.Write("Order." + extension, Encoding.UTF8.GetBytes(content));
+        await fixture.Start();
+        var group = await fixture.AddGroup();
+        var lists = fixture.Reader.Enumerations.Count;
+        using var lockA = File.Open(a, FileMode.Open, FileAccess.Read, FileShare.None);
+        using var lockB = File.Open(b, FileMode.Open, FileAccess.Read, FileShare.None);
+        using var lockC = File.Open(c, FileMode.Open, FileAccess.Read, FileShare.None);
+        using var lockD = File.Open(d, FileMode.Open, FileAccess.Read, FileShare.None);
+        using var lockNfo = File.Open(nfo, FileMode.Open, FileAccess.Read, FileShare.None);
+        var limited = await fixture.Client.GetFromJsonAsync<FolderQueueDto>($"Jigglefin/Folders/{group.Id}/Queue?limit=2", JsonDefaults.Options, TestContext.Current.CancellationToken);
+        Assert.NotNull(limited);
+        Assert.Equal(new[] { "B.mp3", "A.mp3" }, limited.Items.Select(item => item.Name));
+        Assert.True(limited.LimitReached);
+        Assert.Equal(lists + 1, fixture.Reader.Enumerations.Count);
+        var full = await fixture.Client.GetFromJsonAsync<FolderQueueDto>($"Jigglefin/Folders/{group.Id}/Queue", JsonDefaults.Options, TestContext.Current.CancellationToken);
+        Assert.NotNull(full);
+        Assert.Equal(new[] { "B.mp3", "A.mp3", "B.mp3", "C.mp4", "D.mp3" }, full.Items.Select(item => item.Name));
+        Assert.False(full.LimitReached);
+        Assert.Equal(2, full.FoldersRead);
+        Assert.All(full.Items, item => Assert.Null(item.MediaSources));
+        await fixture.AssertNoCatalogImport();
+        foreach (var suffix in new[] { "limit=0", "limit=-1", "sort=unknown" })
+        {
+            lists = fixture.Reader.Enumerations.Count;
+            using var invalid = await fixture.Client.GetAsync($"Jigglefin/Folders/{group.Id}/Queue?{suffix}", TestContext.Current.CancellationToken);
+            Assert.Equal(HttpStatusCode.BadRequest, invalid.StatusCode);
+            Assert.Equal(lists, fixture.Reader.Enumerations.Count);
+        }
+    }
+
     [Fact]
     public async Task Continue_DismissesOneOrAllWithoutErasingBookmarksAndPlaybackStartRestoresIt()
     {
@@ -162,6 +203,10 @@ public sealed class FolderPlaybackTests
         lists = fixture.Reader.Enumerations.Count;
         using var denied = await fixture.Client.GetAsync($"Jigglefin/Playlists/{playlist.Id}", TestContext.Current.CancellationToken);
         Assert.Equal(HttpStatusCode.NotFound, denied.StatusCode);
+        Assert.Equal(stats, fixture.Reader.Stats.Count);
+        Assert.Equal(lists, fixture.Reader.Enumerations.Count);
+        using var deniedQueue = await fixture.Client.GetAsync($"Jigglefin/Folders/{group.Id}/Queue", TestContext.Current.CancellationToken);
+        Assert.Equal(HttpStatusCode.NotFound, deniedQueue.StatusCode);
         Assert.Equal(stats, fixture.Reader.Stats.Count);
         Assert.Equal(lists, fixture.Reader.Enumerations.Count);
     }

@@ -61,4 +61,11 @@ public interface ILiveLibrary
     /// <param name="cancellationToken">The cancellation token.</param>
     /// <returns>Current directory contents, never an address-book query.</returns>
     IReadOnlyList<LiveDirectoryEntry> Browse(Guid parentId, CancellationToken cancellationToken = default);
+
+    /// <summary>Lists at most the requested number of immediate entries, stopping filesystem enumeration at the limit.</summary>
+    /// <param name="parentId">An authorized group or directory ID.</param>
+    /// <param name="maximumEntries">The positive enumeration budget, including non-media entries.</param>
+    /// <param name="cancellationToken">The cancellation token.</param>
+    /// <returns>Current entries. A full budget conservatively indicates possible truncation.</returns>
+    IReadOnlyList<LiveDirectoryEntry> BrowseLimited(Guid parentId, int maximumEntries, CancellationToken cancellationToken = default);
 }

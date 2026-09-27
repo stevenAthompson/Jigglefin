@@ -307,7 +307,12 @@ public sealed class LiveLibraryStore : ILiveLibrary
 
     /// <inheritdoc />
     public IReadOnlyList<LiveDirectoryEntry> Browse(Guid parentId, CancellationToken cancellationToken = default)
+        => BrowseLimited(parentId, int.MaxValue, cancellationToken);
+
+    /// <inheritdoc />
+    public IReadOnlyList<LiveDirectoryEntry> BrowseLimited(Guid parentId, int maximumEntries, CancellationToken cancellationToken = default)
     {
+        ArgumentOutOfRangeException.ThrowIfNegativeOrZero(maximumEntries);
         lock (_gate)
         {
             cancellationToken.ThrowIfCancellationRequested();
@@ -321,14 +326,18 @@ public sealed class LiveLibraryStore : ILiveLibrary
                 }
 
                 entries = library.Roots.Count == 1
-                    ? _browser.Browse(library.Roots[0], string.Empty, cancellationToken, RequireSeparateReadStorage)
-                    : library.Roots.Select(DescribeMountPoint).ToArray();
+                    ? _browser.Browse(library.Roots[0], string.Empty, cancellationToken, RequireSeparateReadStorage, maximumEntries)
+                    : library.Roots.Take(maximumEntries).Select(root =>
+                    {
+                        cancellationToken.ThrowIfCancellationRequested();
+                        return DescribeMountPoint(root);
+                    }).ToArray();
             }
             else
             {
                 var address = ResolveAddress(library, parentId);
                 RequireSeparatePrivateStorage(address.Root);
-                entries = _browser.Browse(address.Root, address.RelativePath, cancellationToken, RequireSeparateReadStorage);
+                entries = _browser.Browse(address.Root, address.RelativePath, cancellationToken, RequireSeparateReadStorage, maximumEntries);
             }
 
             Remember(entries, cancellationToken);
