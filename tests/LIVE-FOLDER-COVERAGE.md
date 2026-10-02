@@ -118,3 +118,13 @@ not silently turn off an existing system-wide network capture or inspect other a
 - Headless web harness: SVG/accessible labels, play/pause icon state, desktop/mobile
   layout, row playback without navigation, nested queues, 500-entry notice, cancellation
   and late-response suppression. Normal browsing never requests a recursive queue.
+
+## Themes and browser-local playback conveniences
+
+- Headless web checks cover Night/Day/High contrast, selection persisted across reload,
+  390-pixel mobile layout, row queue additions, selected-item Play next, local playlist
+  duplicates, the 500-entry queue limit, shortcuts that ignore typing, sleep at end of
+  track and a clock-driven 15-minute expiry.
+- All are client-only: the server's live-directory and standard Jellyfin playback API
+  paths are unchanged. Native/network auditing and synthetic-media hash checks remain
+  part of the portable-package test gate.

@@ -975,3 +975,40 @@ Verification for this pass:
 
 Tests stayed in isolated profiles and synthetic media. No installed server/profile,
 user drive mapping, or `Z:\Media` files were changed.
+
+## Browser-local themes and playback conveniences
+
+The bundled web client now exposes Night, Day and High contrast themes in Settings.
+A fixed theme enum selects bundled CSS variables; only that enum value is stored in
+browser local storage. The sign-in, browsing, settings and player surfaces all use the
+same palette. No custom stylesheet URL or theme service is introduced.
+
+Playable file and local playlist rows can append to the current session queue.
+Selected items additionally offer Play next. Insertion preserves queue order,
+shuffle restoration, explicit playlist duplicates and the existing 500-item cap.
+There is no saved playlist catalog or recursive browse implied by these actions.
+
+The player also offers browser-local sleep at end of track or after 15/30/60 minutes.
+Expiry uses the existing Stop report so the position is saved; manual Stop, sign-out
+and natural queue completion clear the timer. Space/K, left/right and N/P are mapped
+to existing controls only when not typing or interacting with a form/dialog/video.
+These additions do not change standard Jellyfin APIs, server scanning or native
+client behavior.
+
+Verification for this pass:
+
+- Portable ZIP: `publish/Jigglefin-themes-20261002.zip`, SHA-256
+  `EE00BB304771738375A3E6DD35830A776326366A56AF5561CEBC7335492A0539`.
+- Headless source and actual portable-package UI checks passed, including all three
+  themes and persistence, mobile layout, queue append/Play next, keyboard focus
+  safety, end-of-track sleep and a clock-driven 15-minute timer. Existing playback,
+  bookmarks, access checks, root navigation and 500-item limits stayed green.
+- Native offline audit passed: two starts, 61 media helpers, zero outbound attempts,
+  external browser requests, JS errors or policy violations. Synthetic media bytes
+  and timestamps remained unchanged. Observer positive controls passed.
+- Catalog-era ZIP upgrade passed: accounts, permissions and positions survived;
+  a fresh browser resumed around 31 seconds and newer progress survived restart.
+- Isolated logs/screenshots: `publish/test-results/themes-20261002/package`.
+  Desktop Day and 390-pixel mobile High contrast screenshots were visually reviewed.
+
+No installed server/profile, user drive mapping, or `Z:\Media` files were changed.

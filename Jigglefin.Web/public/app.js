@@ -18,6 +18,17 @@ let reportQueue = Promise.resolve();
 let currentFolder = null, playlistItems = [], playlistVersion = 0, queue = null, pickerPath = null, pickerVersion = 0;
 const maximumQueueItems = 500;
 let folderRequest = null;
+let sleepDeadline = 0, sleepTimeout = null;
+const themes = new Set(['night', 'day', 'contrast']);
+let theme = themes.has(localStorage.getItem(storageKey + 'theme')) ? localStorage.getItem(storageKey + 'theme') : 'night';
+function applyTheme(value) {
+  if (!themes.has(value)) return;
+  theme = value; document.documentElement.dataset.theme = value;
+  $('theme-select').value = value;
+  document.querySelector('meta[name="theme-color"]').content = { night: '#131b21', day: '#f4f7f4', contrast: '#000000' }[value];
+  localStorage.setItem(storageKey + 'theme', value);
+}
+applyTheme(theme);
 const player = $('player');
 player.disableRemotePlayback = true;
 
@@ -220,6 +231,11 @@ function renderList() {
       playFolder.disabled = item.LocationType === 'Offline';
       playFolder.addEventListener('click', () => playFolderItem(item).catch(error => notice(error.message, true))); actions.append(playFolder);
     }
+    if (playable(item) || isPlaylist(item)) {
+      const add = node('button', '+ Queue', 'queue-item');
+      add.setAttribute('aria-label', `Add ${item.Name} to queue`); add.title = `Add ${item.Name} to queue`;
+      add.addEventListener('click', () => enqueue(item).catch(error => notice(error.message, true))); actions.append(add);
+    }
     const favorite = node('button', item.UserData?.IsFavorite ? '★' : '☆'); favorite.setAttribute('aria-label', `${item.UserData?.IsFavorite ? 'Unfavorite' : 'Favorite'} ${item.Name}`); favorite.setAttribute('aria-pressed', String(Boolean(item.UserData?.IsFavorite)));
     favorite.addEventListener('click', () => toggleFavorite(item).catch(error => notice(error.message, true))); actions.append(favorite);
     if (currentRoute()[0] === 'resume') {
@@ -245,6 +261,7 @@ async function select(file) {
   $('detail-progress').textContent = position ? `Saved place: ${time(position / ticksPerSecond)}${selected.RunTimeTicks ? ` of ${time(selected.RunTimeTicks / ticksPerSecond)}` : ''}` : selected.UserData?.Played ? 'Finished' : 'Not started';
   $('play-button').hidden = !playable(selected) && !isPlaylist(selected); iconButton($('play-button'), 'play', position ? `Resume at ${time(position / ticksPerSecond)}` : 'Play', true);
   $('play-from-here').hidden = !playable(selected) || !currentFolder;
+  $('play-next').hidden = $('add-to-queue').hidden = !playable(selected) && !isPlaylist(selected);
   $('open-parent').hidden = !selected.ParentId;
   $('restart-button').hidden = !playable(selected) || !position;
   $('unsupported-note').hidden = playable(selected) || isPlaylist(selected) || selected.MediaType === 'Photo' || selected.IsFolder;
@@ -264,7 +281,7 @@ async function toggleFavorite(item) {
 }
 async function dismissContinue(id) {
   if (!id && !confirm('Clear Continue? Saved positions and favorites are kept. No files will be changed.')) return;
-  if (playback && (!id || sameId(playback.item.Id, id))) { ++playVersion; queue = null; renderQueue(); await stop(); }
+  if (playback && (!id || sameId(playback.item.Id, id))) { clearSleepTimer(); ++playVersion; queue = null; renderQueue(); await stop(); }
   await api(`Jigglefin/Continue${id ? `?itemId=${id}` : ''}`, { method: 'DELETE' });
   await route(); notice('Removed from Continue. Saved positions are kept; playing an item adds it again.');
 }
@@ -304,10 +321,30 @@ async function startQueue(items, { from = 0, shuffled = false, fromBeginning = f
   if (!items.length) throw new Error('There are no playable files in this selection.');
   const limited = items.length - from > maximumQueueItems;
   const original = items.slice(from, from + maximumQueueItems).map((item, index) => ({ ...item, queueKey: index }));
-  queue = { original, entries: [...original], index: 0, shuffled };
+  queue = { original, entries: [...original], index: 0, nextKey: original.length, shuffled };
   if (shuffled) shuffleRemaining(queue.entries, 0);
   await play(queue.entries[0], { fromBeginning });
   if (limited) notice(`Queue limited to the first ${maximumQueueItems} tracks. Open a smaller folder or use Play from here for the rest.`);
+}
+async function enqueue(item, next = false) {
+  const current = queue;
+  const items = isPlaylist(item) ? (await api(`Jigglefin/Playlists/${item.Id}`)).Items : [item];
+  if (current !== queue) throw new Error('The queue changed. Add this item again.');
+  if (!items.length) throw new Error('This playlist has no playable local files.');
+  if (!current) return startQueue(items);
+  cancelFolderRequest();
+  const available = maximumQueueItems - current.entries.length;
+  if (available <= 0) throw new Error(`The queue is full (${maximumQueueItems} tracks).`);
+  const added = items.slice(0, available).map(file => ({ ...file, queueKey: current.nextKey++ }));
+  if (next) {
+    const playing = current.entries[current.index];
+    current.entries.splice(current.index + 1, 0, ...added);
+    current.original.splice(current.original.findIndex(file => file.queueKey === playing.queueKey) + 1, 0, ...added);
+  } else {
+    current.entries.push(...added); current.original.push(...added);
+  }
+  renderQueue();
+  notice(`${added.length} ${added.length === 1 ? 'track' : 'tracks'} added ${next ? 'to play next' : 'to the queue'}.${added.length < items.length ? ` Queue limited to ${maximumQueueItems} tracks.` : ''}`);
 }
 function cancelFolderRequest() {
   folderRequest?.abort(); folderRequest = null; $('queue-build').hidden = true;
@@ -333,7 +370,7 @@ async function nextTrack(direction = 1, ended = false) {
   if (index < 0 || index >= current.entries.length) index = repeat === 'all' ? (index + current.entries.length) % current.entries.length : -1;
   const version = ++playVersion; await stop({ ended, refresh: index < 0 });
   if (current !== queue || version !== playVersion) return;
-  if (index < 0) { queue = null; renderQueue(); return; }
+  if (index < 0) { clearSleepTimer(); queue = null; renderQueue(); return; }
   current.index = index; await play(current.entries[index], { fromBeginning: true });
 }
 async function selectedPlay(fromBeginning = false) {
@@ -362,6 +399,26 @@ function report(context, type, { ended = false, keepalive = false } = {}) {
   const body = reportBody(context, ended);
   reportQueue = reportQueue.catch(() => {}).then(() => api(`Sessions/Playing${type ? '/' + type : ''}`, { method: 'POST', body, accessToken: context.token, keepalive }));
   return reportQueue.then(() => { if (playback === context || !playback) $('save-status').textContent = `Place saved at ${time(body.PositionTicks / ticksPerSecond)}`; }, error => { $('save-status').textContent = 'Place not saved'; notice(`Could not save your place: ${error.message}`, true); throw error; });
+}
+function clearSleepTimer() {
+  clearTimeout(sleepTimeout); sleepTimeout = null; sleepDeadline = 0;
+  $('sleep-mode').value = 'off'; $('sleep-status').textContent = '';
+}
+async function expireSleepTimer(ended = false) {
+  clearSleepTimer(); cancelFolderRequest(); ++playVersion; queue = null; renderQueue();
+  await stop({ ended, refresh: true });
+  notice('Sleep timer stopped playback. Your place was saved.');
+}
+function armSleepTimer() {
+  clearTimeout(sleepTimeout); sleepTimeout = null; sleepDeadline = 0;
+  const mode = $('sleep-mode').value;
+  if (mode === 'track') $('sleep-status').textContent = 'Stops after this track';
+  else if (mode === 'off') $('sleep-status').textContent = '';
+  else {
+    sleepDeadline = Date.now() + Number(mode) * 60_000;
+    $('sleep-status').textContent = `Stops at ${new Date(sleepDeadline).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })}`;
+    sleepTimeout = setTimeout(() => expireSleepTimer().catch(error => notice(error.message, true)), Number(mode) * 60_000);
+  }
 }
 async function stop({ ended = false, refresh = false } = {}) {
   const context = playback; if (!context) return;
@@ -436,8 +493,11 @@ player.addEventListener('pause', () => { iconButton($('pause-button'), 'play', '
 player.addEventListener('play', () => { iconButton($('pause-button'), 'pause', 'Pause'); });
 player.addEventListener('seeked', () => { if (playback?.ready) { playback.position = player.currentTime; report(playback, 'Progress').catch(() => {}); } });
 player.addEventListener('error', () => { if (playback) notice('The browser could not play this stream. Try Convert for a browser-friendly local stream; your saved place is kept.', true); });
-player.addEventListener('ended', () => { if (playback?.ready) nextTrack(1, true).catch(error => notice(error.message, true)); });
-document.addEventListener('visibilitychange', () => { if (document.hidden && playback?.ready) report(playback, 'Progress', { keepalive: true }).catch(() => {}); });
+player.addEventListener('ended', () => { if (playback?.ready) ($('sleep-mode').value === 'track' ? expireSleepTimer(true) : nextTrack(1, true)).catch(error => notice(error.message, true)); });
+document.addEventListener('visibilitychange', () => {
+  if (sleepDeadline && Date.now() >= sleepDeadline) expireSleepTimer().catch(error => notice(error.message, true));
+  else if (document.hidden && playback?.ready) report(playback, 'Progress', { keepalive: true }).catch(() => {});
+});
 window.addEventListener('pagehide', () => { if (playback?.ready) report(playback, 'Progress', { keepalive: true }).catch(() => {}); });
 
 async function showSettings(version = routeVersion) {
@@ -445,7 +505,8 @@ async function showSettings(version = routeVersion) {
   $('settings-title').textContent = onboarding ? 'Choose your folders' : 'Settings';
   $('settings-kind').textContent = onboarding ? 'SETUP · 2 OF 2' : 'JUST THE ESSENTIALS';
   $('setup-next').hidden = !onboarding;
-  for (const id of ['account-settings', 'access-settings', 'cache-settings']) $(id).hidden = onboarding;
+  for (const id of ['account-settings', 'appearance-settings', 'access-settings', 'cache-settings']) $(id).hidden = onboarding;
+  $('theme-select').value = theme;
   $('admin-settings').hidden = !me.Policy.IsAdministrator;
   if (!me.Policy.IsAdministrator) return;
   [configuredRoots, accounts] = await Promise.all([api('Library/VirtualFolders'), api('Users')]); if (version !== routeVersion) return;
@@ -533,15 +594,17 @@ on('auth-form', 'submit', async () => {
   setToken(login.AccessToken); await enter();
 });
 on('signout-button', 'click', async () => {
-  cancelFolderRequest();
+  cancelFolderRequest(); clearSleepTimer();
   ++playVersion; queue = null; renderQueue(); await stop(); await api('Sessions/Logout', { method: 'POST' }); setToken(null); me = null; selected = null; currentItems = [];
   $('username').value = ''; notice(''); showAuth(false);
 });
 on('settings-button', 'click', () => { location.hash = '#/settings'; });
+on('theme-select', 'change', () => { applyTheme($('theme-select').value); notice(`${$('theme-select').selectedOptions[0].textContent} theme selected for this browser.`); });
 on('reload-button', 'click', () => route());
 on('file-search', 'input', () => renderList()); on('file-sort', 'change', () => renderList());
 on('close-details', 'click', () => { ++selectionVersion; selected = null; $('details').hidden = true; renderList(); });
 on('play-button', 'click', () => selectedPlay()); on('restart-button', 'click', () => selectedPlay(true));
+on('play-next', 'click', () => enqueue(selected, true)); on('add-to-queue', 'click', () => enqueue(selected));
 on('play-from-here', 'click', () => { const items = folderQueue(), index = items.findIndex(item => sameId(item.Id, selected.Id)); if (index < 0) throw new Error('The selected file is not in the displayed order.'); return startQueue(items, { from: index }); });
 on('folder-play', 'click', () => startQueue(folderQueue())); on('folder-shuffle', 'click', () => startQueue(folderQueue(), { shuffled: true }));
 on('playlist-select', 'change', () => loadPlaylist());
@@ -549,10 +612,11 @@ on('favorite-button', 'click', () => toggleFavorite(selected)); on('folder-favor
 on('open-parent', 'click', () => { location.hash = `#/folder/${selected.ParentId}/${selected.Id}`; });
 on('clear-continue', 'click', () => dismissContinue());
 on('cancel-folder-play', 'click', () => { cancelFolderRequest(); notice('Folder queue cancelled.'); });
-on('stop-button', 'click', async () => { cancelFolderRequest(); ++playVersion; queue = null; renderQueue(); await stop({ refresh: true }); });
+on('stop-button', 'click', async () => { cancelFolderRequest(); clearSleepTimer(); ++playVersion; queue = null; renderQueue(); await stop({ refresh: true }); });
 on('pause-button', 'click', async () => { if (!playback?.ready) return; if (player.paused) await player.play(); else player.pause(); });
 on('previous-button', 'click', () => nextTrack(-1)); on('next-button', 'click', () => nextTrack());
 on('repeat-mode', 'change', () => renderQueue());
+on('sleep-mode', 'change', () => armSleepTimer());
 on('shuffle-button', 'click', () => {
   if (!queue) return;
   const playing = queue.entries[queue.index]; queue.shuffled = !queue.shuffled;
@@ -568,6 +632,14 @@ on('audio-select', 'change', () => { if (playback) return play(playback.item, { 
 on('subtitle-select', 'change', () => {
   if (!playback) return; playback.subtitleIndex = Number($('subtitle-select').value);
   for (const track of player.querySelectorAll('track')) track.track.mode = Number(track.dataset.index) === playback.subtitleIndex ? 'showing' : 'disabled';
+});
+document.addEventListener('keydown', event => {
+  if (!playback?.ready || event.defaultPrevented || event.repeat || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
+  if (event.target instanceof Element && event.target.closest('input,textarea,select,dialog,[contenteditable],video')) return;
+  if (event.code === 'Space' && event.target instanceof Element && event.target.closest('button,a,summary')) return;
+  const id = { Space: 'pause-button', KeyK: 'pause-button', ArrowLeft: 'back-button', ArrowRight: 'forward-button', KeyN: 'next-button', KeyP: 'previous-button' }[event.code];
+  if (!id || $(id).disabled) return;
+  event.preventDefault(); $(id).click();
 });
 on('root-form', 'submit', async () => {
   const paths = $('root-paths').value.split(/\r?\n/).map(path => path.trim()).filter(Boolean);
@@ -602,7 +674,7 @@ if (typeof window.NativeInterface?.exitApp === 'function') {
   window.NavigationHelper = {
     goBack() {
       (async () => {
-        if (playback) { ++playVersion; queue = null; renderQueue(); await stop({ refresh: true }); }
+        if (playback) { clearSleepTimer(); ++playVersion; queue = null; renderQueue(); await stop({ refresh: true }); }
         else if (selected) { ++selectionVersion; selected = null; $('details').hidden = true; renderList(); }
         else if (currentRoute().length) {
           location.hash = currentRoute()[0] === 'folder' ? [...$('breadcrumbs').querySelectorAll('a')].at(-1)?.hash || '#/' : '#/';

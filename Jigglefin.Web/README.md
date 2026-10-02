@@ -47,6 +47,9 @@ any attempt. This is browser evidence, not proof of the complete server/helper o
 
 - Setup includes a server-side folder picker; no path typing is required. The picker
   lists drive letters without probing disconnected drives, and opens only your chosen directory.
+- Settings offers three complete, bundled themes: Night, Day and High contrast. The
+  selection is saved only in this browser and also covers sign-in, browsing, settings
+  and playback. No remote stylesheet, server preference or metadata is involved.
 - Folders, Continue and Favorites navigation. Star any file/folder to keep a shortcut;
   a file shortcut opens its parent and selects it. Continue supports individual removal
   and Clear; dismissal keeps the bookmark/favorite and playback adds it again.
@@ -70,6 +73,17 @@ any attempt. This is browser evidence, not proof of the complete server/helper o
   it cannot interrupt an operating-system call stalled on an unavailable share.
 - Direct browser playback and local HLS conversion, local text subtitles, audio-track choice,
   playback speed, seek controls, and durable resume after cache clear and restart.
+- Add a playable file or local playlist to the end of the current queue from its row;
+  selected items also offer Play next and Add to queue. If nothing is playing, Add to
+  queue starts playback. The existing 500-track cap still applies, and duplicate
+  playlist references remain intentional. This queue stays in the browser session.
+- Sleep after the current track or after 15, 30 or 60 minutes. Expiry stops playback
+  through the same bookmark-saving path as Stop, even when repeat is enabled. The
+  timer is session-local; closing the browser cancels it, and manually stopping
+  playback clears it. Browser background throttling can delay a wall-clock timer.
+- Keyboard shortcuts while the player is active: Space/K pause or play, left/right
+  arrows skip 30 seconds, and N/P move to the next or previous track. Shortcuts
+  ignore text inputs, menus, dialogs, modified key combinations and held-key repeats.
 - Convert requests a browser-friendly stream from this server (local conversion can use
   more CPU). Direct returns to normal negotiation. Stop automatically saves your position.
 - Accounts with explicit folder access; new accounts start with no accessible media.
