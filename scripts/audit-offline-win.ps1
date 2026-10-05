@@ -1,10 +1,11 @@
 [CmdletBinding()]
 param(
-    [string]$AuditPython = (Join-Path $PSScriptRoot '../publish/offline-audit-venv/Scripts/python.exe'),
+    [string]$AuditPython,
     [string]$PackageDirectory
 )
 $ErrorActionPreference = 'Stop'
 $repository = Split-Path -Parent $PSScriptRoot
+if (-not $AuditPython) { $AuditPython = Join-Path $repository 'publish/offline-audit-venv/Scripts/python.exe' }
 $python = (Resolve-Path -LiteralPath $AuditPython).Path
 $dotnet = Join-Path $env:LOCALAPPDATA 'Microsoft/dotnet/dotnet.exe'
 $control = Join-Path $repository 'tests/OfflineNetworkAudit/Control'

@@ -15,12 +15,12 @@ foreach ($name in @('jellyfin.exe', 'Start-Jigglefin.ps1', 'ffmpeg.exe', 'ffprob
 $webPath = Join-Path $packagePath 'jellyfin-web'
 $manifest = Get-Content -LiteralPath (Join-Path $webPath 'jigglefin-web.manifest.json') -Raw | ConvertFrom-Json
 if ($manifest.name -ne 'Jigglefin folder browser' -or $manifest.offline -ne $true -or
-    @($manifest.files.PSObject.Properties).Count -ne 6 -or
-    @(Get-ChildItem -LiteralPath $webPath -File -Recurse).Count -ne 7) {
-    throw 'The package must contain only the six offline web assets and their manifest.'
+    @($manifest.files.PSObject.Properties).Count -ne 9 -or
+    @(Get-ChildItem -LiteralPath $webPath -File -Recurse).Count -ne 10) {
+    throw 'The package must contain only the nine offline web assets and their manifest.'
 }
 foreach ($property in $manifest.files.PSObject.Properties) {
-    if ($property.Name -notin @('index.html', 'app.css', 'main.jigglefin.bundle.js', 'logo.png', 'hls.min.js', 'HLS-LICENSE') -or
+    if ($property.Name -notin @('index.html', 'app.css', 'main.jigglefin.bundle.js', 'logo.png', 'hls.min.js', 'HLS-LICENSE', 'wallpapers/blue-current.svg', 'wallpapers/bloom-blueprint.svg', 'wallpapers/garden-lines.svg') -or
         (Get-FileHash -LiteralPath (Join-Path $webPath $property.Name) -Algorithm SHA256).Hash -ne $property.Value) {
         throw "Packaged web asset verification failed: $($property.Name)"
     }

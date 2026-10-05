@@ -1012,3 +1012,25 @@ Verification for this pass:
   Desktop Day and 390-pixel mobile High contrast screenshots were visually reviewed.
 
 No installed server/profile, user drive mapping, or `Z:\Media` files were changed.
+
+## Expanded browser-local themes and backgrounds (2026-10-04)
+
+The original three themes remain available. Dracula, Perfect Blue, p(bloom), and
+Evergarden Winter/Fall/Spring/Summer add seven more fixed, bundled palettes. Each
+theme can supply a CSS gradient and a locally bundled, original SVG wallpaper;
+the browser-local Background choice selects wallpaper + gradient, gradient only,
+or solid color. High contrast is always solid. No stylesheet URL, custom file
+upload, remote image service, media metadata, server profile or Jellyfin API
+state is involved. The Windows package manifest hashes and allowlists all nine
+offline assets, including the three wallpaper SVGs.
+
+Verification: source headless browser and packaged native-offline runs passed all
+ten themes, background modes, persistence, wallpaper loading, mobile layout and
+existing playback checks. The browser attempted no external requests; the native
+audit's managed/native positive controls passed. The catalog-era ZIP upgrade
+passed with playback resume intact. Desktop p(bloom) and mobile Evergarden Summer
+screenshots were visually reviewed. The portable archive is
+`publish/Jigglefin-wallpapers-20261004.zip` (SHA-256
+`7EE16B20E38B9250D47043C6DDC32186CC5759D68DA012CE9AB54E9437823B82`).
+All tests used temporary profiles and generated media, never `Z:\Media` or the
+installed server.

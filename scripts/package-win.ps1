@@ -1,6 +1,6 @@
 [CmdletBinding()]
 param(
-    [string]$WebDistPath = (Join-Path $PSScriptRoot '../Jigglefin.Web/dist'),
+    [string]$WebDistPath,
 
     [Parameter(Mandatory = $true)]
     [string]$FfmpegDirectory,
@@ -11,6 +11,7 @@ param(
 $ErrorActionPreference = 'Stop'
 
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
+if (-not $WebDistPath) { $WebDistPath = Join-Path $repositoryRoot 'Jigglefin.Web/dist' }
 $webDist = (Resolve-Path -LiteralPath $WebDistPath -ErrorAction Stop).Path
 $ffmpegSource = (Resolve-Path -LiteralPath $FfmpegDirectory -ErrorAction Stop).Path
 
@@ -19,7 +20,7 @@ if (-not (Test-Path -LiteralPath $manifestPath)) {
     throw 'Build the offline folder UI first: cd Jigglefin.Web; npm ci --ignore-scripts --no-audit --no-fund; npm run build. The old Jellyfin Web build is not supported.'
 }
 $manifest = Get-Content -LiteralPath $manifestPath -Raw | ConvertFrom-Json
-$webFiles = @('index.html', 'app.css', 'main.jigglefin.bundle.js', 'logo.png', 'hls.min.js', 'HLS-LICENSE')
+$webFiles = @('index.html', 'app.css', 'main.jigglefin.bundle.js', 'logo.png', 'hls.min.js', 'HLS-LICENSE', 'wallpapers/blue-current.svg', 'wallpapers/bloom-blueprint.svg', 'wallpapers/garden-lines.svg')
 if ($manifest.name -ne 'Jigglefin folder browser' -or $manifest.offline -ne $true -or
     @($manifest.files.PSObject.Properties).Count -ne $webFiles.Count) {
     throw 'The web manifest is not a supported offline Jigglefin folder build.'
@@ -72,7 +73,10 @@ if ($LASTEXITCODE -ne 0) {
 $packagedWeb = New-Item -ItemType Directory -Path (Join-Path $outputPath 'jellyfin-web')
 # Copy only manifest-listed files, never stale vendor files or a CDN configuration.
 foreach ($webFile in $webFiles + @('jigglefin-web.manifest.json')) {
-    Copy-Item -LiteralPath (Join-Path $webDist $webFile) -Destination (Join-Path $packagedWeb.FullName $webFile)
+    $destination = Join-Path $packagedWeb.FullName $webFile
+    $parent = Split-Path -Parent $destination
+    if (-not (Test-Path -LiteralPath $parent)) { New-Item -ItemType Directory -Path $parent | Out-Null }
+    Copy-Item -LiteralPath (Join-Path $webDist $webFile) -Destination $destination
 }
 Copy-Item -LiteralPath (Join-Path $PSScriptRoot 'start-win.ps1') -Destination (Join-Path $outputPath 'Start-Jigglefin.ps1')
 Copy-Item -LiteralPath (Join-Path $repositoryRoot 'README-PORTABLE.md') -Destination (Join-Path $outputPath 'README-PORTABLE.md')

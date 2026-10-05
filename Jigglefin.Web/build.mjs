@@ -8,8 +8,12 @@ const output = path.join(root, 'dist');
 await mkdir(output, { recursive: true });
 // Stock Jellyfin Android recognizes this filename as its WebView-ready signal.
 // The content is still our small offline client, not Jellyfin's catalog UI.
-const files = ['index.html', 'app.css', 'main.jigglefin.bundle.js'];
-for (const name of files) await copyFile(path.join(root, 'public', name === 'main.jigglefin.bundle.js' ? 'app.js' : name), path.join(output, name));
+const files = ['index.html', 'app.css', 'main.jigglefin.bundle.js', 'wallpapers/blue-current.svg', 'wallpapers/bloom-blueprint.svg', 'wallpapers/garden-lines.svg'];
+for (const name of files) {
+  const destination = path.join(output, name);
+  await mkdir(path.dirname(destination), { recursive: true });
+  await copyFile(path.join(root, 'public', name === 'main.jigglefin.bundle.js' ? 'app.js' : name), destination);
+}
 await rm(path.join(output, 'app.js'), { force: true }); // Obsolete generated asset only.
 await copyFile(path.join(root, '..', 'branding', 'jigglefin-256.png'), path.join(output, 'logo.png'));
 await copyFile(path.join(root, 'node_modules', 'hls.js', 'LICENSE'), path.join(output, 'HLS-LICENSE'));

@@ -47,9 +47,20 @@ any attempt. This is browser evidence, not proof of the complete server/helper o
 
 - Setup includes a server-side folder picker; no path typing is required. The picker
   lists drive letters without probing disconnected drives, and opens only your chosen directory.
-- Settings offers three complete, bundled themes: Night, Day and High contrast. The
-  selection is saved only in this browser and also covers sign-in, browsing, settings
-  and playback. No remote stylesheet, server preference or metadata is involved.
+- Settings offers ten bundled themes: Night, Day, High contrast, Dracula,
+  Perfect Blue, p(bloom), and Evergarden Winter/Fall/Spring/Summer. Choose theme
+  wallpaper + gradient, gradient only, or a solid color. The wallpapers are
+  original local SVG assets, not downloaded artwork. Both choices are saved only
+  in this browser and cover sign-in, browsing, settings and playback. No remote
+  stylesheet, server preference or metadata is involved.
+
+The named palettes are Jigglefin adaptations, not official ports or copies of
+upstream artwork: [Dracula's specification](https://draculatheme.com/spec),
+[Perfect Blue](https://github.com/wu-json/perfect-blue.nvim),
+[p(bloom)](https://github.com/ncr/omarchy-p-bloom-theme), and
+[Evergarden](https://github.com/evergardentheme/nvim). The three SVG wallpapers
+are original to Jigglefin. The background selector can suppress decorative art
+without changing the palette; High contrast always remains solid.
 - Folders, Continue and Favorites navigation. Star any file/folder to keep a shortcut;
   a file shortcut opens its parent and selects it. Continue supports individual removal
   and Clear; dismissal keeps the bookmark/favorite and playback adds it again.

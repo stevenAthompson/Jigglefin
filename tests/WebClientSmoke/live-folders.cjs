@@ -345,9 +345,33 @@ async function main() {
   await page.screenshot({ path: path.join(fixture, 'theme-contrast-mobile.png'), fullPage: true });
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.getByRole('button', { name: 'Settings', exact: true }).click();
+  for (const [name, color] of Object.entries({ dracula: '#282a36', 'perfect-blue': '#080b16', bloom: '#090d16', 'evergarden-winter': '#1e2528', 'evergarden-fall': '#232a2e', 'evergarden-spring': '#2b3438', 'evergarden-summer': '#f5efe6' })) {
+    await page.getByLabel('Theme', { exact: true }).selectOption(name);
+    assert.equal(await page.locator('html').getAttribute('data-theme'), name);
+    assert.equal(await page.locator('meta[name="theme-color"]').getAttribute('content'), color);
+    const image = await page.evaluate(() => getComputedStyle(document.body).backgroundImage);
+    assert.match(image, /gradient/, `${name} should provide a gradient background`);
+    if (['perfect-blue', 'bloom', 'evergarden-winter', 'evergarden-fall', 'evergarden-spring', 'evergarden-summer'].includes(name)) assert.match(image, /wallpapers\//, `${name} should use a bundled wallpaper`);
+  }
+  await page.getByLabel('Theme', { exact: true }).selectOption('bloom');
+  await page.screenshot({ path: path.join(fixture, 'theme-bloom-desktop.png'), fullPage: true });
+  await page.getByLabel('Background', { exact: true }).selectOption('gradient');
+  assert.doesNotMatch(await page.evaluate(() => getComputedStyle(document.body).backgroundImage), /wallpapers\//);
+  await page.getByLabel('Background', { exact: true }).selectOption('solid');
+  assert.equal(await page.evaluate(() => getComputedStyle(document.body).backgroundImage), 'none');
+  await page.getByLabel('Background', { exact: true }).selectOption('art');
+  await page.getByLabel('Theme', { exact: true }).selectOption('evergarden-summer');
+  await page.setViewportSize({ width: 390, height: 844 });
+  assert.ok(await page.evaluate(() => document.documentElement.scrollWidth <= innerWidth), 'Evergarden Summer mobile layout must fit.');
+  await page.screenshot({ path: path.join(fixture, 'theme-evergarden-summer-mobile.png'), fullPage: true });
+  await page.reload(); await page.getByRole('heading', { name: 'Settings', exact: true }).waitFor();
+  assert.equal(await page.getByLabel('Theme', { exact: true }).inputValue(), 'evergarden-summer');
+  assert.equal(await page.getByLabel('Background', { exact: true }).inputValue(), 'art');
+  for (const name of ['blue-current.svg', 'bloom-blueprint.svg', 'garden-lines.svg']) assert.ok((await page.evaluate(async path => (await fetch(`wallpapers/${path}`)).ok, name)), `Bundled wallpaper ${name} should load locally.`);
+  await page.setViewportSize({ width: 1440, height: 1000 });
   await page.getByLabel('Theme', { exact: true }).selectOption('night');
   await page.locator('.sidebar').getByRole('link', { name: 'Test Media', exact: true }).click();
-  console.log('Night, Day and High contrast themes, persistence, and mobile layout passed.');
+  console.log('All ten themes, local wallpapers, background modes, persistence, and mobile layout passed.');
   await page.getByRole('button', { name: 'Play folder Tree', exact: true }).waitFor();
   assert.ok(!requests.some(url => /Jigglefin\/Folders\/[^/]+\/Queue/.test(url)), 'Normal navigation must not build recursive queues.');
   const parentHash = new URL(page.url()).hash;

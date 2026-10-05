@@ -19,16 +19,26 @@ let currentFolder = null, playlistItems = [], playlistVersion = 0, queue = null,
 const maximumQueueItems = 500;
 let folderRequest = null;
 let sleepDeadline = 0, sleepTimeout = null;
-const themes = new Set(['night', 'day', 'contrast']);
+const themeColors = { night: '#131b21', day: '#f4f7f4', contrast: '#000000', dracula: '#282a36', 'perfect-blue': '#080b16', bloom: '#090d16', 'evergarden-winter': '#1e2528', 'evergarden-fall': '#232a2e', 'evergarden-spring': '#2b3438', 'evergarden-summer': '#f5efe6' };
+const themes = new Set(Object.keys(themeColors));
+const backdrops = new Set(['art', 'gradient', 'solid']);
 let theme = themes.has(localStorage.getItem(storageKey + 'theme')) ? localStorage.getItem(storageKey + 'theme') : 'night';
+let backdrop = backdrops.has(localStorage.getItem(storageKey + 'backdrop')) ? localStorage.getItem(storageKey + 'backdrop') : 'art';
 function applyTheme(value) {
   if (!themes.has(value)) return;
   theme = value; document.documentElement.dataset.theme = value;
   $('theme-select').value = value;
-  document.querySelector('meta[name="theme-color"]').content = { night: '#131b21', day: '#f4f7f4', contrast: '#000000' }[value];
+  document.querySelector('meta[name="theme-color"]').content = themeColors[value];
   localStorage.setItem(storageKey + 'theme', value);
 }
+function applyBackdrop(value) {
+  if (!backdrops.has(value)) return;
+  backdrop = value; document.documentElement.dataset.backdrop = value;
+  $('backdrop-select').value = value;
+  localStorage.setItem(storageKey + 'backdrop', value);
+}
 applyTheme(theme);
+applyBackdrop(backdrop);
 const player = $('player');
 player.disableRemotePlayback = true;
 
@@ -507,6 +517,7 @@ async function showSettings(version = routeVersion) {
   $('setup-next').hidden = !onboarding;
   for (const id of ['account-settings', 'appearance-settings', 'access-settings', 'cache-settings']) $(id).hidden = onboarding;
   $('theme-select').value = theme;
+  $('backdrop-select').value = backdrop;
   $('admin-settings').hidden = !me.Policy.IsAdministrator;
   if (!me.Policy.IsAdministrator) return;
   [configuredRoots, accounts] = await Promise.all([api('Library/VirtualFolders'), api('Users')]); if (version !== routeVersion) return;
@@ -600,6 +611,7 @@ on('signout-button', 'click', async () => {
 });
 on('settings-button', 'click', () => { location.hash = '#/settings'; });
 on('theme-select', 'change', () => { applyTheme($('theme-select').value); notice(`${$('theme-select').selectedOptions[0].textContent} theme selected for this browser.`); });
+on('backdrop-select', 'change', () => { applyBackdrop($('backdrop-select').value); notice(`${$('backdrop-select').selectedOptions[0].textContent} background selected for this browser.`); });
 on('reload-button', 'click', () => route());
 on('file-search', 'input', () => renderList()); on('file-sort', 'change', () => renderList());
 on('close-details', 'click', () => { ++selectionVersion; selected = null; $('details').hidden = true; renderList(); });
