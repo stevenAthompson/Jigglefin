@@ -29,4 +29,22 @@ public sealed class EncodingUtilsTests
     [InlineData("-i file:\"W:\\Selected.mp4\" -i file:\"W:\\Selected.mp4\"")]
     public void BindFileInput_FailsClosedOnUnexpectedOrAmbiguousCommands(string arguments)
         => Assert.Throws<InvalidDataException>(() => EncodingUtils.BindFileInput(arguments, @"W:\Selected.mp4", @"C:\Pinned\Selected.mp4"));
+
+    [Fact]
+    public void BindDvdInput_ReplacesOnlyTheSelectedIso()
+    {
+        const string Logical = @"W:\Movies\Disc.iso";
+        const string ReadPath = @"\\?\Volume{11111111-2222-3333-4444-555555555555}\Movies\Disc.iso";
+        var args = $"-protocol_whitelist file -format_whitelist dvdvideo,mpeg,mpegvideo -f dvdvideo -title 1 -i {EncodingUtils.GetDvdInputArgument(Logical)} -t 2 -f null NUL";
+        var expected = $"-protocol_whitelist file -format_whitelist dvdvideo,mpeg,mpegvideo -f dvdvideo -title 1 -i {EncodingUtils.GetDvdInputArgument(ReadPath)} -t 2 -f null NUL";
+        Assert.Equal(expected, EncodingUtils.BindDvdInput(args, Logical, ReadPath));
+    }
+
+    [Theory]
+    [InlineData("-version")]
+    [InlineData("-i \"W:\\Other.iso\"")]
+    [InlineData("-i \"W:\\Movies\\Disc.iso\"suffix")]
+    [InlineData("-i \"W:\\Movies\\Disc.iso\" -i \"W:\\Movies\\Disc.iso\"")]
+    public void BindDvdInput_FailsClosedOnUnexpectedOrAmbiguousCommands(string arguments)
+        => Assert.Throws<InvalidDataException>(() => EncodingUtils.BindDvdInput(arguments, @"W:\Movies\Disc.iso", @"C:\Pinned\Disc.iso"));
 }

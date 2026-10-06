@@ -100,6 +100,11 @@ public sealed class LiveItemService : ILiveItemService, IDisposable
         item.Size = entry.File.Length;
         item.ParentId = entry.ParentId is null || (library.Roots.Count == 1 && entry.ParentId.Value.Equals(entry.RootId)) ? library.Id : entry.ParentId.Value;
         item.LiveContext = new LiveItemContext(library, entry);
+        if (item is Video video && Path.GetExtension(entry.Name).Equals(".iso", StringComparison.OrdinalIgnoreCase))
+        {
+            video.VideoType = VideoType.Iso;
+        }
+
         if (_cache.TryGetValue<MediaInfo>(ProbeKey(entry), out var probe) && probe is not null)
         {
             ApplyProbe(item, Clone(probe));
@@ -209,9 +214,10 @@ public sealed class LiveItemService : ILiveItemService, IDisposable
         {
             if (!_cache.TryGetValue<MediaInfo>(key, out var probe) || probe is null)
             {
+                var dvdIso = Path.GetExtension(entry.Name).Equals(".iso", StringComparison.OrdinalIgnoreCase);
                 probe = await _encoder.GetMediaInfo(new MediaInfoRequest
                 {
-                    MediaSource = new MediaSourceInfo { Path = inputLease.ReadPath, Protocol = MediaProtocol.File, VideoType = VideoType.VideoFile },
+                    MediaSource = new MediaSourceInfo { Path = inputLease.ReadPath, Protocol = MediaProtocol.File, VideoType = dvdIso ? VideoType.Iso : VideoType.VideoFile, IsoType = dvdIso ? IsoType.Dvd : null },
                     MediaType = item.MediaType == MediaType.Audio ? DlnaProfileType.Audio : DlnaProfileType.Video,
                     ExtractChapters = true
                 }, cancellationToken).ConfigureAwait(false);
@@ -223,6 +229,12 @@ public sealed class LiveItemService : ILiveItemService, IDisposable
                 probe.Size = entry.File.Length;
                 probe.Name = entry.Name;
                 probe.ETag = key;
+                if (dvdIso)
+                {
+                    probe.IsoType = IsoType.Dvd;
+                    probe.SupportsDirectPlay = false;
+                    probe.SupportsDirectStream = false;
+                }
                 probe.RequiredHttpHeaders.Clear();
                 _cache.Set(key, probe, CacheOptions());
             }
@@ -399,7 +411,8 @@ public sealed class LiveItemService : ILiveItemService, IDisposable
         item.LiveContext.Chapters = probe.Chapters;
         if (item is Video video)
         {
-            video.VideoType = VideoType.VideoFile;
+            video.VideoType = probe.VideoType ?? VideoType.VideoFile;
+            video.IsoType = probe.IsoType;
             video.Width = probe.MediaStreams.FirstOrDefault(stream => stream.Type == MediaStreamType.Video)?.Width ?? 0;
             video.Height = probe.MediaStreams.FirstOrDefault(stream => stream.Type == MediaStreamType.Video)?.Height ?? 0;
         }

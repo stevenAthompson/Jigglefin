@@ -5,6 +5,9 @@ param(
     [Parameter(Mandatory = $true)]
     [string]$FfmpegDirectory,
 
+    [Parameter(Mandatory = $true)]
+    [string]$DvdToolsDirectory,
+
     [string]$OutputDirectory = 'publish/Jigglefin-win-x64'
 )
 
@@ -14,6 +17,7 @@ $repositoryRoot = Split-Path -Parent $PSScriptRoot
 if (-not $WebDistPath) { $WebDistPath = Join-Path $repositoryRoot 'Jigglefin.Web/dist' }
 $webDist = (Resolve-Path -LiteralPath $WebDistPath -ErrorAction Stop).Path
 $ffmpegSource = (Resolve-Path -LiteralPath $FfmpegDirectory -ErrorAction Stop).Path
+$dvdToolsSource = (Resolve-Path -LiteralPath $DvdToolsDirectory -ErrorAction Stop).Path
 
 $manifestPath = Join-Path $webDist 'jigglefin-web.manifest.json'
 if (-not (Test-Path -LiteralPath $manifestPath)) {
@@ -36,6 +40,11 @@ foreach ($requiredFile in $webFiles) {
 foreach ($requiredFile in @('ffmpeg.exe', 'ffprobe.exe', 'FFMPEG-LICENSE.md', 'FFMPEG-COPYING.GPLv3')) {
     if (-not (Test-Path -LiteralPath (Join-Path $ffmpegSource $requiredFile))) {
         throw "The prepared Jellyfin FFmpeg directory is missing $requiredFile in $ffmpegSource"
+    }
+}
+foreach ($requiredFile in @('dvd-ffmpeg.exe', 'dvd-ffprobe.exe', 'dvdcss-2.dll', 'DVD-FFMPEG-COPYING.GPLv3', 'DVD-FFMPEG-README.txt', 'LIBDVDCSS-COPYING.GPLv2', 'LIBDVDCSS-SOURCE.tar.xz')) {
+    if (-not (Test-Path -LiteralPath (Join-Path $dvdToolsSource $requiredFile) -PathType Leaf)) {
+        throw "The prepared DVD tools directory is missing $requiredFile in $dvdToolsSource"
     }
 }
 
@@ -87,6 +96,10 @@ Copy-Item -LiteralPath (Join-Path $webDist 'HLS-LICENSE') -Destination (Join-Pat
 foreach ($ffmpegFile in @('ffmpeg.exe', 'ffprobe.exe', 'FFMPEG-LICENSE.md', 'FFMPEG-COPYING.GPLv3')) {
     Copy-Item -LiteralPath (Join-Path $ffmpegSource $ffmpegFile) -Destination (Join-Path $outputPath $ffmpegFile)
 }
+foreach ($dvdFile in @('dvd-ffmpeg.exe', 'dvd-ffprobe.exe', 'dvdcss-2.dll', 'DVD-FFMPEG-COPYING.GPLv3', 'DVD-FFMPEG-README.txt', 'LIBDVDCSS-COPYING.GPLv2', 'LIBDVDCSS-SOURCE.tar.xz')) {
+    Copy-Item -LiteralPath (Join-Path $dvdToolsSource $dvdFile) -Destination (Join-Path $outputPath $dvdFile)
+}
+Copy-Item -LiteralPath (Join-Path $repositoryRoot 'DVD-COMPONENTS.md') -Destination (Join-Path $outputPath 'DVD-COMPONENTS.md')
 
 Compress-Archive -LiteralPath $outputPath -DestinationPath $archivePath -CompressionLevel Optimal
 

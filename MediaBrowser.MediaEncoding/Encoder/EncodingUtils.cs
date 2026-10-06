@@ -28,6 +28,25 @@ namespace MediaBrowser.MediaEncoding.Encoder
             return string.Concat(arguments.AsSpan(0, index), "-i " + GetInputArgument("file", readPath, MediaProtocol.File), arguments.AsSpan(end));
         }
 
+        /// <summary>Rebinds one DVD-Video ISO input without accepting another native input.</summary>
+        public static string BindDvdInput(string arguments, string logicalPath, string readPath)
+        {
+            var original = "-i " + GetDvdInputArgument(logicalPath);
+            var index = arguments.IndexOf(original, StringComparison.Ordinal);
+            var end = index + original.Length;
+            if (index < 0 || (index > 0 && !char.IsWhiteSpace(arguments[index - 1]))
+                || (end < arguments.Length && !char.IsWhiteSpace(arguments[end]))
+                || arguments.IndexOf(original, end, StringComparison.Ordinal) >= 0)
+            {
+                throw new InvalidDataException("The native command must contain exactly one selected DVD ISO input.");
+            }
+
+            return string.Concat(arguments.AsSpan(0, index), "-i " + GetDvdInputArgument(readPath), arguments.AsSpan(end));
+        }
+
+        public static string GetDvdInputArgument(string path)
+            => '"' + path.EscapeProcessArgument() + '"';
+
         public static string GetInputArgument(string inputPrefix, string inputFile, MediaProtocol protocol)
         {
             if (protocol != MediaProtocol.File)

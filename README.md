@@ -41,8 +41,10 @@ they never trigger a recursive scan to imitate a catalog.
 
 ## Try a development Windows package
 
-The portable ZIP includes the .NET runtime, the offline folder UI and prepared
-Jellyfin FFmpeg/FFprobe. It does not require a separate runtime or encoder install.
+The portable ZIP includes the .NET runtime, the offline folder UI, prepared
+Jellyfin FFmpeg/FFprobe, and separate DVD-Video helpers. It does not require a
+separate runtime or encoder install. DVD title playback and its limits are
+documented in [DVD-COMPONENTS.md](DVD-COMPONENTS.md).
 
 1. Extract the ZIP into a new directory.
 2. Run `Start-Jigglefin.ps1 -DataDir <new-test-profile-path>` in PowerShell.
@@ -89,7 +91,8 @@ npm ci --prefix Jigglefin.Web --ignore-scripts --no-audit --no-fund
 npm run check --prefix Jigglefin.Web
 npm run build --prefix Jigglefin.Web
 .\scripts\prepare-ffmpeg.ps1 -OutputDirectory publish/ffmpeg-prepared
-.\scripts\package-win.ps1 -FfmpegDirectory publish/ffmpeg-prepared
+.\scripts\prepare-dvd-tools-win.ps1 -OutputDirectory publish/dvd-tools-prepared
+.\scripts\package-win.ps1 -FfmpegDirectory publish/ffmpeg-prepared -DvdToolsDirectory publish/dvd-tools-prepared
 ```
 
 Run `dotnet test Jellyfin.sln --configuration Debug --no-build` for source tests.

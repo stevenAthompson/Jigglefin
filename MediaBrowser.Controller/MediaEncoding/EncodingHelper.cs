@@ -775,6 +775,13 @@ namespace MediaBrowser.Controller.MediaEncoding
 
             if (string.Equals(codec, "aac", StringComparison.OrdinalIgnoreCase))
             {
+                // DVD title playback runs through the separate GPL DVD helper.
+                // Its encoder set need not match the normal Jellyfin FFmpeg.
+                if (state.MediaSource.VideoType == VideoType.Iso)
+                {
+                    return "aac";
+                }
+
                 // Use Apple's aac encoder if available as it provides best audio quality
                 if (_mediaEncoder.SupportsEncoder("aac_at"))
                 {
@@ -1254,7 +1261,15 @@ namespace MediaBrowser.Controller.MediaEncoding
                 throw new NotSupportedException("Jigglefin transcodes local media files only.");
             }
 
-            var arg = new StringBuilder(" " + OfflineMediaInput.Arguments);
+            var dvdIso = state.MediaSource.VideoType == VideoType.Iso
+                && state.MediaSource.IsoType == IsoType.Dvd
+                && Path.GetExtension(state.MediaPath).Equals(".iso", StringComparison.OrdinalIgnoreCase);
+            if (state.MediaSource.VideoType == VideoType.Iso && !dvdIso)
+            {
+                throw new NotSupportedException("Only DVD-Video ISO images are supported.");
+            }
+
+            var arg = new StringBuilder(" " + (dvdIso ? OfflineMediaInput.DvdVideoArguments : OfflineMediaInput.Arguments));
             var inputVidHwaccelArgs = GetInputVideoHwaccelArgs(state, options);
 
             if (!string.IsNullOrEmpty(inputVidHwaccelArgs))
@@ -1268,7 +1283,13 @@ namespace MediaBrowser.Controller.MediaEncoding
                 arg.Append(canvasArgs);
             }
 
-            if (state.MediaSource.VideoType == VideoType.Dvd || state.MediaSource.VideoType == VideoType.BluRay)
+            if (dvdIso)
+            {
+                arg.Append(" -f dvdvideo -title 1 -i \"")
+                    .Append(state.MediaPath.EscapeProcessArgument())
+                    .Append('"');
+            }
+            else if (state.MediaSource.VideoType == VideoType.Dvd || state.MediaSource.VideoType == VideoType.BluRay)
             {
                 var concatFilePath = Path.Join(_configurationManager.CommonApplicationPaths.CachePath, "concat", state.MediaSource.Id + ".concat");
                 if (!File.Exists(concatFilePath))

@@ -536,6 +536,7 @@ public sealed class LiveFolderApiFilter : IActionFilter
             // (Android TV does so when reusing the last audio language). Supply
             // only physical identity here: no probe, sidecar read or fake tracks.
             // PlaybackInfo still performs the real selected-file negotiation.
+            var dvdIso = Path.GetExtension(entry.Name).Equals(".iso", StringComparison.OrdinalIgnoreCase);
             dto.MediaSources =
             [
                 new MediaSourceInfo
@@ -545,7 +546,10 @@ public sealed class LiveFolderApiFilter : IActionFilter
                     Name = entry.Name,
                     Protocol = MediaProtocol.File,
                     Type = MediaSourceType.Default,
-                    Size = entry.File.Length
+                    Size = entry.File.Length,
+                    VideoType = dvdIso ? VideoType.Iso : null,
+                    SupportsDirectPlay = !dvdIso,
+                    SupportsDirectStream = !dvdIso
                 }
             ];
         }

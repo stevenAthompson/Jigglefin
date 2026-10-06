@@ -431,7 +431,9 @@ public sealed class TranscodeManager : ITranscodeManager, IDisposable
                 StandardErrorEncoding = Encoding.UTF8,
                 RedirectStandardError = true,
                 RedirectStandardInput = true,
-                FileName = _mediaEncoder.EncoderPath,
+                FileName = state.MediaSource.VideoType == VideoType.Iso && state.MediaSource.IsoType == IsoType.Dvd
+                    ? Path.Combine(Path.GetDirectoryName(_mediaEncoder.EncoderPath) ?? string.Empty, "dvd-ffmpeg.exe")
+                    : _mediaEncoder.EncoderPath,
                 Arguments = commandLineArguments,
                 WorkingDirectory = string.IsNullOrWhiteSpace(workingDirectory) ? string.Empty : workingDirectory,
                 ErrorDialog = false
@@ -498,7 +500,9 @@ public sealed class TranscodeManager : ITranscodeManager, IDisposable
             // Keep every path component pinned beyond this HTTP request, until
             // the native process exits and its TranscodingJob is disposed.
             transcodingJob.InputPathLease = LivePathLease.AcquireReadPath(state.MediaPath);
-            process.StartInfo.Arguments = EncodingUtils.BindFileInput(commandLineArguments, state.MediaPath, transcodingJob.InputPathLease.ReadPath);
+            process.StartInfo.Arguments = state.MediaSource.VideoType == VideoType.Iso && state.MediaSource.IsoType == IsoType.Dvd
+                ? EncodingUtils.BindDvdInput(commandLineArguments, state.MediaPath, transcodingJob.InputPathLease.ReadPath)
+                : EncodingUtils.BindFileInput(commandLineArguments, state.MediaPath, transcodingJob.InputPathLease.ReadPath);
             _logger.LogInformation("{Filename} {Arguments}", process.StartInfo.FileName, process.StartInfo.Arguments);
             var commandLineLogMessageBytes = Encoding.UTF8.GetBytes(
                 Environment.NewLine + Environment.NewLine

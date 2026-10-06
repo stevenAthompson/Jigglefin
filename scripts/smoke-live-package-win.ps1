@@ -7,10 +7,14 @@ param(
 $ErrorActionPreference = 'Stop'
 $packagePath = (Resolve-Path -LiteralPath $PackageDirectory -ErrorAction Stop).Path
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
-foreach ($name in @('jellyfin.exe', 'Start-Jigglefin.ps1', 'ffmpeg.exe', 'ffprobe.exe', 'coreclr.dll', 'JIGGLEFIN-LICENSE', 'HLS-LICENSE', 'jellyfin-web/jigglefin-web.manifest.json')) {
+foreach ($name in @('jellyfin.exe', 'Start-Jigglefin.ps1', 'ffmpeg.exe', 'ffprobe.exe', 'dvd-ffmpeg.exe', 'dvd-ffprobe.exe', 'dvdcss-2.dll', 'DVD-COMPONENTS.md', 'DVD-FFMPEG-COPYING.GPLv3', 'DVD-FFMPEG-README.txt', 'LIBDVDCSS-COPYING.GPLv2', 'LIBDVDCSS-SOURCE.tar.xz', 'coreclr.dll', 'JIGGLEFIN-LICENSE', 'HLS-LICENSE', 'jellyfin-web/jigglefin-web.manifest.json')) {
     if (-not (Test-Path -LiteralPath (Join-Path $packagePath $name) -PathType Leaf)) {
         throw "The self-contained offline package is missing $name"
     }
+}
+$dvdDemuxers = & (Join-Path $packagePath 'dvd-ffmpeg.exe') -hide_banner -demuxers 2>&1
+if ($LASTEXITCODE -ne 0 -or -not ($dvdDemuxers -match 'dvdvideo')) {
+    throw 'The DVD helper lacks the dvdvideo demuxer.'
 }
 $webPath = Join-Path $packagePath 'jellyfin-web'
 $manifest = Get-Content -LiteralPath (Join-Path $webPath 'jigglefin-web.manifest.json') -Raw | ConvertFrom-Json

@@ -53,5 +53,8 @@ The server is derived from [Jellyfin Server](https://github.com/jellyfin/jellyfi
 The folder UI is part of Jigglefin and bundles hls.js 1.6.16 locally (Apache-2.0).
 The bundled [Jellyfin FFmpeg 8.1.2-5](https://github.com/jellyfin/jellyfin-ffmpeg/releases/tag/v8.1.2-5)
 source is available at that tag. GPL and hls.js license files are included.
+DVD-Video ISO title playback uses separate bundled helpers; see
+`DVD-COMPONENTS.md` for licenses and limits. Interactive DVD menus are not yet
+available in standard Jellyfin clients.
 See the [Jigglefin repository](https://github.com/stevenAthompson/Jigglefin) and
 `JIGGLEFIN-LIVE-DESIGN.md` for the implementation, verification history and known limits.

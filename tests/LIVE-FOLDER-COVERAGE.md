@@ -3,8 +3,9 @@
 The scan-backed test implementation is not the specification for Jigglefin. These
 tests exercise the contract in `JIGGLEFIN-LIVE-DESIGN.md`: immediate filesystem
 membership, selection-time metadata, playback-time probing and separate durable
-user state. They use only isolated synthetic media/profile directories. Never point
-a destructive test fixture at a user's media tree or installed profile.
+user state. Most use isolated synthetic media/profile directories; the optional
+DVD ISO check reads one explicitly supplied real image. Never point a destructive
+test fixture at a user's media tree or installed profile.
 
 ## Coverage retained when replacing catalog tests
 
@@ -19,6 +20,7 @@ a destructive test fixture at a user's media tree or installed profile.
 | `LiveFolderApiFilterTests` | Strict mocks prove authorization and empty catalog fallbacks do no filesystem work. Active-session resume exclusion is per user and occurs before path access. |
 | Native-client source-identity regressions | A playable physical file has an unprobed source ID with empty streams before playback, including listings/resume queries and cache eviction. Locked-media and recording-reader assertions still prove no content access or recursive reads. Selected details may reuse an existing probe; `PlaybackInfo` alone does the real negotiation. Android TV receives authenticated static-byte URLs without making anonymous streams accessible. |
 | Playback track-choice regressions | Explicit audio/subtitle choices apply to a live item's single source even when the client omits `MediaSourceId`. Subtitles Off stays Off and compatible video remains direct-playable. Ordinary and long-path audio/video cases use actual FFmpeg and authenticated HTTP playback. |
+| `LiveDvdIsoTests` | Opt-in, read-only real DVD-Video ISO: listing exposes an unprobed transcode-only source, selection probes duration/streams and avoids direct ISO playback, a one-segment HLS request produces transport-stream bytes, and the test stops the encoder and checks the image's size/mtime. It requires `JIGGLEFIN_TEST_DVD_ISO` plus a normal FFmpeg path with DVD helpers beside it. CSS-encrypted media and interactive menus are not yet verified. |
 | `LivePathLeaseTests`, `LiveReadResultTests` and live-reader/service regressions | Actual Windows handles reject junction/device/ADS escapes, prevent ancestor/file replacement while reading and release on failure or stream disposal. Ordinary paths beyond 300 characters remain readable without accepting device aliases. Directory enumeration and the selected probe retain their protection. Sibling creation still works; locks never trigger a scan. |
 | `LiveNativeReadLeaseTests` | Starts a real, slow finite FFmpeg conversion, checks the process is still alive after startup returns, verifies the input path remains pinned, stops the job and verifies release. Missing-input startup must clean up its job and handles. |
 | `LiveDriveReadTests` and native input binding | An owned temporary drive is repointed after acquisition; managed bytes and actual FFmpeg PCM checksums must still match the original file. Nested reads use the same volume address; user/configuration entry points still reject extended aliases. SUBST cannot hide a junction ancestor; raw NT aliases with hidden ancestors fail closed. Native command rebinding changes exactly the selected generated input, preserving other arguments and rejecting ambiguous/missing inputs. |
@@ -54,6 +56,9 @@ Use the installed .NET 10 SDK. In PowerShell, set the helper to the prepared bin
 
 ```powershell
 $env:JIGGLEFIN_TEST_FFMPEG = 'D:\Jigglefin\publish\ffmpeg-prepared-test\ffmpeg.exe'
+# To run the optional real-DVD test, point JIGGLEFIN_TEST_FFMPEG to a directory
+# containing ffmpeg.exe, ffprobe.exe, dvd-ffmpeg.exe and dvd-ffprobe.exe, then set
+# JIGGLEFIN_TEST_DVD_ISO to one existing ISO. The test never writes beside it.
 # Opt in only when the existing local administrative share is readable. The
 # SMB fixtures use owned temporary data and never create/modify a share.
 $env:JIGGLEFIN_TEST_LOCAL_SMB = '1'

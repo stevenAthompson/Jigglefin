@@ -16,7 +16,7 @@ public static class LiveMediaClassifier
         {
             ".m4b" or ".aa" or ".aax" => (BaseItemKind.AudioBook, MediaType.Audio),
             ".mp3" or ".m4a" or ".aac" or ".flac" or ".wav" or ".wave" or ".ogg" or ".oga" or ".opus" or ".wma" or ".aif" or ".aiff" or ".alac" or ".ape" or ".mka" or ".ac3" or ".dts" or ".dsf" => (BaseItemKind.Audio, MediaType.Audio),
-            ".mkv" or ".mp4" or ".m4v" or ".avi" or ".mov" or ".webm" or ".wmv" or ".mpg" or ".mpeg" or ".ts" or ".m2ts" or ".mts" or ".vob" or ".ogv" or ".flv" or ".3gp" => (BaseItemKind.Video, MediaType.Video),
+            ".mkv" or ".mp4" or ".m4v" or ".avi" or ".mov" or ".webm" or ".wmv" or ".mpg" or ".mpeg" or ".ts" or ".m2ts" or ".mts" or ".vob" or ".ogv" or ".flv" or ".3gp" or ".iso" => (BaseItemKind.Video, MediaType.Video),
             ".jpg" or ".jpeg" or ".png" or ".webp" or ".gif" or ".bmp" => (BaseItemKind.Photo, MediaType.Photo),
             ".epub" or ".pdf" or ".mobi" or ".cbz" or ".cbr" => (BaseItemKind.Book, MediaType.Book),
             // Jellyfin has no generic File DTO kind. These remain visible but non-playable.

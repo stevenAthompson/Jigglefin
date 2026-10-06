@@ -423,6 +423,13 @@ namespace MediaBrowser.MediaEncoding.Encoder
                 throw new NotSupportedException("Jigglefin probes local media files only.");
             }
 
+            if (request.MediaSource.VideoType == VideoType.Iso
+                && (request.MediaSource.IsoType != IsoType.Dvd
+                    || !Path.GetExtension(request.MediaSource.Path).Equals(".iso", StringComparison.OrdinalIgnoreCase)))
+            {
+                throw new NotSupportedException("Only DVD-Video ISO images are supported.");
+            }
+
             var extractChapters = request.ExtractChapters;
             var extraArgs = GetExtraArguments(request);
 
@@ -523,11 +530,26 @@ namespace MediaBrowser.MediaEncoding.Encoder
             }
 
             inputPath = EncodingUtils.GetInputArgument("file", inputLease.ReadPath, MediaProtocol.File);
-            var args = extractChapters
-                ? "{0} -i {1} -threads {2} -v warning -print_format json -show_streams -show_chapters -show_format"
-                : "{0} -i {1} -threads {2} -v warning -print_format json -show_streams -show_format";
+            var dvdIso = videoType == VideoType.Iso
+                && Path.GetExtension(primaryPath).Equals(".iso", StringComparison.OrdinalIgnoreCase);
+            var probePath = _ffprobePath;
+            if (dvdIso)
+            {
+                var directory = Path.GetDirectoryName(_ffmpegPath);
+                probePath = Path.Combine(directory ?? string.Empty, "dvd-ffprobe.exe");
+                if (string.IsNullOrEmpty(directory) || !File.Exists(probePath))
+                {
+                    throw new NotSupportedException("DVD-Video probing requires the bundled dvd-ffprobe.exe.");
+                }
 
-            if (protocol == MediaProtocol.File && !isAudio && _proberSupportsFirstVideoFrame)
+                inputPath = EncodingUtils.GetDvdInputArgument(inputLease.ReadPath);
+            }
+
+            var args = extractChapters
+                ? "{0} " + (dvdIso ? "-f dvdvideo -title 1 " : string.Empty) + "-i {1} -threads {2} -v warning -print_format json -show_streams -show_chapters -show_format"
+                : "{0} " + (dvdIso ? "-f dvdvideo -title 1 " : string.Empty) + "-i {1} -threads {2} -v warning -print_format json -show_streams -show_format";
+
+            if (protocol == MediaProtocol.File && !isAudio && !dvdIso && _proberSupportsFirstVideoFrame)
             {
                 args += " -show_frames -only_first_vframe";
             }
@@ -545,8 +567,8 @@ namespace MediaBrowser.MediaEncoding.Encoder
                     StandardOutputEncoding = Encoding.UTF8,
                     RedirectStandardOutput = true,
 
-                    FileName = _ffprobePath,
-                    Arguments = OfflineMediaInput.Arguments + args,
+                    FileName = probePath,
+                    Arguments = (dvdIso ? OfflineMediaInput.DvdVideoArguments : OfflineMediaInput.Arguments) + args,
 
                     WindowStyle = ProcessWindowStyle.Hidden,
                     ErrorDialog = false,
@@ -554,7 +576,7 @@ namespace MediaBrowser.MediaEncoding.Encoder
                 EnableRaisingEvents = true
             };
 
-            _logger.LogDebug("Starting {ProcessFileName} with args {ProcessArgs}", _ffprobePath, args);
+            _logger.LogDebug("Starting {ProcessFileName} with args {ProcessArgs}", probePath, args);
 
             var memoryStream = new MemoryStream();
             await using (memoryStream.ConfigureAwait(false))

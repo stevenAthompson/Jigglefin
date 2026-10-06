@@ -194,7 +194,7 @@ namespace Emby.Server.Implementations.Library
                 {
                     source = await _liveItems.PreparePlayback(item, cancellationToken).ConfigureAwait(false);
                 }
-                catch (FfmpegException exception)
+                catch (Exception exception) when (exception is FfmpegException or NotSupportedException)
                 {
                     _logger.LogDebug(exception, "Selected file cannot be decoded as self-contained local media");
                     return [];
@@ -203,7 +203,7 @@ namespace Emby.Server.Implementations.Library
                 {
                     SetDefaultAudioAndSubtitleStreamIndices(item, source, user);
                     source.SupportsTranscoding = user.HasPermission(item.MediaType == MediaType.Audio ? PermissionKind.EnableAudioPlaybackTranscoding : PermissionKind.EnableVideoPlaybackTranscoding);
-                    source.SupportsDirectStream = item.MediaType == MediaType.Audio || user.HasPermission(PermissionKind.EnablePlaybackRemuxing);
+                    source.SupportsDirectStream = source.VideoType != VideoType.Iso && (item.MediaType == MediaType.Audio || user.HasPermission(PermissionKind.EnablePlaybackRemuxing));
                 }
 
                 return [source];
