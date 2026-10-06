@@ -310,6 +310,7 @@ async function main() {
   await page.getByRole('heading', { name: 'Books', exact: true }).waitFor();
   await page.getByRole('heading', { name: 'The local audiobook', exact: true }).waitFor();
   await page.locator('#folder-favorite').click();
+  await page.getByRole('button', { name: 'Unfavorite', exact: true }).waitFor();
   await page.getByRole('link', { name: 'Favorites', exact: true }).click();
   await page.getByRole('button', { name: 'Open folder Books', exact: true }).waitFor();
   await page.getByRole('button', { name: 'Select file Chapter 01.m4b', exact: true }).waitFor();
