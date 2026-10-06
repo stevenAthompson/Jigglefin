@@ -21,6 +21,9 @@ public sealed class DvdMenuController : BaseJellyfinApiController
     private readonly DvdMenuSessionManager _sessions;
 
     /// <summary>Initializes a new instance of the <see cref="DvdMenuController"/> class.</summary>
+    /// <param name="library">The live library.</param>
+    /// <param name="users">The user manager.</param>
+    /// <param name="sessions">The DVD session manager.</param>
     public DvdMenuController(ILiveLibrary library, IUserManager users, DvdMenuSessionManager sessions)
     {
         _library = library;
@@ -29,15 +32,23 @@ public sealed class DvdMenuController : BaseJellyfinApiController
     }
 
     /// <summary>Starts a bounded, private menu playback session for one selected ISO.</summary>
+    /// <param name="itemId">The ISO item ID.</param>
+    /// <returns>The new playback session or an error.</returns>
     [HttpPost("{itemId:guid}/Sessions")]
     public async Task<ActionResult<object>> Start([FromRoute] Guid itemId)
     {
         var userId = User.GetUserId();
         var user = _users.GetUserById(userId);
         var library = _library.FindLibrary(itemId);
-        if (userId == Guid.Empty || user is null || library is null || !LiveLibraryAccess.CanAccess(user, library)) return NotFound();
+        if (userId.Equals(Guid.Empty) || user is null || library is null || !LiveLibraryAccess.CanAccess(user, library))
+        {
+            return NotFound();
+        }
         var entry = _library.GetEntry(itemId);
-        if (entry is null || entry.File.IsDirectory || entry.File.IsLink || entry.IsUnavailable || !entry.Name.EndsWith(".iso", StringComparison.OrdinalIgnoreCase)) return NotFound();
+        if (entry is null || entry.File.IsDirectory || entry.File.IsLink || entry.IsUnavailable || !entry.Name.EndsWith(".iso", StringComparison.OrdinalIgnoreCase))
+        {
+            return NotFound();
+        }
         try
         {
             var session = await _sessions.StartAsync(itemId, userId, User.GetDeviceId(), entry.File.ReadPath ?? entry.File.FullPath, HttpContext.RequestAborted).ConfigureAwait(false);
@@ -54,15 +65,26 @@ public sealed class DvdMenuController : BaseJellyfinApiController
     }
 
     /// <summary>Returns a live playlist with authenticated segment addresses.</summary>
+    /// <param name="sessionId">The session ID.</param>
+    /// <returns>The current HLS playlist.</returns>
     [HttpGet("{sessionId:guid}/stream.m3u8")]
     public ActionResult Playlist([FromRoute] Guid sessionId)
     {
         var session = Owned(sessionId);
-        if (session is null) return NotFound();
+        if (session is null)
+        {
+            return NotFound();
+        }
         var path = Path.Combine(session.HlsDirectory, "stream.m3u8");
-        if (!System.IO.File.Exists(path)) return NotFound();
+        if (!System.IO.File.Exists(path))
+        {
+            return NotFound();
+        }
         var token = User.GetToken();
-        if (string.IsNullOrEmpty(token)) return Unauthorized();
+        if (string.IsNullOrEmpty(token))
+        {
+            return Unauthorized();
+        }
         var lines = System.IO.File.ReadAllLines(path).Select(line => line.StartsWith("segment-", StringComparison.Ordinal) && line.EndsWith(".ts", StringComparison.Ordinal)
             ? line + "?ApiKey=" + Uri.EscapeDataString(token)
             : line);
@@ -71,24 +93,43 @@ public sealed class DvdMenuController : BaseJellyfinApiController
     }
 
     /// <summary>Returns one validated segment from this user's private HLS cache.</summary>
+    /// <param name="sessionId">The session ID.</param>
+    /// <param name="number">The segment number.</param>
+    /// <returns>The requested MPEG-TS segment.</returns>
     [HttpGet("{sessionId:guid}/segment-{number:int}.ts")]
     public ActionResult Segment([FromRoute] Guid sessionId, [FromRoute] int number)
     {
         var session = Owned(sessionId);
-        if (session is null || number < 0 || number > 99999) return NotFound();
+        if (session is null || number < 0 || number > 99999)
+        {
+            return NotFound();
+        }
         var path = Path.Combine(session.HlsDirectory, $"segment-{number:00000}.ts");
-        if (!System.IO.File.Exists(path)) return NotFound();
+        if (!System.IO.File.Exists(path))
+        {
+            return NotFound();
+        }
         Response.Headers.CacheControl = "no-store";
         return PhysicalFile(path, "video/mp2t", enableRangeProcessing: false);
     }
 
     /// <summary>Sends a DVD remote-control action.</summary>
+    /// <param name="sessionId">The session ID.</param>
+    /// <param name="command">The remote-control command.</param>
+    /// <returns>No content on success or an error.</returns>
     [HttpPost("{sessionId:guid}/Commands/{command}")]
     public async Task<ActionResult> Command([FromRoute] Guid sessionId, [FromRoute] string command)
     {
         var session = Owned(sessionId);
-        if (session is null) return NotFound();
-        if (command is not ("up" or "down" or "left" or "right" or "select" or "menu" or "pause" or "resume")) return BadRequest("Unknown DVD menu command.");
+        if (session is null)
+        {
+            return NotFound();
+        }
+
+        if (command is not ("up" or "down" or "left" or "right" or "select" or "menu" or "pause" or "resume"))
+        {
+            return BadRequest("Unknown DVD menu command.");
+        }
         try
         {
             await session.SendAsync(command, HttpContext.RequestAborted).ConfigureAwait(false);
@@ -101,6 +142,8 @@ public sealed class DvdMenuController : BaseJellyfinApiController
     }
 
     /// <summary>Stops playback and deletes only this session's temporary HLS cache.</summary>
+    /// <param name="sessionId">The session ID.</param>
+    /// <returns>No content on success or not found.</returns>
     [HttpDelete("{sessionId:guid}")]
     public async Task<ActionResult> Stop([FromRoute] Guid sessionId)
         => await _sessions.StopAsync(sessionId, User.GetUserId(), User.GetDeviceId()).ConfigureAwait(false) ? NoContent() : NotFound();
@@ -109,10 +152,16 @@ public sealed class DvdMenuController : BaseJellyfinApiController
     {
         var userId = User.GetUserId();
         var session = _sessions.Get(sessionId, userId, User.GetDeviceId());
-        if (session is null) return null;
+        if (session is null)
+        {
+            return null;
+        }
         var user = _users.GetUserById(userId);
         var library = _library.FindLibrary(session.ItemId);
-        if (user is not null && library is not null && LiveLibraryAccess.CanAccess(user, library)) return session;
+        if (user is not null && library is not null && LiveLibraryAccess.CanAccess(user, library))
+        {
+            return session;
+        }
         _ = _sessions.StopAsync(sessionId, userId, User.GetDeviceId());
         return null;
     }
