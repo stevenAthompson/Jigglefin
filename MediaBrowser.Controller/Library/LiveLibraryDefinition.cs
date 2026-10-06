@@ -9,6 +9,6 @@ namespace MediaBrowser.Controller.Library;
 /// <param name="Roots">Explicitly configured filesystem roots.</param>
 public sealed record LiveLibraryDefinition(Guid Id, string Name, IReadOnlyList<LiveMediaRoot> Roots)
 {
-    /// <summary>Gets whether this group is enabled. Disabled legacy groups stay inaccessible.</summary>
+    /// <summary>Gets a value indicating whether this group is enabled. Disabled legacy groups stay inaccessible.</summary>
     public bool Enabled { get; init; } = true;
 }

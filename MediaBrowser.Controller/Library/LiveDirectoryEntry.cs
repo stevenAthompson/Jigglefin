@@ -16,6 +16,6 @@ public sealed record LiveDirectoryEntry(Guid Id, Guid RootId, Guid? ParentId, st
     [JsonIgnore]
     public LiveMediaRoot? ReadRoot { get; init; }
 
-    /// <summary>Gets whether a configured mount point is unavailable, not a discovered media entry.</summary>
+    /// <summary>Gets a value indicating whether a configured mount point is unavailable, not a discovered media entry.</summary>
     public bool IsUnavailable { get; init; }
 }

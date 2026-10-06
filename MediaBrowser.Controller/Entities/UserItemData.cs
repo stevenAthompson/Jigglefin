@@ -51,7 +51,7 @@ namespace MediaBrowser.Controller.Entities
         /// <value>The playback position ticks.</value>
         public long PlaybackPositionTicks { get; set; }
 
-        /// <summary>Gets or sets whether Continue is dismissed until the next playback start; the bookmark is retained.</summary>
+        /// <summary>Gets or sets a value indicating whether Continue is dismissed until the next playback start; the bookmark is retained.</summary>
         public bool HideFromResume { get; set; }
 
         /// <summary>

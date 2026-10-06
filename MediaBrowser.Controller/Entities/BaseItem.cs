@@ -44,10 +44,6 @@ namespace MediaBrowser.Controller.Entities
     /// </summary>
     public abstract class BaseItem : IHasProviderIds, IHasLookupInfo<ItemLookupInfo>, IEquatable<BaseItem>
     {
-        /// <summary>Gets or sets transient live-file state; never serialized into the catalog.</summary>
-        [JsonIgnore]
-        public LiveItemContext LiveContext { get; set; }
-
         private BaseItemKind? _baseItemKind;
 
         public const string ThemeSongFileName = "theme";
@@ -120,6 +116,10 @@ namespace MediaBrowser.Controller.Entities
             RemoteTrailers = Array.Empty<MediaUrl>();
             UserData = [];
         }
+
+        /// <summary>Gets or sets transient live-file state; never serialized into the catalog.</summary>
+        [JsonIgnore]
+        public LiveItemContext LiveContext { get; set; }
 
         /// <summary>
         /// Gets or Sets the user data collection as cached from the last Db query.
