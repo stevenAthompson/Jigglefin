@@ -130,12 +130,14 @@ public sealed class DvdMenuSessionManager : IDisposable
         {
             return null;
         }
+
         if (session.Process.HasExited)
         {
             if (_sessions.TryRemove(id, out _))
             {
                 _ = session.StopAsync();
             }
+
             return null;
         }
 
@@ -154,6 +156,7 @@ public sealed class DvdMenuSessionManager : IDisposable
         {
             return false;
         }
+
         await session.StopAsync().ConfigureAwait(false);
         return true;
     }

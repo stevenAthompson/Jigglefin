@@ -44,11 +44,13 @@ public sealed class DvdMenuController : BaseJellyfinApiController
         {
             return NotFound();
         }
+
         var entry = _library.GetEntry(itemId);
         if (entry is null || entry.File.IsDirectory || entry.File.IsLink || entry.IsUnavailable || !entry.Name.EndsWith(".iso", StringComparison.OrdinalIgnoreCase))
         {
             return NotFound();
         }
+
         try
         {
             var session = await _sessions.StartAsync(itemId, userId, User.GetDeviceId(), entry.File.ReadPath ?? entry.File.FullPath, HttpContext.RequestAborted).ConfigureAwait(false);
@@ -75,16 +77,19 @@ public sealed class DvdMenuController : BaseJellyfinApiController
         {
             return NotFound();
         }
+
         var path = Path.Combine(session.HlsDirectory, "stream.m3u8");
         if (!System.IO.File.Exists(path))
         {
             return NotFound();
         }
+
         var token = User.GetToken();
         if (string.IsNullOrEmpty(token))
         {
             return Unauthorized();
         }
+
         var lines = System.IO.File.ReadAllLines(path).Select(line => line.StartsWith("segment-", StringComparison.Ordinal) && line.EndsWith(".ts", StringComparison.Ordinal)
             ? line + "?ApiKey=" + Uri.EscapeDataString(token)
             : line);
@@ -104,11 +109,13 @@ public sealed class DvdMenuController : BaseJellyfinApiController
         {
             return NotFound();
         }
+
         var path = Path.Combine(session.HlsDirectory, $"segment-{number:00000}.ts");
         if (!System.IO.File.Exists(path))
         {
             return NotFound();
         }
+
         Response.Headers.CacheControl = "no-store";
         return PhysicalFile(path, "video/mp2t", enableRangeProcessing: false);
     }
@@ -130,6 +137,7 @@ public sealed class DvdMenuController : BaseJellyfinApiController
         {
             return BadRequest("Unknown DVD menu command.");
         }
+
         try
         {
             await session.SendAsync(command, HttpContext.RequestAborted).ConfigureAwait(false);
@@ -156,12 +164,14 @@ public sealed class DvdMenuController : BaseJellyfinApiController
         {
             return null;
         }
+
         var user = _users.GetUserById(userId);
         var library = _library.FindLibrary(session.ItemId);
         if (user is not null && library is not null && LiveLibraryAccess.CanAccess(user, library))
         {
             return session;
         }
+
         _ = _sessions.StopAsync(sessionId, userId, User.GetDeviceId());
         return null;
     }
