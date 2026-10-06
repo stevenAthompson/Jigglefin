@@ -19,6 +19,7 @@ public sealed class LiveDirectoryBrowser
     private static readonly StringComparison _pathComparison = OperatingSystem.IsWindows()
         ? StringComparison.OrdinalIgnoreCase
         : StringComparison.Ordinal;
+
     private readonly ILiveDirectoryReader _reader;
 
     /// <summary>Initializes a new instance of the <see cref="LiveDirectoryBrowser"/> class.</summary>

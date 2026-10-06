@@ -364,6 +364,7 @@ public sealed class LiveFolderApiFilter : IActionFilter
             {
                 dto.MediaSources = [source];
             }
+
             dto.ImageTags = selected.LiveContext.ImageTags.Where(image => image.Key != ImageType.Backdrop).ToDictionary();
             dto.BackdropImageTags = selected.LiveContext.ImageTags.TryGetValue(ImageType.Backdrop, out var backdrop) ? [backdrop] : [];
             return WithUserData(dto, user);

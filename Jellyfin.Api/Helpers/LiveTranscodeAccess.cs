@@ -15,12 +15,13 @@ public static class LiveTranscodeAccess
     /// <returns>Whether this request may use this exact job.</returns>
     public static bool CanUse(TranscodingJob? job, ClaimsPrincipal user, Guid? itemId = null)
     {
-        if (job is null || (!user.GetIsApiKey() && (user.GetUserId() == Guid.Empty || job.UserId != user.GetUserId())))
+        var userId = user.GetUserId();
+        if (job is null || (!user.GetIsApiKey() && (userId.Equals(Guid.Empty) || !job.UserId.Equals(userId))))
         {
             return false;
         }
 
-        return !itemId.HasValue || (itemId.Value != Guid.Empty && job.ItemId == itemId.Value
-            && Guid.TryParse(job.MediaSource?.Id, out var sourceId) && sourceId == itemId.Value);
+        return !itemId.HasValue || (!itemId.Value.Equals(Guid.Empty) && job.ItemId.Equals(itemId.Value)
+            && Guid.TryParse(job.MediaSource?.Id, out var sourceId) && sourceId.Equals(itemId.Value));
     }
 }

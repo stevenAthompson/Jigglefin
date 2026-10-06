@@ -403,7 +403,8 @@ public sealed class LiveLibraryStore : ILiveLibrary
         => string.Equals(first, second, OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
 
     private static bool ContainsPath(string parent, string child)
-        => PathsEqual(parent, child) || child.StartsWith(Path.EndsInDirectorySeparator(parent) ? parent : parent + Path.DirectorySeparatorChar,
+        => PathsEqual(parent, child) || child.StartsWith(
+            Path.EndsInDirectorySeparator(parent) ? parent : parent + Path.DirectorySeparatorChar,
             OperatingSystem.IsWindows() ? StringComparison.OrdinalIgnoreCase : StringComparison.Ordinal);
 
     private static void EnsureUniqueName(IEnumerable<LiveLibraryDefinition> libraries, string name)

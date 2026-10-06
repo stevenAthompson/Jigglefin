@@ -40,12 +40,12 @@ public sealed class FolderPlaybackController : BaseJellyfinApiController
     public ActionResult DismissContinue([FromQuery] Guid? itemId = null)
     {
         var userId = User.GetUserId();
-        if (userId == Guid.Empty)
+        if (userId.Equals(Guid.Empty))
         {
             return NotFound();
         }
 
-        foreach (var saved in _state.GetSaved(userId).Where(saved => !itemId.HasValue || saved.ItemId == itemId.Value))
+        foreach (var saved in _state.GetSaved(userId).Where(saved => !itemId.HasValue || saved.ItemId.Equals(itemId.Value)))
         {
             saved.Data.HideFromResume = true;
             _state.Save(userId, saved.ItemId, saved.Data);
@@ -92,7 +92,7 @@ public sealed class FolderPlaybackController : BaseJellyfinApiController
     public ActionResult<LocalPlaylistDto> ReadPlaylist([FromRoute] Guid id)
     {
         var userId = User.GetUserId();
-        if (userId == Guid.Empty)
+        if (userId.Equals(Guid.Empty))
         {
             return NotFound();
         }

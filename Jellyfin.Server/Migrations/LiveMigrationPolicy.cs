@@ -24,5 +24,7 @@ internal static class LiveMigrationPolicy
     ];
 
     /// <summary>Unknown future code routines are not enabled automatically. EF schema migrations remain independent.</summary>
+    /// <param name="type">The code migration type.</param>
+    /// <returns>Whether the migration may run at startup.</returns>
     public static bool ShouldRun(Type type) => _allowed.Contains(type);
 }

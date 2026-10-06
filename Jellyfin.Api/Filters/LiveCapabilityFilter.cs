@@ -87,7 +87,7 @@ public sealed class LiveCapabilityFilter : IActionFilter, IOrderedFilter
             // database. Authorization precedes stat/probe. Playback report DTOs supplied
             // by clients are not accepted as media source descriptions.
             var id = GetItemId(context);
-            if (controller == nameof(HlsSegmentController) && method != "StopEncodingProcess" && (id is null || id == Guid.Empty))
+            if (controller == nameof(HlsSegmentController) && method != "StopEncodingProcess" && (id is null || id.Value.Equals(Guid.Empty)))
             {
                 context.Result = new NotFoundResult();
                 return;
@@ -109,7 +109,7 @@ public sealed class LiveCapabilityFilter : IActionFilter, IOrderedFilter
                 ?? context.ActionArguments.Values.OfType<PlaybackStopInfo>().FirstOrDefault()?.PlaySessionId
                 ?? (context.ActionArguments.TryGetValue("playSessionId", out var value) ? value as string : null);
             if (!string.IsNullOrWhiteSpace(sessionId) && _transcodes.GetTranscodingJob(sessionId) is { } job
-                && !LiveTranscodeAccess.CanUse(job, context.HttpContext.User, id == Guid.Empty ? null : id))
+                && !LiveTranscodeAccess.CanUse(job, context.HttpContext.User, id.HasValue && id.Value.Equals(Guid.Empty) ? null : id))
             {
                 context.Result = new NotFoundResult();
             }

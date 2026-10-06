@@ -128,7 +128,7 @@ public sealed class TranscodeManager : ITranscodeManager, IDisposable
         {
             // This is really only needed for HLS.
             // Progressive streams can stop on their own reliably.
-            jobs = _activeTranscodingJobs.Where(j => (!userId.HasValue || j.UserId == userId.Value)
+            jobs = _activeTranscodingJobs.Where(j => (!userId.HasValue || j.UserId.Equals(userId.Value))
                 && string.Equals(playSessionId, j.PlaySessionId, StringComparison.OrdinalIgnoreCase)).ToList();
         }
 
@@ -203,7 +203,7 @@ public sealed class TranscodeManager : ITranscodeManager, IDisposable
             // Progressive streams can stop on their own reliably.
             // Bind selection under the same lock as registration. A session ID
             // recycled after the HTTP access check cannot target a new owner.
-            jobs.AddRange(_activeTranscodingJobs.Where(j => (!userId.HasValue || j.UserId == userId.Value) && (string.IsNullOrWhiteSpace(playSessionId)
+            jobs.AddRange(_activeTranscodingJobs.Where(j => (!userId.HasValue || j.UserId.Equals(userId.Value)) && (string.IsNullOrWhiteSpace(playSessionId)
                 ? string.Equals(deviceId, j.DeviceId, StringComparison.OrdinalIgnoreCase)
                 : string.Equals(playSessionId, j.PlaySessionId, StringComparison.OrdinalIgnoreCase))));
         }
@@ -460,7 +460,9 @@ public sealed class TranscodeManager : ITranscodeManager, IDisposable
         {
             // A racing request can lose session ownership before registration.
             // Dispose only this unregistered process, never the existing job.
+#pragma warning disable IDISP016 // OnTranscodeBeginning throws only before registration transfers ownership.
             process.Dispose();
+#pragma warning restore IDISP016
             state.Dispose();
             throw;
         }
@@ -611,7 +613,7 @@ public sealed class TranscodeManager : ITranscodeManager, IDisposable
         {
             if (!string.IsNullOrWhiteSpace(playSessionId) && _activeTranscodingJobs.Exists(job =>
                 string.Equals(job.PlaySessionId, playSessionId, StringComparison.OrdinalIgnoreCase)
-                && (job.UserId != userId || job.ItemId != state.Request.Id)))
+                && (!job.UserId.Equals(userId) || !job.ItemId.Equals(state.Request.Id))))
             {
                 throw new UnauthorizedAccessException("A playback session cannot be shared across accounts or items.");
             }
@@ -632,9 +634,11 @@ public sealed class TranscodeManager : ITranscodeManager, IDisposable
                 MediaSource = state.MediaSource
             };
 
-            _activeTranscodingJobs.Add(job);
-
             ReportTranscodingProgress(job, state, null, null, null, null, null);
+
+            // No throwing work may follow registration: the caller disposes its
+            // still-unregistered process if this method fails.
+            _activeTranscodingJobs.Add(job);
 
             return job;
         }

@@ -135,5 +135,4 @@ internal sealed class MigrateLiveFolders : IAsyncMigrationRoutine
             }
         }
     }
-
 }

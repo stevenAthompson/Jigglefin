@@ -215,12 +215,14 @@ public sealed class LiveItemService : ILiveItemService, IDisposable
             if (!_cache.TryGetValue<MediaInfo>(key, out var probe) || probe is null)
             {
                 var dvdIso = Path.GetExtension(entry.Name).Equals(".iso", StringComparison.OrdinalIgnoreCase);
-                probe = await _encoder.GetMediaInfo(new MediaInfoRequest
-                {
-                    MediaSource = new MediaSourceInfo { Path = inputLease.ReadPath, Protocol = MediaProtocol.File, VideoType = dvdIso ? VideoType.Iso : VideoType.VideoFile, IsoType = dvdIso ? IsoType.Dvd : null },
-                    MediaType = item.MediaType == MediaType.Audio ? DlnaProfileType.Audio : DlnaProfileType.Video,
-                    ExtractChapters = true
-                }, cancellationToken).ConfigureAwait(false);
+                probe = await _encoder.GetMediaInfo(
+                    new MediaInfoRequest
+                    {
+                        MediaSource = new MediaSourceInfo { Path = inputLease.ReadPath, Protocol = MediaProtocol.File, VideoType = dvdIso ? VideoType.Iso : VideoType.VideoFile, IsoType = dvdIso ? IsoType.Dvd : null },
+                        MediaType = item.MediaType == MediaType.Audio ? DlnaProfileType.Audio : DlnaProfileType.Video,
+                        ExtractChapters = true
+                    },
+                    cancellationToken).ConfigureAwait(false);
                 probe.Id = item.Id.ToString("N");
                 probe.Path = inputLease.ReadPath;
                 probe.Protocol = MediaProtocol.File;
@@ -235,6 +237,7 @@ public sealed class LiveItemService : ILiveItemService, IDisposable
                     probe.SupportsDirectPlay = false;
                     probe.SupportsDirectStream = false;
                 }
+
                 probe.RequiredHttpHeaders.Clear();
                 _cache.Set(key, probe, CacheOptions());
             }
@@ -387,7 +390,7 @@ public sealed class LiveItemService : ILiveItemService, IDisposable
 
             var parts = name.Length > stem.Length ? name[(stem.Length + 1)..].Split('.') : [];
             var language = parts.FirstOrDefault(part => part.Length is 2 or 3 && !part.Equals("sdh", StringComparison.OrdinalIgnoreCase));
-            probe.MediaStreams = [.. probe.MediaStreams, new MediaStream
+            var subtitle = new MediaStream
             {
                 Index = index++,
                 Type = MediaStreamType.Subtitle,
@@ -399,7 +402,8 @@ public sealed class LiveItemService : ILiveItemService, IDisposable
                 IsHearingImpaired = parts.Contains("sdh", StringComparer.OrdinalIgnoreCase) || parts.Contains("hi", StringComparer.OrdinalIgnoreCase),
                 Language = language,
                 Title = sibling.Name
-            }];
+            };
+            probe.MediaStreams = [.. probe.MediaStreams, subtitle];
         }
     }
 

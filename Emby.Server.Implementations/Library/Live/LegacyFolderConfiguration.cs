@@ -10,13 +10,6 @@ namespace Emby.Server.Implementations.Library.Live;
 /// <summary>Reads bounded private configuration only, never the media locations it describes.</summary>
 public static class LegacyFolderConfiguration
 {
-    /// <summary>A legacy group's settings and private configuration location.</summary>
-    /// <param name="Name">The display name.</param>
-    /// <param name="ConfigurationPath">The private group directory.</param>
-    /// <param name="Enabled">Whether the group is enabled.</param>
-    /// <param name="Paths">Configured media locations, not discovered directory entries.</param>
-    public sealed record Group(string Name, string ConfigurationPath, bool Enabled, IReadOnlyList<string> Paths);
-
     /// <summary>Reads explicit folder settings without resolving shortcuts or accessing their targets.</summary>
     /// <param name="viewsPath">The private root/default directory.</param>
     /// <returns>Configured groups.</returns>
@@ -98,4 +91,11 @@ public static class LegacyFolderConfiguration
             LivePrivateFiles.ValidateFile(path);
         }
     }
+
+    /// <summary>A legacy group's settings and private configuration location.</summary>
+    /// <param name="Name">The display name.</param>
+    /// <param name="ConfigurationPath">The private group directory.</param>
+    /// <param name="Enabled">Whether the group is enabled.</param>
+    /// <param name="Paths">Configured media locations, not discovered directory entries.</param>
+    public sealed record Group(string Name, string ConfigurationPath, bool Enabled, IReadOnlyList<string> Paths);
 }

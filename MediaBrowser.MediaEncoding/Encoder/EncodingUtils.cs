@@ -13,6 +13,10 @@ namespace MediaBrowser.MediaEncoding.Encoder
     public static class EncodingUtils
     {
         /// <summary>Rebinds exactly one generated file-input argument to its pinned read address.</summary>
+        /// <param name="arguments">The generated command arguments.</param>
+        /// <param name="logicalPath">The selected logical file path.</param>
+        /// <param name="readPath">The pinned physical read path.</param>
+        /// <returns>The arguments with the selected input rebound.</returns>
         public static string BindFileInput(string arguments, string logicalPath, string readPath)
         {
             var original = "-i " + GetInputArgument("file", logicalPath, MediaProtocol.File);
@@ -29,6 +33,10 @@ namespace MediaBrowser.MediaEncoding.Encoder
         }
 
         /// <summary>Rebinds one DVD-Video ISO input without accepting another native input.</summary>
+        /// <param name="arguments">The generated command arguments.</param>
+        /// <param name="logicalPath">The selected logical ISO path.</param>
+        /// <param name="readPath">The pinned physical read path.</param>
+        /// <returns>The arguments with the selected ISO input rebound.</returns>
         public static string BindDvdInput(string arguments, string logicalPath, string readPath)
         {
             var original = "-i " + GetDvdInputArgument(logicalPath);

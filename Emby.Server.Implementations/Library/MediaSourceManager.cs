@@ -199,6 +199,7 @@ namespace Emby.Server.Implementations.Library
                     _logger.LogDebug(exception, "Selected file cannot be decoded as self-contained local media");
                     return [];
                 }
+
                 if (user is not null)
                 {
                     SetDefaultAudioAndSubtitleStreamIndices(item, source, user);
