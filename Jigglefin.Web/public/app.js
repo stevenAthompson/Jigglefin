@@ -13,7 +13,7 @@ const deviceId = localStorage.getItem(storageKey + 'device') || randomId();
 localStorage.setItem(storageKey + 'device', deviceId);
 let token = localStorage.getItem(storageKey + 'token');
 let me, setup = false, roots = [], configuredRoots = [], accounts = [], currentItems = [], selected;
-let routeVersion = 0, selectionVersion = 0, playVersion = 0, playback = null;
+let routeVersion = 0, selectionVersion = 0, playVersion = 0, playback = null, dvdPlayback = null;
 let reportQueue = Promise.resolve();
 let currentFolder = null, playlistItems = [], playlistVersion = 0, queue = null, pickerPath = null, pickerVersion = 0;
 const maximumQueueItems = 500;
@@ -129,6 +129,7 @@ function time(seconds) {
 }
 function kind(item) { return item.LocationType === 'Offline' ? 'Unavailable folder' : item.IsFolder ? 'Folder' : item.MediaType === 'Audio' ? (item.Type === 'AudioBook' ? 'Audiobook' : 'Audio') : item.MediaType === 'Video' ? 'Video' : item.MediaType === 'Photo' ? 'Image' : 'File'; }
 function playable(item) { return !item.IsFolder && ['Audio', 'Video'].includes(item.MediaType); }
+function isDvd(item) { return !item.IsFolder && /\.iso$/i.test(item.FileName || item.Name); }
 function isPlaylist(item) { return !item.IsFolder && /\.(m3u8?|pls)$/i.test(item.FileName || item.Name); }
 function sameId(a, b) { return a?.replaceAll('-', '') === b?.replaceAll('-', ''); }
 function size(value) { if (value == null) return ''; const units = ['B', 'KB', 'MB', 'GB', 'TB']; let unit = 0; while (value >= 1024 && unit < units.length - 1) { value /= 1024; unit++; } return `${value.toFixed(unit ? 1 : 0)} ${units[unit]}`; }
@@ -270,6 +271,7 @@ async function select(file) {
   const position = selected.UserData?.PlaybackPositionTicks || 0;
   $('detail-progress').textContent = position ? `Saved place: ${time(position / ticksPerSecond)}${selected.RunTimeTicks ? ` of ${time(selected.RunTimeTicks / ticksPerSecond)}` : ''}` : selected.UserData?.Played ? 'Finished' : 'Not started';
   $('play-button').hidden = !playable(selected) && !isPlaylist(selected); iconButton($('play-button'), 'play', position ? `Resume at ${time(position / ticksPerSecond)}` : 'Play', true);
+  $('dvd-menu-play').hidden = !isDvd(selected);
   $('play-from-here').hidden = !playable(selected) || !currentFolder;
   $('play-next').hidden = $('add-to-queue').hidden = !playable(selected) && !isPlaylist(selected);
   $('open-parent').hidden = !selected.ParentId;
@@ -431,6 +433,12 @@ function armSleepTimer() {
   }
 }
 async function stop({ ended = false, refresh = false } = {}) {
+  if (dvdPlayback) {
+    const dvd = dvdPlayback; dvdPlayback = null;
+    player.pause(); dvd.hls?.destroy(); player.removeAttribute('src'); player.load();
+    $('dvd-controls').hidden = true; $('regular-controls').hidden = false; $('queue-details').hidden = false; $('compatible-play-button').hidden = false; $('player-panel').hidden = true;
+    await api(`Jigglefin/Dvd/${dvd.sessionId}`, { method: 'DELETE', accessToken: dvd.token }).catch(() => {});
+  }
   const context = playback; if (!context) return;
   if (context.ready && Number.isFinite(player.currentTime)) context.position = player.currentTime;
   context.ready = false; playback = null; clearInterval(context.interval);
@@ -442,6 +450,8 @@ async function stop({ ended = false, refresh = false } = {}) {
 async function play(file, { fromBeginning = false, compatible = false, position, audioIndex } = {}) {
   cancelFolderRequest();
   const version = ++playVersion; await stop(); notice('');
+  $('dvd-controls').hidden = true;
+  $('regular-controls').hidden = false;
   const item = await api(`Items/${encodeURIComponent(file.Id)}`);
   const start = position ?? (fromBeginning ? 0 : (item.UserData?.PlaybackPositionTicks || 0) / ticksPerSecond);
   // A full VOD timeline lets seeking work without misreporting segment-relative time.
@@ -498,6 +508,37 @@ async function play(file, { fromBeginning = false, compatible = false, position,
   } else player.src = url;
   context.interval = setInterval(() => { if (playback === context && context.ready && !player.paused && !player.seeking) report(context, 'Progress').catch(() => {}); }, 5000);
 }
+async function playDvdMenu(file) {
+  cancelFolderRequest();
+  const version = ++playVersion; await stop(); notice('');
+  const result = await api(`Jigglefin/Dvd/${encodeURIComponent(file.Id)}/Sessions`, { method: 'POST' });
+  if (version !== playVersion) { await api(`Jigglefin/Dvd/${result.SessionId}`, { method: 'DELETE' }).catch(() => {}); return; }
+  const dvd = { sessionId: result.SessionId, token, hls: null }; dvdPlayback = dvd;
+  queue = null; renderQueue();
+  $('playing-title').textContent = file.Name; $('play-method').textContent = 'DVD menu · local live stream';
+  $('save-status').textContent = 'DVD menu mode does not save a position. Use Play for resumable title playback.';
+  $('dvd-controls').hidden = false; $('player-panel').hidden = false; $('player-panel').classList.remove('audio');
+  $('regular-controls').hidden = true;
+  $('audio-select-label').hidden = $('subtitle-select-label').hidden = true;
+  $('compatible-play-button').hidden = true;
+  $('queue-details').hidden = true;
+  player.playbackRate = 1;
+  const url = assetUrl(result.PlaylistUrl);
+  if (Hls.isSupported()) {
+    dvd.hls = new Hls({ enableWorker: false, liveSyncDurationCount: 2 });
+    dvd.hls.on(Hls.Events.ERROR, (_event, data) => { if (data.fatal && dvdPlayback === dvd) notice('The DVD menu stream stopped. Stop and try again.', true); });
+    dvd.hls.on(Hls.Events.MANIFEST_PARSED, () => { if (dvdPlayback === dvd) player.play().catch(() => notice('Press Play in the video to start DVD playback.')); });
+    dvd.hls.loadSource(url); dvd.hls.attachMedia(player);
+  } else if (player.canPlayType('application/vnd.apple.mpegurl')) {
+    player.src = url; player.play().catch(() => notice('Press Play in the video to start DVD playback.'));
+  } else { await stop(); throw new Error('This browser cannot play the DVD menu stream.'); }
+}
+async function dvdCommand(command) {
+  if (!dvdPlayback) return;
+  await api(`Jigglefin/Dvd/${dvdPlayback.sessionId}/Commands/${command}`, { method: 'POST', accessToken: dvdPlayback.token });
+  if (command === 'pause') player.pause();
+  if (command === 'resume') await player.play().catch(() => notice('Press Play in the video to resume.'));
+}
 player.addEventListener('timeupdate', () => { if (playback?.ready && !player.seeking && Number.isFinite(player.currentTime)) playback.position = player.currentTime; });
 player.addEventListener('pause', () => { iconButton($('pause-button'), 'play', 'Play'); if (playback?.ready && !player.ended) report(playback, 'Progress').catch(() => {}); });
 player.addEventListener('play', () => { iconButton($('pause-button'), 'pause', 'Pause'); });
@@ -508,7 +549,10 @@ document.addEventListener('visibilitychange', () => {
   if (sleepDeadline && Date.now() >= sleepDeadline) expireSleepTimer().catch(error => notice(error.message, true));
   else if (document.hidden && playback?.ready) report(playback, 'Progress', { keepalive: true }).catch(() => {});
 });
-window.addEventListener('pagehide', () => { if (playback?.ready) report(playback, 'Progress', { keepalive: true }).catch(() => {}); });
+window.addEventListener('pagehide', () => {
+  if (playback?.ready) report(playback, 'Progress', { keepalive: true }).catch(() => {});
+  if (dvdPlayback) api(`Jigglefin/Dvd/${dvdPlayback.sessionId}`, { method: 'DELETE', accessToken: dvdPlayback.token, keepalive: true }).catch(() => {});
+});
 
 async function showSettings(version = routeVersion) {
   const onboarding = currentRoute()[0] === 'setup';
@@ -616,6 +660,8 @@ on('reload-button', 'click', () => route());
 on('file-search', 'input', () => renderList()); on('file-sort', 'change', () => renderList());
 on('close-details', 'click', () => { ++selectionVersion; selected = null; $('details').hidden = true; renderList(); });
 on('play-button', 'click', () => selectedPlay()); on('restart-button', 'click', () => selectedPlay(true));
+on('dvd-menu-play', 'click', () => playDvdMenu(selected));
+for (const button of $('dvd-controls').querySelectorAll('[data-dvd-command]')) button.addEventListener('click', () => dvdCommand(button.dataset.dvdCommand).catch(error => notice(error.message, true)));
 on('play-next', 'click', () => enqueue(selected, true)); on('add-to-queue', 'click', () => enqueue(selected));
 on('play-from-here', 'click', () => { const items = folderQueue(), index = items.findIndex(item => sameId(item.Id, selected.Id)); if (index < 0) throw new Error('The selected file is not in the displayed order.'); return startQueue(items, { from: index }); });
 on('folder-play', 'click', () => startQueue(folderQueue())); on('folder-shuffle', 'click', () => startQueue(folderQueue(), { shuffled: true }));
@@ -625,7 +671,7 @@ on('open-parent', 'click', () => { location.hash = `#/folder/${selected.ParentId
 on('clear-continue', 'click', () => dismissContinue());
 on('cancel-folder-play', 'click', () => { cancelFolderRequest(); notice('Folder queue cancelled.'); });
 on('stop-button', 'click', async () => { cancelFolderRequest(); clearSleepTimer(); ++playVersion; queue = null; renderQueue(); await stop({ refresh: true }); });
-on('pause-button', 'click', async () => { if (!playback?.ready) return; if (player.paused) await player.play(); else player.pause(); });
+on('pause-button', 'click', async () => { if (dvdPlayback) { await dvdCommand(player.paused ? 'resume' : 'pause'); if (player.paused) await player.play(); else player.pause(); return; } if (!playback?.ready) return; if (player.paused) await player.play(); else player.pause(); });
 on('previous-button', 'click', () => nextTrack(-1)); on('next-button', 'click', () => nextTrack());
 on('repeat-mode', 'change', () => renderQueue());
 on('sleep-mode', 'change', () => armSleepTimer());
@@ -646,6 +692,10 @@ on('subtitle-select', 'change', () => {
   for (const track of player.querySelectorAll('track')) track.track.mode = Number(track.dataset.index) === playback.subtitleIndex ? 'showing' : 'disabled';
 });
 document.addEventListener('keydown', event => {
+  if (dvdPlayback && !event.defaultPrevented && !event.altKey && !event.ctrlKey && !event.metaKey && !(event.target instanceof Element && event.target.closest('input,textarea,select,dialog,[contenteditable]'))) {
+    const command = { ArrowUp: 'up', ArrowDown: 'down', ArrowLeft: 'left', ArrowRight: 'right', Enter: 'select', Escape: 'menu' }[event.key];
+    if (command) { event.preventDefault(); dvdCommand(command).catch(error => notice(error.message, true)); return; }
+  }
   if (!playback?.ready || event.defaultPrevented || event.repeat || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return;
   if (event.target instanceof Element && event.target.closest('input,textarea,select,dialog,[contenteditable],video')) return;
   if (event.code === 'Space' && event.target instanceof Element && event.target.closest('button,a,summary')) return;

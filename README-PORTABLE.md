@@ -53,8 +53,14 @@ The server is derived from [Jellyfin Server](https://github.com/jellyfin/jellyfi
 The folder UI is part of Jigglefin and bundles hls.js 1.6.16 locally (Apache-2.0).
 The bundled [Jellyfin FFmpeg 8.1.2-5](https://github.com/jellyfin/jellyfin-ffmpeg/releases/tag/v8.1.2-5)
 source is available at that tag. GPL and hls.js license files are included.
-DVD-Video ISO title playback uses separate bundled helpers; see
-`DVD-COMPONENTS.md` for licenses and limits. Interactive DVD menus are not yet
-available in standard Jellyfin clients.
+DVD-Video ISO playback offers a resumable title-1 mode in all compatible clients.
+The Jigglefin web UI additionally offers interactive DVD menu mode with arrows,
+Select and Menu. It streams live and does not yet save its menu/title position;
+standard Jellyfin clients cannot send menu commands. See `DVD-COMPONENTS.md`
+for components, licenses and limits.
+On Windows, menu mode needs permission to create a temporary file symlink in
+Jigglefin's private cache (for example, Developer Mode or an elevated account).
+It never creates that link in a media folder. If Windows denies symlink creation,
+resumable title playback remains available through Play.
 See the [Jigglefin repository](https://github.com/stevenAthompson/Jigglefin) and
 `JIGGLEFIN-LIVE-DESIGN.md` for the implementation, verification history and known limits.

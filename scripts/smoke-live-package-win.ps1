@@ -7,10 +7,19 @@ param(
 $ErrorActionPreference = 'Stop'
 $packagePath = (Resolve-Path -LiteralPath $PackageDirectory -ErrorAction Stop).Path
 $repositoryRoot = Split-Path -Parent $PSScriptRoot
-foreach ($name in @('jellyfin.exe', 'Start-Jigglefin.ps1', 'ffmpeg.exe', 'ffprobe.exe', 'dvd-ffmpeg.exe', 'dvd-ffprobe.exe', 'dvdcss-2.dll', 'DVD-COMPONENTS.md', 'DVD-FFMPEG-COPYING.GPLv3', 'DVD-FFMPEG-README.txt', 'LIBDVDCSS-COPYING.GPLv2', 'LIBDVDCSS-SOURCE.tar.xz', 'coreclr.dll', 'JIGGLEFIN-LICENSE', 'HLS-LICENSE', 'jellyfin-web/jigglefin-web.manifest.json')) {
+foreach ($name in @('jellyfin.exe', 'Start-Jigglefin.ps1', 'ffmpeg.exe', 'ffprobe.exe', 'dvd-ffmpeg.exe', 'dvd-ffprobe.exe', 'dvdcss-2.dll', 'Jigglefin.DvdMenuWorker.exe', 'VLC-3.0.24-SOURCE.tar.xz', 'vlc/COPYING.txt', 'vlc/libvlc.dll', 'vlc/libvlccore.dll', 'vlc/plugins/access/libdvdnav_plugin.dll', 'vlc/plugins/access/libdvdread_plugin.dll', 'DVD-COMPONENTS.md', 'DVD-FFMPEG-COPYING.GPLv3', 'DVD-FFMPEG-README.txt', 'LIBDVDCSS-COPYING.GPLv2', 'LIBDVDCSS-SOURCE.tar.xz', 'coreclr.dll', 'JIGGLEFIN-LICENSE', 'HLS-LICENSE', 'jellyfin-web/jigglefin-web.manifest.json')) {
     if (-not (Test-Path -LiteralPath (Join-Path $packagePath $name) -PathType Leaf)) {
         throw "The self-contained offline package is missing $name"
     }
+}
+$vlcAccessNames = @(Get-ChildItem -LiteralPath (Join-Path $packagePath 'vlc/plugins/access') -File | Select-Object -ExpandProperty Name)
+if (@(Compare-Object $vlcAccessNames @('libdvdnav_plugin.dll','libdvdread_plugin.dll','libfilesystem_plugin.dll')).Count -ne 0 -or
+    (Test-Path -LiteralPath (Join-Path $packagePath 'vlc/plugins/services_discovery')) -or
+    (Test-Path -LiteralPath (Join-Path $packagePath 'vlc/plugins/lua'))) {
+    throw 'The portable DVD menu runtime includes an unexpected network/discovery plugin.'
+}
+if ((Get-FileHash -LiteralPath (Join-Path $packagePath 'VLC-3.0.24-SOURCE.tar.xz') -Algorithm SHA256).Hash -ne 'E7CAB503D1D7D5849B89D2CF0E1EE60D0EF6D012407791B644B9CFC0CC225FDF') {
+    throw 'The bundled VLC source archive does not match the verified runtime version.'
 }
 $dvdDemuxers = & (Join-Path $packagePath 'dvd-ffmpeg.exe') -hide_banner -demuxers 2>&1
 if ($LASTEXITCODE -ne 0 -or -not ($dvdDemuxers -match 'dvdvideo')) {

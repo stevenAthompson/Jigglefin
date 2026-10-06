@@ -9,6 +9,7 @@ using System.Text;
 using Emby.Server.Implementations.EntryPoints;
 using Emby.Server.Implementations.Localization;
 using Jellyfin.Api.Middleware;
+using Jellyfin.Api.Helpers;
 using Jellyfin.Database.Implementations;
 using Jellyfin.LiveTv.Extensions;
 using Jellyfin.LiveTv.Recordings;
@@ -74,6 +75,7 @@ namespace Jellyfin.Server
             });
 
             services.AddJellyfinApi(_serverApplicationHost.GetApiPluginAssemblies(), _serverConfigurationManager.GetNetworkConfiguration());
+            services.AddSingleton<DvdMenuSessionManager>();
             services.AddJellyfinDbContext(_serverApplicationHost.ConfigurationManager, _configuration);
             services.AddJellyfinApiSwagger();
 

@@ -45,6 +45,10 @@ jobs:
         shell: pwsh
         run: .\scripts\prepare-dvd-tools-win.ps1 -OutputDirectory (Join-Path $env:RUNNER_TEMP 'jigglefin-dvd')
 
+      - name: Prepare verified local DVD menu runtime
+        shell: pwsh
+        run: .\scripts\prepare-vlc-dvd-win.ps1 -OutputDirectory (Join-Path $env:RUNNER_TEMP 'jigglefin-vlc')
+
       - name: Test
         env:
           JIGGLEFIN_TEST_FFMPEG: ${{ runner.temp }}\jellyfin-ffmpeg\ffmpeg.exe
@@ -74,7 +78,8 @@ jobs:
         run: |
           $ffmpegPath = Join-Path $env:RUNNER_TEMP 'jellyfin-ffmpeg'
           $dvdPath = Join-Path $env:RUNNER_TEMP 'jigglefin-dvd'
-          .\scripts\package-win.ps1 -FfmpegDirectory $ffmpegPath -DvdToolsDirectory $dvdPath
+          $vlcRoot = Join-Path $env:RUNNER_TEMP 'jigglefin-vlc'
+          .\scripts\package-win.ps1 -FfmpegDirectory $ffmpegPath -DvdToolsDirectory $dvdPath -VlcDirectory (Join-Path $vlcRoot 'extract/vlc-3.0.24') -VlcSourceArchive (Join-Path $vlcRoot 'vlc-3.0.24.tar.xz')
 
       - name: Install headless folder UI test
         shell: pwsh

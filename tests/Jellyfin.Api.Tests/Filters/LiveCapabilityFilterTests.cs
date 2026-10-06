@@ -82,6 +82,19 @@ public sealed class LiveCapabilityFilterTests
         _users.VerifyNoOtherCalls();
     }
 
+    [Theory]
+    [InlineData(nameof(DvdMenuController.Start))]
+    [InlineData(nameof(DvdMenuController.Playlist))]
+    [InlineData(nameof(DvdMenuController.Segment))]
+    [InlineData(nameof(DvdMenuController.Command))]
+    [InlineData(nameof(DvdMenuController.Stop))]
+    public void ExplicitDvdMenuRoutes_AreAllowedWithoutOpeningMedia(string method)
+    {
+        Assert.Null(Apply(typeof(DvdMenuController), method));
+        _library.VerifyNoOtherCalls();
+        _users.VerifyNoOtherCalls();
+    }
+
     [Fact]
     public void UnknownCatalogMediaId_IsRejectedWithoutResolvingTheOldCatalog()
     {
