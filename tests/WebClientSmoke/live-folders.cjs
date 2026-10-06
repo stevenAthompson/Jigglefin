@@ -96,13 +96,13 @@ async function packageCliChecks() {
   await assert.rejects(fs.stat(profile), { code: 'ENOENT' });
   console.log('Packaged executable/launcher CLI checks passed without creating a profile.');
 }
-async function stopServer() {
+async function stopServer(requireCleanExit = true) {
   if (!child || child.exitCode !== null) return;
   const process = child; const exited = once(process, 'exit');
   if (token) await api('System/Shutdown', 'POST').catch(() => {});
   await Promise.race([exited, delay(10000)]);
   if (process.exitCode === null) { if (packageDirectory) await verifyPackagedProcess(true); else process.kill(); await exited; }
-  assert.equal(process.exitCode, 0, 'Isolated server/launcher must shut down cleanly.');
+  if (requireCleanExit) assert.equal(process.exitCode, 0, 'Isolated server/launcher must shut down cleanly.');
   child = null;
   if (networkAudit) nativeResults.push(await networkAudit.check(nativeReports.at(-1)));
 }
@@ -141,7 +141,9 @@ async function stopped(page) {
   await page.waitForFunction(() => document.querySelector('#player-panel').hidden && document.querySelector('#stop-button').getAttribute('aria-busy') !== 'true');
 }
 async function main() {
-  fixture = await fs.mkdtemp(path.join(os.tmpdir(), 'jigglefin-folder-web-'));
+  // Windows runners can report a short 8.3 temp path (RUNNER~1), while the
+  // folder picker lists the corresponding long directory name.
+  fixture = await fs.realpath(await fs.mkdtemp(path.join(os.tmpdir(), 'jigglefin-folder-web-')));
   profile = path.join(fixture, 'Server profile');
   console.log('Isolated fixture:', fixture);
   if (packageDirectory) await packageCliChecks();
@@ -591,7 +593,7 @@ main().catch(async error => {
   }
   process.exitCode = 1;
 }).finally(async () => {
-  await browser?.close(); await stopServer();
+  await browser?.close(); await stopServer(successful);
   if (closeNativeTrap) await closeNativeTrap();
   if (successful) {
     await fs.writeFile(path.join(fixture, 'web-smoke-report.json'), JSON.stringify({
