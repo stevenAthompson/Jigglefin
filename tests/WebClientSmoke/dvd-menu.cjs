@@ -34,11 +34,31 @@ async function main() {
     await page.getByRole('link', { name: 'DVD CLI Test' }).click();
     await page.getByText(isoName, { exact: true }).first().click();
     await page.locator('#dvd-menu-play').waitFor({ state: 'visible' });
+    assert.equal(await page.locator('#play-button').isHidden(), true, 'ISO selection must not present title playback as the default Play action.');
+    assert.equal(await page.locator('#dvd-title-play').isVisible(), true, 'Resumable title playback must remain available.');
+    assert.match(await page.locator('#dvd-menu-play').innerText(), /menu/i);
     await page.locator('#dvd-menu-play').click();
     await page.locator('#dvd-controls').waitFor({ state: 'visible', timeout: 90000 });
     await page.waitForFunction(() => { const video = document.querySelector('#player'); return video && video.currentTime > 1 && video.readyState >= 2 && !video.error; }, null, { timeout: 90000 });
+    if (process.env.JIGGLEFIN_TEST_DVD_SCREENSHOT) await page.screenshot({ path: process.env.JIGGLEFIN_TEST_DVD_SCREENSHOT.replace(/\.png$/, '-initial.png') });
+    assert.equal(await page.locator('html').getAttribute('data-player-layout'), 'side');
+    await page.locator('#player-layout').selectOption('focus');
+    assert.equal(await page.locator('#player-panel').evaluate(panel => getComputedStyle(panel).position), 'fixed');
+    await page.locator('#player-layout').selectOption('side');
+    await page.locator('[data-dvd-command="menu"]').click();
+    await page.waitForTimeout(5000);
+    if (process.env.JIGGLEFIN_TEST_DVD_SCREENSHOT) await page.screenshot({ path: process.env.JIGGLEFIN_TEST_DVD_SCREENSHOT.replace(/\.png$/, '-5s.png') });
+    await page.waitForTimeout(10000);
+    if (process.env.JIGGLEFIN_TEST_DVD_SCREENSHOT) await page.screenshot({ path: process.env.JIGGLEFIN_TEST_DVD_SCREENSHOT.replace(/\.png$/, '-15s.png') });
+    await page.waitForTimeout(15000);
+    if (process.env.JIGGLEFIN_TEST_DVD_SCREENSHOT) await page.screenshot({ path: process.env.JIGGLEFIN_TEST_DVD_SCREENSHOT });
     for (const command of ['down', 'select', 'menu']) {
       await page.locator(`[data-dvd-command="${command}"]`).click();
+      if (command !== 'menu') {
+        // The live HLS video trails accepted dvdnav commands by several seconds.
+        await page.waitForTimeout(8000);
+        if (process.env.JIGGLEFIN_TEST_DVD_SCREENSHOT) await page.screenshot({ path: process.env.JIGGLEFIN_TEST_DVD_SCREENSHOT.replace(/\.png$/, `-${command}.png`) });
+      }
     }
     await page.locator('#stop-button').click();
     await page.locator('#player-panel').waitFor({ state: 'hidden' });

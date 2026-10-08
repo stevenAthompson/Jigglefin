@@ -19,11 +19,16 @@ let currentFolder = null, playlistItems = [], playlistVersion = 0, queue = null,
 const maximumQueueItems = 500;
 let folderRequest = null;
 let sleepDeadline = 0, sleepTimeout = null;
+let coverIndex = 0;
 const themeColors = { night: '#131b21', day: '#f4f7f4', contrast: '#000000', dracula: '#282a36', 'perfect-blue': '#080b16', bloom: '#090d16', 'evergarden-winter': '#1e2528', 'evergarden-fall': '#232a2e', 'evergarden-spring': '#2b3438', 'evergarden-summer': '#f5efe6' };
 const themes = new Set(Object.keys(themeColors));
 const backdrops = new Set(['art', 'gradient', 'solid']);
+const playerLayouts = new Set(['side', 'dock', 'focus']);
+const browseViews = new Set(['list', 'coverflow']);
 let theme = themes.has(localStorage.getItem(storageKey + 'theme')) ? localStorage.getItem(storageKey + 'theme') : 'night';
 let backdrop = backdrops.has(localStorage.getItem(storageKey + 'backdrop')) ? localStorage.getItem(storageKey + 'backdrop') : 'art';
+let playerLayout = playerLayouts.has(localStorage.getItem(storageKey + 'player-layout')) ? localStorage.getItem(storageKey + 'player-layout') : 'side';
+let browseView = browseViews.has(localStorage.getItem(storageKey + 'browse-view')) ? localStorage.getItem(storageKey + 'browse-view') : 'list';
 function applyTheme(value) {
   if (!themes.has(value)) return;
   theme = value; document.documentElement.dataset.theme = value;
@@ -37,8 +42,26 @@ function applyBackdrop(value) {
   $('backdrop-select').value = value;
   localStorage.setItem(storageKey + 'backdrop', value);
 }
+function applyPlayerLayout(value) {
+  if (!playerLayouts.has(value)) return;
+  playerLayout = value; document.documentElement.dataset.playerLayout = value;
+  $('player-layout').value = $('player-layout-setting').value = value;
+  localStorage.setItem(storageKey + 'player-layout', value);
+}
+function applyBrowseView(value) {
+  if (!browseViews.has(value)) return;
+  browseView = value; $('browse-view').value = value;
+  localStorage.setItem(storageKey + 'browse-view', value);
+  if (me) renderList();
+}
+function setPlayerVisible(visible) {
+  $('player-panel').hidden = !visible;
+  document.documentElement.dataset.playing = String(visible);
+}
 applyTheme(theme);
 applyBackdrop(backdrop);
+applyPlayerLayout(playerLayout);
+applyBrowseView(browseView);
 const player = $('player');
 player.disableRemotePlayback = true;
 
@@ -157,6 +180,7 @@ function currentRoute() { return location.hash.slice(1).split('/').filter(Boolea
 async function route() {
   if (!me) return;
   const version = ++routeVersion;
+  coverIndex = 0;
   ++selectionVersion; selected = null; $('details').hidden = true;
   const [page, id, focusId] = currentRoute();
   const settingsPage = page === 'settings' || page === 'setup';
@@ -219,12 +243,54 @@ function orderedItems() {
     return order || (sort === 'desc' ? -1 : 1) * a.Name.localeCompare(b.Name, undefined, { numeric: true, sensitivity: 'base' });
   });
 }
+function openItem(item) {
+  if (item.IsFolder) location.hash = `#/folder/${item.Id}`;
+  else if (currentRoute()[0] === 'favorites' && item.ParentId) location.hash = `#/folder/${item.ParentId}/${item.Id}`;
+  else select(item).catch(error => notice(error.message, true));
+}
+function renderCoverflow(items) {
+  coverIndex = Math.max(0, Math.min(coverIndex, items.length - 1));
+  const focused = items[coverIndex];
+  const cards = [];
+  for (let index = Math.max(0, coverIndex - 2); index <= Math.min(items.length - 1, coverIndex + 2); index++) {
+    const item = items[index], offset = index - coverIndex;
+    const card = node('button', undefined, 'coverflow-card'); card.type = 'button'; card.dataset.offset = String(offset);
+    card.setAttribute('aria-label', `${offset ? 'Focus' : item.IsFolder ? 'Open folder' : 'Select file'} ${item.Name}`);
+    card.setAttribute('aria-current', String(offset === 0));
+    const art = node('span', undefined, 'coverflow-art');
+    const fallback = node('span', item.IsFolder ? 'Folder' : kind(item), 'coverflow-placeholder'); art.append(fallback);
+    if (item.ImageTags?.Primary) {
+      const image = document.createElement('img'); image.alt = ''; image.loading = 'lazy';
+      image.src = assetUrl(`Items/${item.Id}/Images/Primary?maxWidth=340&tag=${encodeURIComponent(item.ImageTags.Primary)}`);
+      image.addEventListener('error', () => image.remove()); art.append(image);
+    }
+    card.append(art, node('span', item.Name, 'coverflow-name'));
+    card.addEventListener('click', () => { if (index === coverIndex) openItem(item); else { coverIndex = index; renderCoverflow(items); } });
+    cards.push(card);
+  }
+  $('coverflow-track').replaceChildren(...cards);
+  $('coverflow-position').textContent = focused ? `${coverIndex + 1} of ${items.length} · ${focused.Name}` : 'No entries';
+  $('coverflow-prev').disabled = coverIndex === 0;
+  $('coverflow-next').disabled = coverIndex >= items.length - 1;
+  $('coverflow-open').disabled = !focused;
+  $('coverflow-open').textContent = focused?.IsFolder ? 'Open folder' : 'Select file';
+  $('coverflow-play').hidden = !focused?.IsFolder;
+  $('coverflow-play').disabled = !focused || focused.LocationType === 'Offline';
+  if (focused && !focused.coverChecked && focused.LocationType !== 'Offline') {
+    // Only the focused item gets a local metadata read; adjacent cards stay placeholders.
+    focused.coverChecked = true;
+    api(`Items/${encodeURIComponent(focused.Id)}`).then(details => {
+      focused.ImageTags = details.ImageTags;
+      if (browseView === 'coverflow' && orderedItems()[coverIndex] === focused) renderCoverflow(orderedItems());
+    }).catch(() => {});
+  }
+}
 function renderList() {
   const search = $('file-search').value, items = orderedItems();
   $('play-from-here').disabled = $('folder-play').disabled;
   $('folder-controls').hidden = !currentFolder || !folderQueue().length;
   $('clear-continue').disabled = !currentItems.length;
-  $('file-list').replaceChildren(...items.map(item => {
+  $('file-list').replaceChildren(...(browseView === 'coverflow' ? [] : items).map(item => {
     const button = node('button', undefined, `file-row${item.IsFolder ? ' folder' : ''}`);
     button.setAttribute('aria-label', `${item.IsFolder ? 'Open folder' : 'Select file'} ${item.Name}`);
     button.setAttribute('aria-pressed', String(selected?.Id === item.Id));
@@ -233,7 +299,7 @@ function renderList() {
     const position = item.UserData?.PlaybackPositionTicks || 0;
     label.append(node('span', `${kind(item)}${item.FileSize != null ? ` · ${size(item.FileSize)}` : ''}${item.DateModified ? ` · ${new Date(item.DateModified).toLocaleDateString()}` : ''}${position ? ` · Resume at ${time(position / ticksPerSecond)}` : ''}${item.UserData?.IsFavorite ? ' · Favorite' : ''}`, 'file-extra'));
     button.append(icon, label, node('span', item.IsFolder ? '›' : '···', 'file-arrow'));
-    button.addEventListener('click', () => item.IsFolder ? (location.hash = `#/folder/${item.Id}`) : currentRoute()[0] === 'favorites' && item.ParentId ? (location.hash = `#/folder/${item.ParentId}/${item.Id}`) : select(item).catch(error => notice(error.message, true)));
+    button.addEventListener('click', () => openItem(item));
     const row = node('div', undefined, 'file-entry'); row.setAttribute('role', 'listitem'); row.append(button);
     const actions = node('div', undefined, 'row-actions');
     if (item.IsFolder) {
@@ -256,6 +322,9 @@ function renderList() {
     row.append(actions); return row;
   }));
   $('file-count').textContent = `${items.length} ${items.length === 1 ? 'entry' : 'entries'}`;
+  const showCoverflow = browseView === 'coverflow' && items.length > 0;
+  $('file-list').hidden = showCoverflow; $('coverflow').hidden = !showCoverflow;
+  if (showCoverflow) renderCoverflow(items);
   $('empty-message').hidden = items.length !== 0;
   $('empty-message').textContent = search ? 'No matching filenames in this folder.' : currentRoute()[0] === 'favorites' ? 'No favorites yet. Use a star beside any file or folder to add a shortcut.' : currentRoute()[0] === 'resume' ? 'Nothing unfinished yet. Your place will appear here after playback.' : currentRoute()[0] !== 'folder' ? (me.Policy.IsAdministrator ? 'No folders yet. Add a folder group in Settings.' : 'No folders are available to this account. Ask the administrator for folder access.') : 'This folder is empty.';
 }
@@ -270,10 +339,12 @@ async function select(file) {
   $('detail-overview').textContent = selected.Overview || '';
   const position = selected.UserData?.PlaybackPositionTicks || 0;
   $('detail-progress').textContent = position ? `Saved place: ${time(position / ticksPerSecond)}${selected.RunTimeTicks ? ` of ${time(selected.RunTimeTicks / ticksPerSecond)}` : ''}` : selected.UserData?.Played ? 'Finished' : 'Not started';
-  $('play-button').hidden = !playable(selected) && !isPlaylist(selected); iconButton($('play-button'), 'play', position ? `Resume at ${time(position / ticksPerSecond)}` : 'Play', true);
-  $('dvd-menu-play').hidden = !isDvd(selected);
-  $('play-from-here').hidden = !playable(selected) || !currentFolder;
-  $('play-next').hidden = $('add-to-queue').hidden = !playable(selected) && !isPlaylist(selected);
+  const dvd = isDvd(selected);
+  $('play-button').hidden = dvd || (!playable(selected) && !isPlaylist(selected)); iconButton($('play-button'), 'play', position ? `Resume at ${time(position / ticksPerSecond)}` : 'Play', true);
+  $('dvd-menu-play').hidden = $('dvd-title-play').hidden = $('dvd-note').hidden = !dvd;
+  $('dvd-title-play').textContent = position ? `Resume title at ${time(position / ticksPerSecond)}` : 'Play title without menus';
+  $('play-from-here').hidden = dvd || !playable(selected) || !currentFolder;
+  $('play-next').hidden = $('add-to-queue').hidden = dvd || (!playable(selected) && !isPlaylist(selected));
   $('open-parent').hidden = !selected.ParentId;
   $('restart-button').hidden = !playable(selected) || !position;
   $('unsupported-note').hidden = playable(selected) || isPlaylist(selected) || selected.MediaType === 'Photo' || selected.IsFolder;
@@ -436,14 +507,14 @@ async function stop({ ended = false, refresh = false } = {}) {
   if (dvdPlayback) {
     const dvd = dvdPlayback; dvdPlayback = null;
     player.pause(); dvd.hls?.destroy(); player.removeAttribute('src'); player.load();
-    $('dvd-controls').hidden = true; $('regular-controls').hidden = false; $('queue-details').hidden = false; $('compatible-play-button').hidden = false; $('player-panel').hidden = true;
+    $('dvd-controls').hidden = true; $('regular-controls').hidden = false; $('queue-details').hidden = false; $('compatible-play-button').hidden = false; setPlayerVisible(false);
     await api(`Jigglefin/Dvd/${dvd.sessionId}`, { method: 'DELETE', accessToken: dvd.token }).catch(() => {});
   }
   const context = playback; if (!context) return;
   if (context.ready && Number.isFinite(player.currentTime)) context.position = player.currentTime;
   context.ready = false; playback = null; clearInterval(context.interval);
   if (context.loaded) player.removeEventListener('loadedmetadata', context.loaded);
-  player.pause(); context.hls?.destroy(); player.removeAttribute('src'); player.replaceChildren(); player.load(); $('player-panel').hidden = true;
+  player.pause(); context.hls?.destroy(); player.removeAttribute('src'); player.replaceChildren(); player.load(); setPlayerVisible(false);
   await report(context, 'Stopped', { ended });
   if (refresh && selected?.Id === context.item.Id) await select(selected);
 }
@@ -472,7 +543,10 @@ async function play(file, { fromBeginning = false, compatible = false, position,
   playback = context; $('playing-title').textContent = item.Name; $('play-method').textContent = direct ? 'Direct playback' : 'Compatible playback · local conversion';
   renderQueue(); $('compatible-play-button').textContent = compatible ? 'Direct' : 'Convert';
   $('compatible-play-button').setAttribute('aria-pressed', String(compatible));
-  $('player-panel').hidden = false; $('player-panel').classList.toggle('audio', item.MediaType === 'Audio');
+  setPlayerVisible(true); $('player-panel').classList.toggle('audio', item.MediaType === 'Audio');
+  const playerArt = $('player-art'); playerArt.hidden = item.MediaType !== 'Audio' || !item.ImageTags?.Primary;
+  if (playerArt.hidden) playerArt.removeAttribute('src');
+  else playerArt.src = assetUrl(`Items/${item.Id}/Images/Primary?maxWidth=800&tag=${encodeURIComponent(item.ImageTags.Primary)}`);
   $('save-status').textContent = 'Loading your saved place…';
   player.playbackRate = Number($('playback-rate').value); player.replaceChildren();
   const audios = source.MediaStreams.filter(stream => stream.Type === 'Audio');
@@ -515,9 +589,10 @@ async function playDvdMenu(file) {
   if (version !== playVersion) { await api(`Jigglefin/Dvd/${result.SessionId}`, { method: 'DELETE' }).catch(() => {}); return; }
   const dvd = { sessionId: result.SessionId, token, hls: null }; dvdPlayback = dvd;
   queue = null; renderQueue();
-  $('playing-title').textContent = file.Name; $('play-method').textContent = 'DVD menu · local live stream';
+  $('playing-title').textContent = file.Name; $('play-method').textContent = 'DVD menu · disc intro may play first';
   $('save-status').textContent = 'DVD menu mode does not save a position. Use Play for resumable title playback.';
-  $('dvd-controls').hidden = false; $('player-panel').hidden = false; $('player-panel').classList.remove('audio');
+  $('dvd-controls').hidden = false; setPlayerVisible(true); $('player-panel').classList.remove('audio');
+  $('player-art').hidden = true; $('player-art').removeAttribute('src');
   $('regular-controls').hidden = true;
   $('audio-select-label').hidden = $('subtitle-select-label').hidden = true;
   $('compatible-play-button').hidden = true;
@@ -562,6 +637,7 @@ async function showSettings(version = routeVersion) {
   for (const id of ['account-settings', 'appearance-settings', 'access-settings', 'cache-settings']) $(id).hidden = onboarding;
   $('theme-select').value = theme;
   $('backdrop-select').value = backdrop;
+  $('player-layout-setting').value = playerLayout;
   $('admin-settings').hidden = !me.Policy.IsAdministrator;
   if (!me.Policy.IsAdministrator) return;
   [configuredRoots, accounts] = await Promise.all([api('Library/VirtualFolders'), api('Users')]); if (version !== routeVersion) return;
@@ -656,11 +732,25 @@ on('signout-button', 'click', async () => {
 on('settings-button', 'click', () => { location.hash = '#/settings'; });
 on('theme-select', 'change', () => { applyTheme($('theme-select').value); notice(`${$('theme-select').selectedOptions[0].textContent} theme selected for this browser.`); });
 on('backdrop-select', 'change', () => { applyBackdrop($('backdrop-select').value); notice(`${$('backdrop-select').selectedOptions[0].textContent} background selected for this browser.`); });
+on('player-layout', 'change', () => applyPlayerLayout($('player-layout').value));
+on('player-layout-setting', 'change', () => applyPlayerLayout($('player-layout-setting').value));
 on('reload-button', 'click', () => route());
-on('file-search', 'input', () => renderList()); on('file-sort', 'change', () => renderList());
+on('file-search', 'input', () => { coverIndex = 0; renderList(); }); on('file-sort', 'change', () => { coverIndex = 0; renderList(); });
+on('browse-view', 'change', () => { coverIndex = 0; applyBrowseView($('browse-view').value); });
+on('coverflow-prev', 'click', () => { coverIndex--; renderCoverflow(orderedItems()); });
+on('coverflow-next', 'click', () => { coverIndex++; renderCoverflow(orderedItems()); });
+on('coverflow-open', 'click', () => { const item = orderedItems()[coverIndex]; if (item) openItem(item); });
+on('coverflow-play', 'click', () => { const item = orderedItems()[coverIndex]; if (item?.IsFolder) return playFolderItem(item); });
+$('coverflow').addEventListener('keydown', event => {
+  if (event.key !== 'ArrowLeft' && event.key !== 'ArrowRight') return;
+  event.preventDefault();
+  coverIndex += event.key === 'ArrowLeft' ? -1 : 1;
+  renderCoverflow(orderedItems());
+});
 on('close-details', 'click', () => { ++selectionVersion; selected = null; $('details').hidden = true; renderList(); });
 on('play-button', 'click', () => selectedPlay()); on('restart-button', 'click', () => selectedPlay(true));
 on('dvd-menu-play', 'click', () => playDvdMenu(selected));
+on('dvd-title-play', 'click', () => selectedPlay());
 for (const button of $('dvd-controls').querySelectorAll('[data-dvd-command]')) button.addEventListener('click', () => dvdCommand(button.dataset.dvdCommand).catch(error => notice(error.message, true)));
 on('play-next', 'click', () => enqueue(selected, true)); on('add-to-queue', 'click', () => enqueue(selected));
 on('play-from-here', 'click', () => { const items = folderQueue(), index = items.findIndex(item => sameId(item.Id, selected.Id)); if (index < 0) throw new Error('The selected file is not in the displayed order.'); return startQueue(items, { from: index }); });
@@ -730,6 +820,7 @@ on('user-form', 'submit', async () => {
 on('clear-cache-button', 'click', async () => { await api('Jigglefin/Cache/Clear', { method: 'POST' }); notice('Selection cache cleared. Saved places and favorites are kept.'); });
 window.addEventListener('hashchange', () => route().catch(error => notice(error.message, true)));
 $('detail-art').addEventListener('error', () => { $('detail-art').hidden = true; });
+$('player-art').addEventListener('error', () => { $('player-art').hidden = true; });
 // The stock Android shell calls this hook for its hardware Back button. Its
 // optional catalog/cast/download plugins are not loaded by the folder client.
 if (typeof window.NativeInterface?.exitApp === 'function') {

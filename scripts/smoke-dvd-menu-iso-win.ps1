@@ -86,11 +86,13 @@ try {
     $previousUser = $env:JIGGLEFIN_TEST_USER
     $previousPassword = $env:JIGGLEFIN_TEST_PASSWORD
     $previousIsoName = $env:JIGGLEFIN_TEST_ISO_NAME
+    $previousScreenshot = $env:JIGGLEFIN_TEST_DVD_SCREENSHOT
     try {
         $env:JIGGLEFIN_TEST_BASE_URL = $base
         $env:JIGGLEFIN_TEST_USER = 'DvdMenuSmoke'
         $env:JIGGLEFIN_TEST_PASSWORD = $password
         $env:JIGGLEFIN_TEST_ISO_NAME = [IO.Path]::GetFileName($iso)
+        $env:JIGGLEFIN_TEST_DVD_SCREENSHOT = Join-Path $profile 'dvd-menu-web.png'
         & node (Join-Path (Split-Path -Parent $PSScriptRoot) 'tests/WebClientSmoke/dvd-menu.cjs')
         if ($LASTEXITCODE -ne 0) { throw "Headless DVD menu web test failed with exit code $LASTEXITCODE" }
         $remaining = @(Get-ChildItem -LiteralPath (Join-Path $profile 'cache/dvd-menus') -Directory -ErrorAction SilentlyContinue)
@@ -100,6 +102,7 @@ try {
         $env:JIGGLEFIN_TEST_USER = $previousUser
         $env:JIGGLEFIN_TEST_PASSWORD = $previousPassword
         $env:JIGGLEFIN_TEST_ISO_NAME = $previousIsoName
+        $env:JIGGLEFIN_TEST_DVD_SCREENSHOT = $previousScreenshot
     }
 }
 finally {

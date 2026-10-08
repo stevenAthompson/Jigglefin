@@ -28,6 +28,10 @@ Remove or Clear in Continue hides entries without erasing their saved positions;
 one brings it back. Stop saves automatically. Folder Play/Shuffle and Play from here
 create a queue with pause, next/previous, ±30 seconds and repeat controls. Convert requests
 a browser-friendly stream using local conversion when needed; it may use more CPU.
+Choose List or Coverflow while browsing. Coverflow shows only nearby items and reads
+local cover art for the focused item on demand; it does not build a media catalog. Now Playing can be a
+side-by-side pane, bottom dock, or full-screen Focus view. Choose a layout in Settings
+or while playing. Both choices are saved only in this browser.
 
 Local UTF-8 M3U/M3U8/PLS playlists can supply the default order. Relative child paths and
 duplicate tracks are honored; unlisted files follow. Selecting a playlist and pressing
@@ -55,12 +59,16 @@ The bundled [Jellyfin FFmpeg 8.1.2-5](https://github.com/jellyfin/jellyfin-ffmpe
 source is available at that tag. GPL and hls.js license files are included.
 DVD-Video ISO playback offers a resumable title-1 mode in all compatible clients.
 The Jigglefin web UI additionally offers interactive DVD menu mode with arrows,
-Select and Menu. It streams live and does not yet save its menu/title position;
+Select and Menu. Select an ISO and choose **Open DVD menu** (the primary action).
+The disc's first-play warnings or intro may run before its menu appears; Menu jumps
+there when the disc permits. **Play title** skips the menu and can resume a saved place.
+Menu mode streams live
+and does not yet save its menu/title position;
 standard Jellyfin clients cannot send menu commands. See `DVD-COMPONENTS.md`
 for components, licenses and limits.
 On Windows, menu mode needs permission to create a temporary file symlink in
 Jigglefin's private cache (for example, Developer Mode or an elevated account).
 It never creates that link in a media folder. If Windows denies symlink creation,
-resumable title playback remains available through Play.
+resumable title playback remains available through Play title.
 See the [Jigglefin repository](https://github.com/stevenAthompson/Jigglefin) and
 `JIGGLEFIN-LIVE-DESIGN.md` for the implementation, verification history and known limits.
